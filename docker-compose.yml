@@ -1,0 +1,79 @@
+services:
+  webui:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: sh -c "npm install && npm run dev"
+    working_dir: /app
+    ports:
+      - "${WEBUI_PORT:-3000}:3000"
+    env_file:
+      - .env
+    environment:
+      DATABASE_HOST: mysql
+      OBJECT_STORAGE_ENDPOINT: minio
+      HERMES_WEBCHAT_SERVICE_TOKEN: ${HERMES_WEBCHAT_SERVICE_TOKEN}
+    volumes:
+      - ./:/app
+    depends_on:
+      mysql:
+        condition: service_healthy
+      minio:
+        condition: service_started
+
+  hermes:
+    build:
+      context: ../hermes-agent
+      dockerfile: Dockerfile
+    command: gateway
+    working_dir: /opt/hermes
+    environment:
+      PYTHONUNBUFFERED: "1"
+      TERMINAL_ENV: local
+      TERMINAL_CWD: /workspace
+      WEBCHAT_ENABLED: "true"
+      WEBCHAT_URL: http://webui:3000
+      WEBCHAT_SERVICE_TOKEN: ${HERMES_WEBCHAT_SERVICE_TOKEN}
+    volumes:
+      - ../hermes-agent:/opt/hermes
+      - ../hermes-agent:/workspace
+      - hermes_home:/opt/data
+    depends_on:
+      webui:
+        condition: service_started
+
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    ports:
+      - "${MYSQL_HOST_PORT:-3306}:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${DATABASE_NAME}
+      MYSQL_USER: ${DATABASE_USER}
+      MYSQL_PASSWORD: ${DATABASE_PASSWORD}
+    volumes:
+      - ./mysql/init:/docker-entrypoint-initdb.d
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    ports:
+      - "${MINIO_API_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    volumes:
+      - minio_data:/data
+
+volumes:
+  hermes_home:
+  mysql_data:
+  minio_data:
