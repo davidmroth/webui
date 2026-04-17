@@ -27,6 +27,8 @@ Initial implementation of a browser-first Hermes channel using SvelteKit, MySQL,
 5. Open `http://localhost:3000` by default, or use whatever value you set for `WEBUI_PORT` in `.env`. If you access the dev server through a custom hostname such as `ai.local`, add it to `__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS` in `.env`. The exposed MySQL and MinIO ports are also configurable there.
 6. Sign in with the bootstrap key from `.env`.
 
+The app also runs lightweight database schema migrations on startup so existing MySQL volumes pick up additive changes such as newly required columns.
+
 ## Service contract
 
 Hermes uses the `webchat` adapter to poll:
