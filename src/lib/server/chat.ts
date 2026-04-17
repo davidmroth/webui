@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { execute, pool, query } from './db';
-import type { ChatMessage, ConversationSummary } from '$lib/types';
+import { getConfig } from './env';
+import { getObjectBuffer, uploadObject } from './storage';
+import type { ChatMessage, ConversationSummary, MessageAttachment } from '$lib/types';
 
 interface ConversationRow {
   id: string;
@@ -16,6 +18,15 @@ interface MessageRow {
   status: 'complete' | 'streaming' | 'error';
 }
 
+interface AttachmentRow {
+  id: string;
+  message_id: string;
+  file_name: string;
+  content_type: string;
+  size_bytes: number;
+  storage_key: string;
+}
+
 interface EventRow {
   id: string;
   conversation_id: string;
@@ -29,6 +40,108 @@ interface EventRow {
 
 function toIsoString(value: Date | string): string {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
+}
+
+function mapAttachment(row: AttachmentRow): MessageAttachment {
+  return {
+    id: row.id,
+    fileName: row.file_name,
+    contentType: row.content_type,
+    sizeBytes: row.size_bytes,
+    downloadUrl: `/api/attachments/${row.id}/download`,
+    isImage: row.content_type.startsWith('image/')
+  };
+}
+
+async function listAttachmentsByMessageIds(messageIds: string[]) {
+  if (messageIds.length === 0) {
+    return new Map<string, MessageAttachment[]>();
+  }
+
+  const placeholders = messageIds.map((_, index) => `:message_id_${index}`).join(', ');
+  const params: Record<string, string> = {};
+  messageIds.forEach((messageId, index) => {
+    params[`message_id_${index}`] = messageId;
+  });
+
+  const rows = await query<AttachmentRow>(
+    `SELECT id, message_id, file_name, content_type, size_bytes, storage_key
+     FROM attachments
+     WHERE message_id IN (${placeholders})
+     ORDER BY created_at ASC`,
+    params
+  );
+
+  const grouped = new Map<string, MessageAttachment[]>();
+  for (const row of rows) {
+    const existing = grouped.get(row.message_id) ?? [];
+    existing.push(mapAttachment(row));
+    grouped.set(row.message_id, existing);
+  }
+  return grouped;
+}
+
+async function getConversationOwnerId(conversationId: string): Promise<string | null> {
+  const rows = await query<{ user_id: string }>(
+    'SELECT user_id FROM conversations WHERE id = :id LIMIT 1',
+    { id: conversationId }
+  );
+  return rows[0]?.user_id ?? null;
+}
+
+async function saveAttachmentsForMessage(
+  userId: string,
+  conversationId: string,
+  messageId: string,
+  files: File[]
+) {
+  const config = getConfig();
+  const stored: MessageAttachment[] = [];
+
+  for (const file of files) {
+    if (!file || file.size === 0) {
+      continue;
+    }
+    const buffer = Buffer.from(await file.arrayBuffer());
+    const contentType = file.type || 'application/octet-stream';
+    const fileName = file.name || 'attachment';
+    const uploaded = await uploadObject({
+      conversationId,
+      messageId,
+      fileName,
+      contentType,
+      buffer
+    });
+    const attachmentId = randomUUID();
+    await execute(
+      `INSERT INTO attachments (
+         id, user_id, conversation_id, message_id, storage_bucket, storage_key, file_name, content_type, size_bytes
+       ) VALUES (
+         :id, :user_id, :conversation_id, :message_id, :storage_bucket, :storage_key, :file_name, :content_type, :size_bytes
+       )`,
+      {
+        id: attachmentId,
+        user_id: userId,
+        conversation_id: conversationId,
+        message_id: messageId,
+        storage_bucket: config.objectStorageBucket,
+        storage_key: uploaded.key,
+        file_name: fileName,
+        content_type: contentType,
+        size_bytes: uploaded.sizeBytes
+      }
+    );
+    stored.push({
+      id: attachmentId,
+      fileName,
+      contentType,
+      sizeBytes: uploaded.sizeBytes,
+      downloadUrl: `/api/attachments/${attachmentId}/download`,
+      isImage: contentType.startsWith('image/')
+    });
+  }
+
+  return stored;
 }
 
 export async function listConversations(userId: string): Promise<ConversationSummary[]> {
@@ -66,16 +179,19 @@ export async function listMessages(userId: string, conversationId: string): Prom
     { conversation_id: conversationId, user_id: userId }
   );
 
+  const attachmentsByMessageId = await listAttachmentsByMessageIds(rows.map((row) => row.id));
+
   return rows.map((row) => ({
     id: row.id,
     role: row.role,
     content: row.content,
     createdAt: toIsoString(row.created_at),
-    status: row.status
+    status: row.status,
+    attachments: attachmentsByMessageId.get(row.id) ?? []
   }));
 }
 
-export async function enqueueUserMessage(userId: string, conversationId: string, content: string) {
+export async function enqueueUserMessage(userId: string, conversationId: string, content: string, files: File[] = []) {
   const messageId = randomUUID();
   const eventId = randomUUID();
   await execute(
@@ -83,6 +199,7 @@ export async function enqueueUserMessage(userId: string, conversationId: string,
      VALUES (:id, :conversation_id, 'user', :content, 'browser', 'complete')`,
     { id: messageId, conversation_id: conversationId, content }
   );
+  await saveAttachmentsForMessage(userId, conversationId, messageId, files);
   await execute(
     `INSERT INTO hermes_events (id, user_id, conversation_id, message_id, event_type, status, payload)
      VALUES (:id, :user_id, :conversation_id, :message_id, 'message', 'queued', :payload)`,
@@ -134,6 +251,14 @@ export async function dequeueHermesEvent() {
     );
     await connection.commit();
 
+    const attachments = await query<AttachmentRow>(
+      `SELECT id, message_id, file_name, content_type, size_bytes, storage_key
+       FROM attachments
+       WHERE message_id = :message_id
+       ORDER BY created_at ASC`,
+      { message_id: row.message_id }
+    );
+
     return {
       eventId: row.id,
       conversationId: row.conversation_id,
@@ -142,7 +267,14 @@ export async function dequeueHermesEvent() {
       userName: row.display_name,
       messageId: row.message_id,
       text: row.content,
-      createdAt: toIsoString(row.created_at)
+      createdAt: toIsoString(row.created_at),
+      attachments: attachments.map((attachment) => ({
+        attachmentId: attachment.id,
+        fileName: attachment.file_name,
+        contentType: attachment.content_type,
+        sizeBytes: attachment.size_bytes,
+        internalDownloadUrl: `/api/internal/hermes/attachments/${attachment.id}/download`
+      }))
     };
   } catch (error) {
     await connection.rollback();
@@ -162,6 +294,11 @@ export async function ackHermesEvent(eventId: string) {
 }
 
 export async function storeAssistantMessage(conversationId: string, content: string) {
+  const ownerId = await getConversationOwnerId(conversationId);
+  if (!ownerId) {
+    throw new Error(`Conversation not found: ${conversationId}`);
+  }
+
   const messageId = randomUUID();
   await execute(
     `INSERT INTO messages (id, conversation_id, role, content, source, status)
@@ -172,5 +309,48 @@ export async function storeAssistantMessage(conversationId: string, content: str
     'UPDATE conversations SET updated_at = UTC_TIMESTAMP() WHERE id = :id',
     { id: conversationId }
   );
+
   return messageId;
+}
+
+export async function storeAssistantMessageWithAttachments(
+  conversationId: string,
+  content: string,
+  files: File[] = []
+) {
+  const ownerId = await getConversationOwnerId(conversationId);
+  if (!ownerId) {
+    throw new Error(`Conversation not found: ${conversationId}`);
+  }
+
+  const messageId = await storeAssistantMessage(conversationId, content);
+  await saveAttachmentsForMessage(ownerId, conversationId, messageId, files);
+  return messageId;
+}
+
+export async function getAttachmentForUser(userId: string, attachmentId: string) {
+  const rows = await query<AttachmentRow>(
+    `SELECT attachments.id, attachments.message_id, attachments.file_name, attachments.content_type, attachments.size_bytes, attachments.storage_key
+     FROM attachments
+     INNER JOIN conversations ON conversations.id = attachments.conversation_id
+     WHERE attachments.id = :attachment_id AND conversations.user_id = :user_id
+     LIMIT 1`,
+    { attachment_id: attachmentId, user_id: userId }
+  );
+  return rows[0] ?? null;
+}
+
+export async function getAttachmentForInternal(attachmentId: string) {
+  const rows = await query<AttachmentRow>(
+    `SELECT id, message_id, file_name, content_type, size_bytes, storage_key
+     FROM attachments
+     WHERE id = :attachment_id
+     LIMIT 1`,
+    { attachment_id: attachmentId }
+  );
+  return rows[0] ?? null;
+}
+
+export async function getAttachmentBuffer(storageKey: string) {
+  return getObjectBuffer(storageKey);
 }

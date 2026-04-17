@@ -21,27 +21,6 @@ services:
       minio:
         condition: service_started
 
-  hermes:
-    build:
-      context: ../hermes-agent
-      dockerfile: Dockerfile
-    command: gateway
-    working_dir: /opt/hermes
-    environment:
-      PYTHONUNBUFFERED: "1"
-      TERMINAL_ENV: local
-      TERMINAL_CWD: /workspace
-      WEBCHAT_ENABLED: "true"
-      WEBCHAT_URL: http://webui:3000
-      WEBCHAT_SERVICE_TOKEN: ${HERMES_WEBCHAT_SERVICE_TOKEN}
-    volumes:
-      - ../hermes-agent:/opt/hermes
-      - ../hermes-agent:/workspace
-      - hermes_home:/opt/data
-    depends_on:
-      webui:
-        condition: service_started
-
   mysql:
     image: mysql:8.4
     restart: unless-stopped

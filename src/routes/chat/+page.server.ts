@@ -29,8 +29,11 @@ export const actions = {
     const session = await requireSession(event);
     const formData = await event.request.formData();
     const content = String(formData.get('content') || '').trim();
-    if (!content) {
-      return fail(400, { error: 'Message content is required.' });
+    const files = formData
+      .getAll('attachments')
+      .filter((value): value is File => value instanceof File && value.size > 0);
+    if (!content && files.length === 0) {
+      return fail(400, { error: 'Message content or at least one attachment is required.' });
     }
 
     let conversationId = String(formData.get('conversationId') || '').trim();
@@ -39,7 +42,7 @@ export const actions = {
       conversationId = await createConversation(session.userId, title || 'New conversation');
     }
 
-    await enqueueUserMessage(session.userId, conversationId, content);
+    await enqueueUserMessage(session.userId, conversationId, content, files);
     throw redirect(303, `/chat?conversation=${conversationId}`);
   }
 };

@@ -1,8 +1,56 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import ConversationList from '$components/chat/ConversationList.svelte';
   import MessagePane from '$components/chat/MessagePane.svelte';
+  import type { ChatMessage, ConversationSummary } from '$lib/types';
 
   let { data, form } = $props();
+  let messages = $state<ChatMessage[]>(data.messages);
+  let conversations = $state<ConversationSummary[]>(data.conversations);
+
+  $effect(() => {
+    messages = data.messages;
+    conversations = data.conversations;
+  });
+
+  onMount(() => {
+    if (!data.currentConversationId) {
+      return;
+    }
+
+    let cancelled = false;
+    let refreshing = false;
+
+    const refresh = async () => {
+      if (refreshing || !data.currentConversationId) {
+        return;
+      }
+      refreshing = true;
+      try {
+        const [messagesResponse, conversationsResponse] = await Promise.all([
+          fetch(`/api/conversations/${data.currentConversationId}/messages`),
+          fetch('/api/conversations')
+        ]);
+        if (!messagesResponse.ok || !conversationsResponse.ok) {
+          return;
+        }
+        const messagePayload = await messagesResponse.json();
+        const conversationPayload = await conversationsResponse.json();
+        if (!cancelled) {
+          messages = messagePayload.messages;
+          conversations = conversationPayload.conversations;
+        }
+      } finally {
+        refreshing = false;
+      }
+    };
+
+    const interval = window.setInterval(refresh, 2000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  });
 </script>
 
 <div class="shell">
@@ -19,7 +67,7 @@
         <button class="primary-button" type="submit">New conversation</button>
       </form>
 
-      <ConversationList conversations={data.conversations} currentConversationId={data.currentConversationId} />
+      <ConversationList conversations={conversations} currentConversationId={data.currentConversationId} />
 
       <form method="POST" action="/logout">
         <button class="secondary-button" type="submit">Sign out</button>
@@ -37,14 +85,18 @@
         <div class="pill">Initial vertical slice</div>
       </div>
 
-      <MessagePane messages={data.messages} />
+      <MessagePane messages={messages} />
 
       <div class="composer">
-        <form method="POST" action="?/sendMessage">
+        <form method="POST" action="?/sendMessage" enctype="multipart/form-data">
           <input type="hidden" name="conversationId" value={data.currentConversationId ?? ''} />
           <textarea class="textarea" name="content" placeholder="Write a message to Hermes"></textarea>
+          <label class="file-picker">
+            <span class="secondary-button">Add attachments</span>
+            <input class="visually-hidden" type="file" name="attachments" multiple />
+          </label>
           <div style="display: flex; align-items: center; justify-content: space-between; gap: 1rem;">
-            <div class="muted">Messages are queued in MySQL, then delivered to Hermes through the internal inbox API.</div>
+            <div class="muted">Messages and files are stored in MySQL plus MinIO, then delivered to Hermes through the internal inbox API.</div>
             <button class="primary-button" type="submit">Send</button>
           </div>
           {#if form?.error}

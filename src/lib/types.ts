@@ -4,6 +4,15 @@ export interface SessionUser {
   displayName: string;
 }
 
+export interface MessageAttachment {
+  id: string;
+  fileName: string;
+  contentType: string;
+  sizeBytes: number;
+  downloadUrl: string;
+  isImage: boolean;
+}
+
 export interface ConversationSummary {
   id: string;
   title: string;
@@ -16,4 +25,5 @@ export interface ChatMessage {
   content: string;
   createdAt: string;
   status: 'complete' | 'streaming' | 'error';
+  attachments: MessageAttachment[];
 }

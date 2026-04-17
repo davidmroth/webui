@@ -65,11 +65,15 @@ CREATE TABLE IF NOT EXISTS attachments (
   id CHAR(36) PRIMARY KEY,
   user_id CHAR(36) NOT NULL,
   conversation_id CHAR(36) NULL,
+  message_id CHAR(36) NULL,
   storage_bucket VARCHAR(120) NOT NULL,
   storage_key VARCHAR(255) NOT NULL,
+  file_name VARCHAR(255) NOT NULL,
   content_type VARCHAR(120) NOT NULL,
   size_bytes BIGINT NOT NULL DEFAULT 0,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT fk_attachments_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-  CONSTRAINT fk_attachments_conversation FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE SET NULL
+  CONSTRAINT fk_attachments_conversation FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE SET NULL,
+  CONSTRAINT fk_attachments_message FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE SET NULL,
+  INDEX idx_attachments_message (message_id)
 );
