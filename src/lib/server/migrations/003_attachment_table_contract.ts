@@ -4,12 +4,20 @@ export const migration: Migration = {
   id: '003_attachment_table_contract',
   description: 'Backfill missing attachment metadata columns for upgraded databases',
   up: async () => {
+    if (!(await columnExists('attachments', 'user_id'))) {
+      await execute('ALTER TABLE attachments ADD COLUMN user_id CHAR(36) NULL AFTER id');
+    }
+
     if (!(await columnExists('attachments', 'conversation_id'))) {
       await execute('ALTER TABLE attachments ADD COLUMN conversation_id CHAR(36) NULL AFTER user_id');
     }
 
     if (!(await columnExists('attachments', 'storage_bucket'))) {
       await execute("ALTER TABLE attachments ADD COLUMN storage_bucket VARCHAR(120) NOT NULL DEFAULT '' AFTER message_id");
+    }
+
+    if (!(await columnExists('attachments', 'storage_key'))) {
+      await execute("ALTER TABLE attachments ADD COLUMN storage_key VARCHAR(255) NOT NULL DEFAULT '' AFTER storage_bucket");
     }
 
     if (!(await columnExists('attachments', 'file_name'))) {
@@ -31,6 +39,12 @@ export const migration: Migration = {
     if (!(await foreignKeyExists('attachments', 'fk_attachments_conversation'))) {
       await execute(
         'ALTER TABLE attachments ADD CONSTRAINT fk_attachments_conversation FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE SET NULL'
+      );
+    }
+
+    if (!(await foreignKeyExists('attachments', 'fk_attachments_user'))) {
+      await execute(
+        'ALTER TABLE attachments ADD CONSTRAINT fk_attachments_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE'
       );
     }
   }

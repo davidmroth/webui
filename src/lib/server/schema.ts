@@ -8,6 +8,15 @@ interface SchemaMigrationRow {
   id: string;
 }
 
+interface AppliedMigration {
+  id: string;
+  description: string;
+}
+
+interface MigrationResult {
+  applied: AppliedMigration[];
+}
+
 let schemaReadyPromise: Promise<void> | null = null;
 
 const migrations: Migration[] = [
@@ -16,7 +25,7 @@ const migrations: Migration[] = [
   attachmentTableContractMigration
 ];
 
-async function runSchemaMigrations() {
+export async function runDatabaseMigrations(): Promise<MigrationResult> {
   await execute(`
     CREATE TABLE IF NOT EXISTS schema_migrations (
       id VARCHAR(128) PRIMARY KEY,
@@ -38,6 +47,7 @@ async function runSchemaMigrations() {
 
   const appliedRows = await query<SchemaMigrationRow>('SELECT id FROM schema_migrations');
   const applied = new Set(appliedRows.map((row) => row.id));
+  const appliedNow: AppliedMigration[] = [];
 
   for (const migration of migrations) {
     if (applied.has(migration.id)) {
@@ -49,12 +59,15 @@ async function runSchemaMigrations() {
       id: migration.id,
       description: migration.description
     });
+    appliedNow.push({ id: migration.id, description: migration.description });
   }
+
+  return { applied: appliedNow };
 }
 
 export function ensureDatabaseSchema() {
   if (!schemaReadyPromise) {
-    schemaReadyPromise = runSchemaMigrations().catch((error) => {
+    schemaReadyPromise = runDatabaseMigrations().then(() => undefined).catch((error) => {
       schemaReadyPromise = null;
       throw error;
     });
