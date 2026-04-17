@@ -8,6 +8,17 @@ interface UserRow {
   display_name: string;
 }
 
+interface BootstrapUserRow {
+  id: string;
+  display_name: string;
+}
+
+interface BootstrapKeyRow {
+  id: string;
+  key_hash: string;
+  revoked_at: string | null;
+}
+
 interface SessionRow {
   session_id: string;
   user_id: string;
@@ -20,26 +31,51 @@ function hashValue(value: string): string {
 
 async function ensureBootstrapUser() {
   const config = getConfig();
-  const users = await query<{ count: number }>('SELECT COUNT(*) AS count FROM users');
-  if ((users[0]?.count ?? 0) > 0) {
+  const bootstrapKeyHash = hashValue(config.bootstrapUserKey);
+  const existingUsers = await query<BootstrapUserRow>(
+    'SELECT id, display_name FROM users WHERE user_id = :user_id LIMIT 1',
+    { user_id: 'owner' }
+  );
+
+  let userId = existingUsers[0]?.id;
+  if (!userId) {
+    userId = randomUUID();
+    await execute(
+      'INSERT INTO users (id, user_id, display_name) VALUES (:id, :user_id, :display_name)',
+      { id: userId, user_id: 'owner', display_name: config.bootstrapUserName }
+    );
+  } else if (existingUsers[0].display_name !== config.bootstrapUserName) {
+    await execute('UPDATE users SET display_name = :display_name WHERE id = :id', {
+      id: userId,
+      display_name: config.bootstrapUserName
+    });
+  }
+
+  const existingKeys = await query<BootstrapKeyRow>(
+    `SELECT id, key_hash, revoked_at
+     FROM api_keys
+     WHERE user_id = :user_id AND label = :label
+     ORDER BY created_at ASC
+     LIMIT 1`,
+    { user_id: userId, label: 'Bootstrap key' }
+  );
+
+  if (!existingKeys[0]) {
+    await execute('INSERT INTO api_keys (id, user_id, label, key_hash) VALUES (:id, :user_id, :label, :key_hash)', {
+      id: randomUUID(),
+      user_id: userId,
+      label: 'Bootstrap key',
+      key_hash: bootstrapKeyHash
+    });
     return;
   }
 
-  const userId = randomUUID();
-  const apiKeyId = randomUUID();
-  await execute(
-    'INSERT INTO users (id, user_id, display_name) VALUES (:id, :user_id, :display_name)',
-    { id: userId, user_id: 'owner', display_name: config.bootstrapUserName }
-  );
-  await execute(
-    'INSERT INTO api_keys (id, user_id, label, key_hash) VALUES (:id, :user_id, :label, :key_hash)',
-    {
-      id: apiKeyId,
-      user_id: userId,
-      label: 'Bootstrap key',
-      key_hash: hashValue(config.bootstrapUserKey)
-    }
-  );
+  if (existingKeys[0].key_hash !== bootstrapKeyHash || existingKeys[0].revoked_at !== null) {
+    await execute('UPDATE api_keys SET key_hash = :key_hash, revoked_at = NULL WHERE id = :id', {
+      id: existingKeys[0].id,
+      key_hash: bootstrapKeyHash
+    });
+  }
 }
 
 export async function authenticateApiKey(apiKey: string) {
