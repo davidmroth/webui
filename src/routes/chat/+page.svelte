@@ -1,20 +1,111 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import ConversationList from '$components/chat/ConversationList.svelte';
   import MessagePane from '$components/chat/MessagePane.svelte';
   import type { ChatMessage, ConversationSummary } from '$lib/types';
 
+  type PendingAttachment = {
+    id: string;
+    file: File;
+    previewUrl: string;
+  };
+
   let { data, form } = $props();
+  let currentConversationId = $state<string | null>(null);
   let messages = $state<ChatMessage[]>([]);
   let conversations = $state<ConversationSummary[]>([]);
-  let pendingFiles = $state<Array<{ name: string; size: number; type: string }>>([]);
+  let pendingFiles = $state<PendingAttachment[]>([]);
   let attachmentMenuOpen = $state(false);
-  let attachmentInput: HTMLInputElement | null = null;
+  let searchQuery = $state('');
+  let draftMessage = $state('');
+  let isSending = $state(false);
+  let isRefreshing = $state(false);
+  let copiedMessageId = $state<string | null>(null);
+  let errorMessage = $state<string | null>(null);
+  let isDragActive = $state(false);
+  let composerElement = $state<HTMLTextAreaElement | null>(null);
+  let messageScrollElement = $state<HTMLDivElement | null>(null);
+  let attachmentInput = $state<HTMLInputElement | null>(null);
 
   $effect(() => {
+    currentConversationId = data.currentConversationId;
     messages = data.messages;
     conversations = data.conversations;
   });
+
+  const filteredConversations = $derived.by(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) {
+      return conversations;
+    }
+
+    return conversations.filter((conversation) => conversation.title.toLowerCase().includes(query));
+  });
+
+  function activeConversationTitle() {
+    return conversations.find((conversation) => conversation.id === currentConversationId)?.title ?? 'New chat';
+  }
+
+  function setChatUrl(conversationId: string | null) {
+    const nextUrl = conversationId ? `/chat?conversation=${conversationId}` : '/chat';
+    window.history.pushState({}, '', nextUrl);
+  }
+
+  function focusComposer() {
+    composerElement?.focus();
+  }
+
+  function resetComposerHeight() {
+    if (!composerElement) {
+      return;
+    }
+
+    composerElement.style.height = '0px';
+    composerElement.style.height = `${Math.min(composerElement.scrollHeight, 320)}px`;
+  }
+
+  function autoResizeComposer() {
+    resetComposerHeight();
+  }
+
+  function createPendingAttachment(file: File): PendingAttachment {
+    return {
+      id: crypto.randomUUID(),
+      file,
+      previewUrl: URL.createObjectURL(file)
+    };
+  }
+
+  function revokePendingFiles(files: PendingAttachment[]) {
+    for (const pendingFile of files) {
+      URL.revokeObjectURL(pendingFile.previewUrl);
+    }
+  }
+
+  function appendFiles(files: File[]) {
+    if (files.length === 0) {
+      return;
+    }
+
+    pendingFiles = [...pendingFiles, ...files.map(createPendingAttachment)];
+    errorMessage = null;
+  }
+
+  function clearPendingFiles() {
+    revokePendingFiles(pendingFiles);
+    pendingFiles = [];
+    if (attachmentInput) {
+      attachmentInput.value = '';
+    }
+  }
+
+  function removePendingFile(fileId: string) {
+    const match = pendingFiles.find((file) => file.id === fileId);
+    if (match) {
+      URL.revokeObjectURL(match.previewUrl);
+    }
+    pendingFiles = pendingFiles.filter((file) => file.id !== fileId);
+  }
 
   function openAttachmentPicker(accept: string) {
     if (!attachmentInput) {
@@ -29,11 +120,8 @@
   function handleAttachmentChange(event: Event) {
     const input = event.currentTarget as HTMLInputElement;
     const files = Array.from(input.files ?? []);
-    pendingFiles = files.map((file) => ({
-      name: file.name,
-      size: file.size,
-      type: file.type || 'application/octet-stream'
-    }));
+    appendFiles(files);
+    input.value = '';
   }
 
   function formatFileSize(bytes: number) {
@@ -41,46 +129,246 @@
     return `${kilobytes} KB`;
   }
 
-  function activeConversationTitle() {
-    return conversations.find((conversation) => conversation.id === data.currentConversationId)?.title ?? 'New chat';
-  }
-
-  onMount(() => {
-    if (!data.currentConversationId) {
+  async function refreshConversations() {
+    const response = await fetch('/api/conversations');
+    if (!response.ok) {
       return;
     }
 
-    let cancelled = false;
-    let refreshing = false;
+    const payload = await response.json();
+    conversations = payload.conversations;
+  }
 
+  async function loadMessages(conversationId: string | null) {
+    if (!conversationId) {
+      messages = [];
+      return;
+    }
+
+    const response = await fetch(`/api/conversations/${conversationId}/messages`);
+    if (!response.ok) {
+      return;
+    }
+
+    const payload = await response.json();
+    messages = payload.messages;
+    await tick();
+    if (messageScrollElement) {
+      messageScrollElement.scrollTop = messageScrollElement.scrollHeight;
+    }
+  }
+
+  async function selectConversation(conversationId: string) {
+    if (conversationId === currentConversationId) {
+      return;
+    }
+
+    currentConversationId = conversationId;
+    errorMessage = null;
+    setChatUrl(conversationId);
+    await loadMessages(conversationId);
+    focusComposer();
+  }
+
+  function startNewChat() {
+    currentConversationId = null;
+    messages = [];
+    draftMessage = '';
+    clearPendingFiles();
+    errorMessage = null;
+    setChatUrl(null);
+    tick().then(() => {
+      resetComposerHeight();
+      focusComposer();
+    });
+  }
+
+  async function copyMessage(message: ChatMessage) {
+    try {
+      await navigator.clipboard.writeText(message.content);
+      copiedMessageId = message.id;
+      window.setTimeout(() => {
+        if (copiedMessageId === message.id) {
+          copiedMessageId = null;
+        }
+      }, 1200);
+    } catch {
+      errorMessage = 'Copy is not available in this browser context.';
+    }
+  }
+
+  async function sendMessage() {
+    const text = draftMessage.trim();
+    if (!text && pendingFiles.length === 0) {
+      errorMessage = 'Message content or at least one attachment is required.';
+      return;
+    }
+
+    isSending = true;
+    errorMessage = null;
+
+    const optimisticAttachments = pendingFiles.map((pendingFile) => ({
+      id: pendingFile.id,
+      fileName: pendingFile.file.name,
+      contentType: pendingFile.file.type || 'application/octet-stream',
+      sizeBytes: pendingFile.file.size,
+      downloadUrl: pendingFile.previewUrl,
+      isImage: pendingFile.file.type.startsWith('image/')
+    }));
+
+    const optimisticMessage: ChatMessage = {
+      id: `pending-${crypto.randomUUID()}`,
+      role: 'user',
+      content: draftMessage,
+      createdAt: new Date().toISOString(),
+      status: 'complete',
+      attachments: optimisticAttachments
+    };
+
+    messages = [...messages, optimisticMessage];
+    await tick();
+    if (messageScrollElement) {
+      messageScrollElement.scrollTop = messageScrollElement.scrollHeight;
+    }
+
+    const filesToSend = [...pendingFiles];
+    const originalDraft = draftMessage;
+
+    draftMessage = '';
+    pendingFiles = [];
+    if (attachmentInput) {
+      attachmentInput.value = '';
+    }
+    await tick();
+    resetComposerHeight();
+
+    try {
+      let conversationId = currentConversationId;
+      if (!conversationId) {
+        const conversationResponse = await fetch('/api/conversations', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ title: text.slice(0, 48) || 'New conversation' })
+        });
+
+        if (!conversationResponse.ok) {
+          throw new Error('Unable to create conversation.');
+        }
+
+        const conversationPayload = await conversationResponse.json();
+        conversationId = conversationPayload.conversationId;
+        currentConversationId = conversationId;
+        setChatUrl(conversationId);
+      }
+
+      const formData = new FormData();
+      formData.set('content', originalDraft);
+      for (const pendingFile of filesToSend) {
+        formData.append('attachments', pendingFile.file);
+      }
+
+      const response = await fetch(`/api/conversations/${conversationId}/messages`, {
+        method: 'POST',
+        body: formData
+      });
+
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.error || 'Unable to send message.');
+      }
+
+      await refreshConversations();
+      await loadMessages(conversationId);
+      revokePendingFiles(filesToSend);
+      focusComposer();
+    } catch (error) {
+      messages = messages.filter((message) => message.id !== optimisticMessage.id);
+      draftMessage = originalDraft;
+      pendingFiles = filesToSend;
+      errorMessage = error instanceof Error ? error.message : 'Unable to send message.';
+      await tick();
+      resetComposerHeight();
+    } finally {
+      isSending = false;
+    }
+  }
+
+  function handleSubmit(event: SubmitEvent) {
+    event.preventDefault();
+    void sendMessage();
+  }
+
+  function handleComposerKeydown(event: KeyboardEvent) {
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault();
+      if (!isSending) {
+        sendMessage();
+      }
+    }
+  }
+
+  function handleComposerPaste(event: ClipboardEvent) {
+    const files = Array.from(event.clipboardData?.files ?? []);
+    if (files.length > 0) {
+      event.preventDefault();
+      appendFiles(files);
+    }
+  }
+
+  function handleDragOver(event: DragEvent) {
+    event.preventDefault();
+    isDragActive = true;
+  }
+
+  function handleDragLeave(event: DragEvent) {
+    event.preventDefault();
+    isDragActive = false;
+  }
+
+  function handleDrop(event: DragEvent) {
+    event.preventDefault();
+    isDragActive = false;
+    appendFiles(Array.from(event.dataTransfer?.files ?? []));
+  }
+
+  onMount(() => {
     const refresh = async () => {
-      if (refreshing || !data.currentConversationId) {
+      if (isRefreshing) {
         return;
       }
-      refreshing = true;
+
+      isRefreshing = true;
       try {
-        const [messagesResponse, conversationsResponse] = await Promise.all([
-          fetch(`/api/conversations/${data.currentConversationId}/messages`),
-          fetch('/api/conversations')
-        ]);
-        if (!messagesResponse.ok || !conversationsResponse.ok) {
-          return;
+        const tasks = [refreshConversations()];
+        if (currentConversationId) {
+          tasks.push(loadMessages(currentConversationId));
         }
-        const messagePayload = await messagesResponse.json();
-        const conversationPayload = await conversationsResponse.json();
-        if (!cancelled) {
-          messages = messagePayload.messages;
-          conversations = conversationPayload.conversations;
-        }
+        await Promise.all(tasks);
       } finally {
-        refreshing = false;
+        isRefreshing = false;
       }
     };
 
+    const handlePopState = async () => {
+      const url = new URL(window.location.href);
+      currentConversationId = url.searchParams.get('conversation');
+      await loadMessages(currentConversationId);
+    };
+
+    tick().then(() => {
+      resetComposerHeight();
+      focusComposer();
+    });
+
     const interval = window.setInterval(refresh, 2000);
+    window.addEventListener('popstate', handlePopState);
+
     return () => {
-      cancelled = true;
       window.clearInterval(interval);
+      window.removeEventListener('popstate', handlePopState);
+      clearPendingFiles();
     };
   });
 </script>
@@ -91,17 +379,15 @@
       <div class="llama-brand">llama.cpp</div>
 
       <div class="llama-nav">
-        <form method="POST" action="?/createConversation">
-          <button class="llama-nav-item" type="submit">
-            <span class="llama-nav-icon">✎</span>
-            <span>New chat</span>
-          </button>
-        </form>
+        <button class="llama-nav-item" type="button" onclick={startNewChat}>
+          <span class="llama-nav-icon">✎</span>
+          <span>New chat</span>
+        </button>
 
-        <div class="llama-nav-item disabled" aria-disabled="true">
+        <label class="llama-search-input">
           <span class="llama-nav-icon">⌕</span>
-          <span>Search</span>
-        </div>
+          <input bind:value={searchQuery} placeholder="Search" />
+        </label>
 
         <div class="llama-nav-item disabled" aria-disabled="true">
           <span class="llama-nav-icon">⛓</span>
@@ -110,7 +396,11 @@
       </div>
 
       <div class="llama-sidebar-section-title">Conversations</div>
-      <ConversationList conversations={conversations} currentConversationId={data.currentConversationId} />
+      <ConversationList
+        conversations={filteredConversations}
+        currentConversationId={currentConversationId}
+        onSelect={selectConversation}
+      />
 
       <div class="llama-sidebar-footer">
         <div class="llama-user-card">
@@ -143,33 +433,58 @@
       </div>
 
       <div class="llama-chat-stage">
-        {#if messages.length === 0}
-          <div class="llama-empty-state">
-            <h1>llama.cpp</h1>
-            <p>Type a message or upload files to get started.</p>
-          </div>
-        {:else}
-          <MessagePane messages={messages} />
-        {/if}
+        <div
+          class="llama-stage-scroll"
+          role="region"
+          aria-label="Chat conversation"
+          ondragover={handleDragOver}
+          ondragleave={handleDragLeave}
+          ondrop={handleDrop}
+        >
+          {#if messages.length === 0}
+            <div class="llama-empty-state">
+              <h1>llama.cpp</h1>
+              <p>Type a message or upload files to get started.</p>
+            </div>
+          {:else}
+            <MessagePane
+              bind:scrollContainer={messageScrollElement}
+              messages={messages}
+              copiedMessageId={copiedMessageId}
+              onCopy={copyMessage}
+            />
+          {/if}
+
+          {#if isDragActive}
+            <div class="llama-drag-overlay">Drop files to attach them</div>
+          {/if}
+        </div>
 
         <div class="llama-composer-wrap">
           <div class="llama-composer-shell">
-            <form method="POST" action="?/sendMessage" enctype="multipart/form-data" class="llama-composer-form">
-              <input type="hidden" name="conversationId" value={data.currentConversationId ?? ''} />
+            <form class="llama-composer-form" onsubmit={handleSubmit}>
+              <input type="hidden" name="conversationId" value={currentConversationId ?? ''} />
 
               <div class="llama-composer">
                 <textarea
+                  bind:this={composerElement}
                   class="llama-textarea"
-                  name="content"
+                  bind:value={draftMessage}
                   placeholder="Type a message..."
+                  oninput={autoResizeComposer}
+                  onkeydown={handleComposerKeydown}
+                  onpaste={handleComposerPaste}
                 ></textarea>
 
                 {#if pendingFiles.length > 0}
                   <div class="pending-files">
                     {#each pendingFiles as file}
                       <div class="pending-file-pill">
-                        <span>{file.name}</span>
-                        <span>{formatFileSize(file.size)}</span>
+                        <span>{file.file.name}</span>
+                        <span>{formatFileSize(file.file.size)}</span>
+                        <button type="button" class="pending-file-remove" onclick={() => removePendingFile(file.id)}>
+                          ×
+                        </button>
                       </div>
                     {/each}
                   </div>
@@ -235,7 +550,6 @@
                       bind:this={attachmentInput}
                       class="visually-hidden"
                       type="file"
-                      name="attachments"
                       multiple
                       onchange={handleAttachmentChange}
                     />
@@ -254,15 +568,17 @@
                       <span class="chip-icon">⚙</span>
                       <span>Model controls unavailable</span>
                     </div>
-                    <button class="send-button" type="submit" aria-label="Send message">↑</button>
+                    <button class="send-button" type="submit" aria-label="Send message" disabled={isSending}>
+                      {#if isSending}■{:else}↑{/if}
+                    </button>
                   </div>
                 </div>
               </div>
 
-              <div class="llama-footnote">Press Enter to send is not wired yet. Shift + Enter still adds a new line.</div>
+              <div class="llama-footnote">Press Enter to send, Shift + Enter for new line.</div>
 
-              {#if form?.error}
-                <div class="error-banner">{form.error}</div>
+              {#if errorMessage || form?.error}
+                <div class="error-banner">{errorMessage ?? form?.error}</div>
               {/if}
             </form>
           </div>

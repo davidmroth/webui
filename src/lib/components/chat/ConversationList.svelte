@@ -4,9 +4,10 @@
   interface Props {
     conversations: ConversationSummary[];
     currentConversationId: string | null;
+    onSelect?: (conversationId: string) => void;
   }
 
-  let { conversations, currentConversationId }: Props = $props();
+  let { conversations, currentConversationId, onSelect }: Props = $props();
 </script>
 
 <div class="llama-conversation-list">
@@ -16,10 +17,11 @@
     </div>
   {:else}
     {#each conversations as conversation}
-      <a
+      <button
+        type="button"
         class:active={conversation.id === currentConversationId}
         class="llama-conversation-link"
-        href={`/chat?conversation=${conversation.id}`}
+        onclick={() => onSelect?.(conversation.id)}
       >
         <div class="llama-conversation-title">{conversation.title}</div>
         <div class="llama-conversation-meta">
@@ -27,7 +29,7 @@
           ·
           {new Date(conversation.updatedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
         </div>
-      </a>
+      </button>
     {/each}
   {/if}
 </div>

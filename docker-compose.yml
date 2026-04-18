@@ -11,6 +11,7 @@ services:
       - .env
     environment:
       DATABASE_HOST: mysql
+      DATABASE_PORT: 3306
       OBJECT_STORAGE_ENDPOINT: minio
       HERMES_WEBCHAT_SERVICE_TOKEN: ${HERMES_WEBCHAT_SERVICE_TOKEN}
     volumes:
