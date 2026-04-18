@@ -761,8 +761,38 @@ a {
 }
 
 .llama-composer-shell {
+  position: relative;
   width: min(600px, 100%);
   margin: 0 auto;
+}
+
+.llama-jump-to-bottom {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  border: 1px solid rgba(29, 29, 24, 0.12);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.94);
+  color: var(--text);
+  box-shadow: 0 14px 30px rgba(29, 29, 24, 0.12);
+  transform: translate(-50%, calc(-100% - 0.45rem));
+  backdrop-filter: blur(14px);
+}
+
+.llama-jump-to-bottom:hover {
+  background: white;
+  border-color: rgba(29, 29, 24, 0.18);
+}
+
+.llama-jump-to-bottom:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .llama-composer-form {
@@ -1216,6 +1246,12 @@ a {
 @media (max-width: 640px) {
   .llama-sidebar {
     padding: 0.9rem 0.75rem;
+  }
+
+  .llama-jump-to-bottom {
+    width: 2.5rem;
+    height: 2.5rem;
+    transform: translate(-50%, calc(-100% - 0.3rem));
   }
 
   .llama-composer-wrap {

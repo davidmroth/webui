@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
   import {
+    ArrowDown,
     ArrowUp,
     Database,
     File as FileIcon,
@@ -61,6 +62,8 @@
 
     return conversations.filter((conversation) => conversation.title.toLowerCase().includes(query));
   });
+
+  const showJumpToBottom = $derived(messages.length > 0 && !shouldAutoScroll);
 
   function activeConversationTitle() {
     return conversations.find((conversation) => conversation.id === currentConversationId)?.title ?? 'New chat';
@@ -539,6 +542,18 @@
 
         <div class="llama-composer-wrap">
           <div class="llama-composer-shell">
+            {#if showJumpToBottom}
+              <button
+                class="llama-jump-to-bottom"
+                type="button"
+                aria-label="Jump to latest message"
+                title="Jump to latest message"
+                onclick={() => scrollMessagesToBottom('smooth')}
+              >
+                <ArrowDown class="h-4 w-4" />
+              </button>
+            {/if}
+
             <form class="llama-composer-form" onsubmit={handleSubmit}>
               <input type="hidden" name="conversationId" value={currentConversationId ?? ''} />
 
