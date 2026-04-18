@@ -1,9 +1,8 @@
 <script lang="ts">
-  import { onMount, tick, untrack } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import {
     ArrowDown,
     ArrowUp,
-    Database,
     File as FileIcon,
     FileText,
     Image,
@@ -13,7 +12,6 @@
     PlugZap,
     Search,
     Settings2,
-    Sparkles,
     Square,
     SquarePen
   } from '@lucide/svelte';
@@ -60,16 +58,6 @@
     currentConversationId = data.currentConversationId;
     messages = data.messages;
     conversations = data.conversations;
-    if (data.currentConversationId) {
-      const conversationId = data.currentConversationId;
-      const busy = Boolean(data.assistantBusy);
-      untrack(() => {
-        serverAssistantBusyByConversation = {
-          ...serverAssistantBusyByConversation,
-          [conversationId]: busy
-        };
-      });
-    }
   });
 
   const filteredConversations = $derived.by(() => {
@@ -96,7 +84,10 @@
 
   const isAssistantBusy = $derived(
     displayMessages.some((message) => message.role === 'assistant' && message.status === 'streaming') ||
-      (currentConversationId ? serverAssistantBusyByConversation[currentConversationId] === true : false)
+      (currentConversationId
+        ? serverAssistantBusyByConversation[currentConversationId] ??
+          (currentConversationId === data.currentConversationId ? Boolean(data.assistantBusy) : false)
+        : false)
   );
 
   const showJumpToBottom = $derived(displayMessages.length > 0 && !shouldAutoScroll);
@@ -764,18 +755,6 @@
                         <span>Assistant busy</span>
                       </div>
                     {/if}
-                    <div class="llama-chip">
-                      <span class="chip-icon"><Sparkles class="h-3.5 w-3.5" /></span>
-                      <span>Hermes queue</span>
-                    </div>
-                    <div class="llama-chip">
-                      <span class="chip-icon"><Database class="h-3.5 w-3.5" /></span>
-                      <span>Server stored</span>
-                    </div>
-                    <div class="llama-chip disabled">
-                      <span class="chip-icon"><Settings2 class="h-3.5 w-3.5" /></span>
-                      <span>Model controls unavailable</span>
-                    </div>
                     <button class="send-button" type="submit" aria-label="Send message" disabled={isSending}>
                       {#if isSending}
                         <Square class="h-3.5 w-3.5" />
