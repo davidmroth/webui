@@ -27,11 +27,18 @@
     previewUrl: string;
   };
 
+  type PendingAssistantState = {
+    conversationId: string;
+    userMessageId: string;
+    placeholderId: string;
+  };
+
   let { data, form } = $props();
   let currentConversationId = $state<string | null>(null);
   let messages = $state<ChatMessage[]>([]);
   let conversations = $state<ConversationSummary[]>([]);
   let pendingFiles = $state<PendingAttachment[]>([]);
+  let pendingAssistantByConversation = $state<Record<string, PendingAssistantState>>({});
   let attachmentMenuOpen = $state(false);
   let searchQuery = $state('');
   let draftMessage = $state('');
@@ -63,7 +70,24 @@
     return conversations.filter((conversation) => conversation.title.toLowerCase().includes(query));
   });
 
-  const showJumpToBottom = $derived(messages.length > 0 && !shouldAutoScroll);
+  const displayMessages = $derived.by(() => {
+    const pendingAssistant = currentConversationId ? pendingAssistantByConversation[currentConversationId] : null;
+    if (!pendingAssistant) {
+      return messages;
+    }
+
+    if (messages.some((message) => message.id === pendingAssistant.placeholderId)) {
+      return messages;
+    }
+
+    return [...messages, createPendingAssistantMessage(pendingAssistant.placeholderId)];
+  });
+
+  const isAssistantBusy = $derived(
+    displayMessages.some((message) => message.role === 'assistant' && message.status === 'streaming')
+  );
+
+  const showJumpToBottom = $derived(displayMessages.length > 0 && !shouldAutoScroll);
 
   function activeConversationTitle() {
     return conversations.find((conversation) => conversation.id === currentConversationId)?.title ?? 'New chat';
@@ -85,6 +109,7 @@
   }
 
   async function scrollMessagesToBottom(behavior: ScrollBehavior = 'auto') {
+    shouldAutoScroll = true;
     await tick();
     if (!messageScrollElement) {
       return;
@@ -94,7 +119,6 @@
       top: messageScrollElement.scrollHeight,
       behavior
     });
-    shouldAutoScroll = true;
   }
 
   function setChatUrl(conversationId: string | null) {
@@ -142,6 +166,55 @@
       file,
       previewUrl: URL.createObjectURL(file)
     };
+  }
+
+  function createPendingAssistantMessage(id: string): ChatMessage {
+    return {
+      id,
+      role: 'assistant',
+      content: '',
+      createdAt: new Date().toISOString(),
+      status: 'streaming',
+      attachments: []
+    };
+  }
+
+  function setPendingAssistant(conversationId: string, userMessageId: string, placeholderId: string) {
+    pendingAssistantByConversation = {
+      ...pendingAssistantByConversation,
+      [conversationId]: {
+        conversationId,
+        userMessageId,
+        placeholderId
+      }
+    };
+  }
+
+  function clearPendingAssistant(conversationId: string) {
+    if (!pendingAssistantByConversation[conversationId]) {
+      return;
+    }
+
+    const nextPending = { ...pendingAssistantByConversation };
+    delete nextPending[conversationId];
+    pendingAssistantByConversation = nextPending;
+  }
+
+  function syncPendingAssistant(conversationId: string, nextMessages: ChatMessage[]) {
+    const pendingAssistant = pendingAssistantByConversation[conversationId];
+    if (!pendingAssistant) {
+      return;
+    }
+
+    const userIndex = nextMessages.findIndex((message) => message.id === pendingAssistant.userMessageId);
+    if (userIndex === -1) {
+      return;
+    }
+
+    const hasAssistantReply = nextMessages.slice(userIndex + 1).some((message) => message.role === 'assistant');
+    if (hasAssistantReply) {
+      clearPendingAssistant(conversationId);
+    }
   }
 
   function revokePendingFiles(files: PendingAttachment[]) {
@@ -209,7 +282,7 @@
 
   async function loadMessages(conversationId: string | null, options: { forceScroll?: boolean } = {}) {
     const previousScrollTop = messageScrollElement?.scrollTop ?? 0;
-    const shouldStickToBottom = options.forceScroll ?? isNearBottom();
+    const shouldStickToBottom = options.forceScroll ?? (shouldAutoScroll || isNearBottom());
 
     if (!conversationId) {
       messages = [];
@@ -222,6 +295,7 @@
     }
 
     const payload = await response.json();
+    syncPendingAssistant(conversationId, payload.messages);
     messages = payload.messages;
     await tick();
     if (messageScrollElement) {
@@ -302,11 +376,14 @@
       attachments: optimisticAttachments
     };
 
-    messages = [...messages, optimisticMessage];
+    const optimisticAssistantMessage = createPendingAssistantMessage(createClientId('pending-assistant-'));
+
+    messages = [...messages, optimisticMessage, optimisticAssistantMessage];
     await scrollMessagesToBottom();
 
     const filesToSend = [...pendingFiles];
     const originalDraft = draftMessage;
+    let conversationId = currentConversationId;
 
     draftMessage = '';
     pendingFiles = [];
@@ -317,7 +394,6 @@
     resetComposerHeight();
 
     try {
-      let conversationId = currentConversationId;
       if (!conversationId) {
         const conversationResponse = await fetch('/api/conversations', {
           method: 'POST',
@@ -337,6 +413,12 @@
         setChatUrl(conversationId);
       }
 
+      if (!conversationId) {
+        throw new Error('Unable to resolve conversation.');
+      }
+
+      setPendingAssistant(conversationId, optimisticMessage.id, optimisticAssistantMessage.id);
+
       const formData = new FormData();
       formData.set('content', originalDraft);
       for (const pendingFile of filesToSend) {
@@ -353,12 +435,20 @@
         throw new Error(payload.error || 'Unable to send message.');
       }
 
+      const payload = await response.json();
+      setPendingAssistant(conversationId, payload.messageId, optimisticAssistantMessage.id);
+
       await refreshConversations();
       await loadMessages(conversationId, { forceScroll: true });
       revokePendingFiles(filesToSend);
       focusComposer();
     } catch (error) {
-      messages = messages.filter((message) => message.id !== optimisticMessage.id);
+      messages = messages.filter(
+        (message) => message.id !== optimisticMessage.id && message.id !== optimisticAssistantMessage.id
+      );
+      if (conversationId) {
+        clearPendingAssistant(conversationId);
+      }
       draftMessage = originalDraft;
       pendingFiles = filesToSend;
       errorMessage = error instanceof Error ? error.message : 'Unable to send message.';
@@ -520,7 +610,7 @@
           ondragleave={handleDragLeave}
           ondrop={handleDrop}
         >
-          {#if messages.length === 0}
+          {#if displayMessages.length === 0}
             <div class="llama-empty-state">
               <h1>llama.cpp</h1>
               <p>Type a message or upload files to get started.</p>
@@ -528,7 +618,7 @@
           {:else}
             <MessagePane
               bind:scrollContainer={messageScrollElement}
-              messages={messages}
+              messages={displayMessages}
               copiedMessageId={copiedMessageId}
               onCopy={copyMessage}
               onScroll={handleMessageScroll}
@@ -648,6 +738,16 @@
                   </div>
 
                   <div class="llama-status-chips">
+                    {#if isAssistantBusy}
+                      <div class="llama-chip busy" role="status" aria-live="polite">
+                        <span class="chip-loader" aria-hidden="true">
+                          <span></span>
+                          <span></span>
+                          <span></span>
+                        </span>
+                        <span>Assistant busy</span>
+                      </div>
+                    {/if}
                     <div class="llama-chip">
                       <span class="chip-icon"><Sparkles class="h-3.5 w-3.5" /></span>
                       <span>Hermes queue</span>

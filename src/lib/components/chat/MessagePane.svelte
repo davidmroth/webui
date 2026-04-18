@@ -55,6 +55,14 @@
     return role === 'assistant' ? 'Assistant' : role === 'system' ? 'System' : 'You';
   }
 
+  function hasVisibleContent(message: ChatMessage) {
+    return message.content.trim().length > 0;
+  }
+
+  function isStreamingAssistant(message: ChatMessage) {
+    return message.role === 'assistant' && message.status === 'streaming';
+  }
+
   function estimateTokenCount(content: string) {
     const normalized = content.trim();
     if (!normalized) {
@@ -146,7 +154,16 @@
               {new Date(message.createdAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
             </div>
           </div>
-          {#if message.content}
+          {#if isStreamingAssistant(message) && !hasVisibleContent(message)}
+            <div class="assistant-typing-indicator" role="status" aria-live="polite" aria-label="Assistant is typing">
+              <span class="assistant-typing-bubble" aria-hidden="true">
+                <span class="assistant-typing-dot"></span>
+                <span class="assistant-typing-dot"></span>
+                <span class="assistant-typing-dot"></span>
+              </span>
+              <span class="assistant-typing-label">Thinking through the reply</span>
+            </div>
+          {:else if message.content}
             {#if message.role === 'assistant'}
               <div class="llama-message-body markdown-content">{@html renderMarkdown(message.content)}</div>
             {:else}
@@ -177,7 +194,12 @@
               {/each}
             </div>
           {/if}
-          {#if message.status !== 'complete'}
+          {#if isStreamingAssistant(message) && hasVisibleContent(message)}
+            <div class="assistant-stream-status" role="status" aria-live="polite">
+              <span class="assistant-stream-pulse"></span>
+              <span>Assistant is still typing...</span>
+            </div>
+          {:else if message.status !== 'complete'}
             <div class="message-meta">Status: {message.status}</div>
           {/if}
 

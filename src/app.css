@@ -713,6 +713,58 @@ a {
   white-space: normal;
 }
 
+.assistant-typing-indicator {
+  display: inline-grid;
+  gap: 0.45rem;
+  justify-items: start;
+}
+
+.assistant-typing-bubble {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.32rem;
+  padding: 0.7rem 0.88rem;
+  border: 1px solid rgba(29, 29, 24, 0.08);
+  border-radius: 999px;
+  background: rgba(31, 31, 28, 0.05);
+}
+
+.assistant-typing-dot {
+  width: 0.42rem;
+  height: 0.42rem;
+  border-radius: 999px;
+  background: rgba(31, 31, 28, 0.42);
+  animation: assistant-typing-bounce 1.2s infinite ease-in-out;
+}
+
+.assistant-typing-dot:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.assistant-typing-dot:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+.assistant-typing-label,
+.assistant-stream-status {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.assistant-stream-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.assistant-stream-pulse {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 999px;
+  background: var(--accent);
+  animation: assistant-busy-pulse 1.4s infinite ease-in-out;
+}
+
 .attachment-stack {
   display: grid;
   gap: 0.7rem;
@@ -888,6 +940,34 @@ a {
   color: var(--text-muted);
   font-size: 0.76rem;
   white-space: nowrap;
+}
+
+.llama-chip.busy {
+  background: rgba(31, 31, 28, 0.08);
+  color: var(--text);
+}
+
+.chip-loader {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+}
+
+.chip-loader span {
+  width: 0.34rem;
+  height: 0.34rem;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0.35;
+  animation: assistant-typing-bounce 1.2s infinite ease-in-out;
+}
+
+.chip-loader span:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.chip-loader span:nth-child(3) {
+  animation-delay: 0.3s;
 }
 
 .llama-chip.disabled {
@@ -1109,6 +1189,33 @@ a {
 
 .assistant-actions {
   justify-content: flex-start;
+}
+
+@keyframes assistant-typing-bounce {
+  0%,
+  80%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.35;
+  }
+
+  40% {
+    transform: translateY(-0.22rem);
+    opacity: 1;
+  }
+}
+
+@keyframes assistant-busy-pulse {
+  0%,
+  100% {
+    transform: scale(0.92);
+    opacity: 0.45;
+  }
+
+  50% {
+    transform: scale(1.08);
+    opacity: 1;
+  }
 }
 
 .user-actions {
