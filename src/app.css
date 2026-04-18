@@ -1725,3 +1725,66 @@ a {
     display: none !important;
   }
 }
+
+/* ----------------------------------------------------------------------------
+ * Initial-hydration suppression
+ *
+ * `html.app-init` is set by the inline boot script in app.html and removed by
+ * the chat page after first paint. While present we hide the chat shell behind
+ * an opaque overlay and disable transitions so the user never sees the sidebar
+ * "auto-collapse" or other reactive layout shifts on load.
+ * -------------------------------------------------------------------------- */
+html.app-init *,
+html.app-init *::before,
+html.app-init *::after {
+  transition: none !important;
+  animation-duration: 0s !important;
+  animation-delay: 0s !important;
+}
+
+.app-loading-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--background, #f8f6f1);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 180ms ease;
+}
+
+:root.dark .app-loading-overlay {
+  background: var(--background, #0f1013);
+}
+
+html.app-init .app-loading-overlay {
+  opacity: 1;
+  pointer-events: auto;
+  transition: none;
+}
+
+.app-loading-spinner {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px solid var(--border, rgba(0, 0, 0, 0.12));
+  border-top-color: var(--text-muted, #888);
+  animation: app-loading-spin 700ms linear infinite;
+}
+
+/* The init class also disables animations globally; re-enable just for the
+ * spinner so users see motion if hydration takes a moment. */
+html.app-init .app-loading-spinner {
+  animation-duration: 700ms !important;
+}
+
+@keyframes app-loading-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-loading-spinner { animation: none; }
+}
+

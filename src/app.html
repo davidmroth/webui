@@ -13,6 +13,16 @@
             (t === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
           if (dark) document.documentElement.classList.add('dark');
         } catch (e) {}
+        try {
+          // Pre-paint viewport hint so the app can render in its final layout
+          // (e.g. mobile drawer collapsed) without a visible "ghost" transition.
+          if (window.matchMedia('(max-width: 768px)').matches) {
+            document.documentElement.classList.add('mobile-viewport');
+          }
+          // Suppress transitions during initial hydration; cleared by the app
+          // shortly after mount.
+          document.documentElement.classList.add('app-init');
+        } catch (e) {}
       })();
     </script>
   </head>

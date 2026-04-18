@@ -55,8 +55,14 @@
   let messageScrollElement = $state<HTMLDivElement | null>(null);
   let attachmentInput = $state<HTMLInputElement | null>(null);
   let shouldAutoScroll = $state(true);
-  let sidebarCollapsed = $state(false);
-  let isMobileViewport = $state(false);
+  // Initial sidebar / mobile state is seeded from the boot-time class set by
+  // app.html so hydration matches the final layout (no visible "ghost"
+  // sidebar collapse on mobile load).
+  const initialIsMobile =
+    typeof document !== 'undefined' &&
+    document.documentElement.classList.contains('mobile-viewport');
+  let sidebarCollapsed = $state(initialIsMobile);
+  let isMobileViewport = $state(initialIsMobile);
 
   const AUTO_SCROLL_AT_BOTTOM_THRESHOLD = 10;
 
@@ -614,6 +620,12 @@
     tick().then(() => {
       resetComposerHeight();
       focusComposer();
+      // Jump scroll container to the bottom synchronously so the SSR'd
+      // transcript appears already-scrolled when the boot overlay fades out.
+      if (messageScrollElement) {
+        messageScrollElement.scrollTop = messageScrollElement.scrollHeight;
+        shouldAutoScroll = true;
+      }
     });
 
     syncMobileViewport();
