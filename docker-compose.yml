@@ -16,6 +16,7 @@ services:
       HERMES_WEBCHAT_SERVICE_TOKEN: ${HERMES_WEBCHAT_SERVICE_TOKEN}
     volumes:
       - ./:/app
+      - webui_node_modules:/app/node_modules
     depends_on:
       mysql:
         condition: service_healthy
@@ -57,3 +58,4 @@ volumes:
   hermes_home:
   mysql_data:
   minio_data:
+  webui_node_modules:
