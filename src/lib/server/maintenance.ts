@@ -59,6 +59,8 @@ interface FileDeliveryChecks {
   bucketExists: boolean;
   hermesServiceTokenConfigured: boolean;
   queueNotStuck: boolean;
+  recentSenderTraceSeen: boolean;
+  recentSenderTraceWithAttachment: boolean;
 }
 
 interface FileDeliveryDiagnosis {
@@ -70,6 +72,61 @@ interface FileDeliveryDiagnosis {
   senderConfigVerified: false;
   verificationScope: 'receiver-only';
   checks: FileDeliveryChecks;
+}
+
+interface HermesDeliveryTraceRow {
+  sender_trace_id: string | null;
+  conversation_id: string;
+  receiver_message_id: string | null;
+  route: string;
+  sender_base_url: string | null;
+  sender_target_url: string | null;
+  sender_hostname: string | null;
+  sender_session_platform: string | null;
+  sender_session_chat_id: string | null;
+  attachment_count: number | string;
+  attachment_names: string | string[] | null;
+  content_length: number | string;
+  receiver_status: 'accepted' | 'rejected';
+  error_text: string | null;
+  created_at: Date | string;
+}
+
+interface HermesDeliveryTraceStatsRow {
+  total_count: number | string | null;
+  accepted_count: number | string | null;
+  rejected_count: number | string | null;
+  with_attachments_count: number | string | null;
+  last_received_at: Date | string | null;
+}
+
+interface HermesDeliveryTraceSample {
+  createdAt: string;
+  senderTraceId: string | null;
+  conversationId: string;
+  receiverMessageId: string | null;
+  route: string;
+  senderBaseUrl: string | null;
+  senderTargetUrl: string | null;
+  senderHostname: string | null;
+  senderSessionPlatform: string | null;
+  senderSessionChatId: string | null;
+  attachmentCount: number;
+  attachmentNames: string[];
+  contentLength: number;
+  receiverStatus: 'accepted' | 'rejected';
+  errorText: string | null;
+}
+
+interface HermesDeliveryTraceTelemetry {
+  ok: boolean;
+  totalCount: number;
+  acceptedCount: number;
+  rejectedCount: number;
+  withAttachmentsCount: number;
+  lastReceivedAt: string | null;
+  recent: HermesDeliveryTraceSample[];
+  error: string | null;
 }
 
 interface CountRow {
@@ -108,6 +165,25 @@ function toIsoString(value: Date | string | null | undefined): string | null {
     return null;
   }
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
+}
+
+function parseAttachmentNames(value: string | string[] | null | undefined): string[] {
+  if (Array.isArray(value)) {
+    return value.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0);
+  }
+
+  if (typeof value !== 'string' || !value.trim()) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return Array.isArray(parsed)
+      ? parsed.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+      : [];
+  } catch {
+    return [];
+  }
 }
 
 function setMaintenanceCookie(event: RequestEvent) {
@@ -335,21 +411,99 @@ async function getStorageTelemetry() {
   }
 }
 
+async function getHermesDeliveryTraceTelemetry(): Promise<HermesDeliveryTraceTelemetry> {
+  try {
+    const [statsRow] = await query<HermesDeliveryTraceStatsRow>(
+      `SELECT
+         COUNT(*) AS total_count,
+         COALESCE(SUM(CASE WHEN receiver_status = 'accepted' THEN 1 ELSE 0 END), 0) AS accepted_count,
+         COALESCE(SUM(CASE WHEN receiver_status = 'rejected' THEN 1 ELSE 0 END), 0) AS rejected_count,
+         COALESCE(SUM(CASE WHEN attachment_count > 0 THEN 1 ELSE 0 END), 0) AS with_attachments_count,
+         MAX(created_at) AS last_received_at
+       FROM hermes_delivery_traces`
+    );
+    const recentRows = await query<HermesDeliveryTraceRow>(
+      `SELECT
+         sender_trace_id,
+         conversation_id,
+         receiver_message_id,
+         route,
+         sender_base_url,
+         sender_target_url,
+         sender_hostname,
+         sender_session_platform,
+         sender_session_chat_id,
+         attachment_count,
+         attachment_names,
+         content_length,
+         receiver_status,
+         error_text,
+         created_at
+       FROM hermes_delivery_traces
+       ORDER BY created_at DESC
+       LIMIT 8`
+    );
+
+    return {
+      ok: true,
+      totalCount: Number(statsRow?.total_count ?? 0),
+      acceptedCount: Number(statsRow?.accepted_count ?? 0),
+      rejectedCount: Number(statsRow?.rejected_count ?? 0),
+      withAttachmentsCount: Number(statsRow?.with_attachments_count ?? 0),
+      lastReceivedAt: toIsoString(statsRow?.last_received_at),
+      recent: recentRows.map((row) => ({
+        createdAt: toIsoString(row.created_at) ?? new Date(0).toISOString(),
+        senderTraceId: row.sender_trace_id,
+        conversationId: row.conversation_id,
+        receiverMessageId: row.receiver_message_id,
+        route: row.route,
+        senderBaseUrl: row.sender_base_url,
+        senderTargetUrl: row.sender_target_url,
+        senderHostname: row.sender_hostname,
+        senderSessionPlatform: row.sender_session_platform,
+        senderSessionChatId: row.sender_session_chat_id,
+        attachmentCount: Number(row.attachment_count ?? 0),
+        attachmentNames: parseAttachmentNames(row.attachment_names),
+        contentLength: Number(row.content_length ?? 0),
+        receiverStatus: row.receiver_status,
+        errorText: row.error_text
+      })),
+      error: null
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      totalCount: 0,
+      acceptedCount: 0,
+      rejectedCount: 0,
+      withAttachmentsCount: 0,
+      lastReceivedAt: null,
+      recent: [],
+      error: error instanceof Error ? error.message : 'Delivery trace query failed.'
+    };
+  }
+}
+
 function deriveFileDeliveryDiagnosis(params: {
   database: DatabaseTelemetry;
   storage: Awaited<ReturnType<typeof getStorageTelemetry>>;
+  deliveryTraces: HermesDeliveryTraceTelemetry;
   queue: Awaited<ReturnType<typeof getHermesQueueStats>> & { error?: string };
   hermesServiceTokenConfigured: boolean;
 }): FileDeliveryDiagnosis {
-  const { database, storage, queue, hermesServiceTokenConfigured } = params;
+  const { database, storage, deliveryTraces, queue, hermesServiceTokenConfigured } = params;
   const queueNotStuck = !queue.error && Number(queue.staleProcessing ?? 0) === 0;
   const receiverHealthy = database.ok && storage.ok && storage.bucketExists;
+  const recentSenderTraceSeen = deliveryTraces.totalCount > 0;
+  const recentSenderTraceWithAttachment = deliveryTraces.withAttachmentsCount > 0;
   const checks: FileDeliveryChecks = {
     databaseOk: database.ok,
     storageOk: storage.ok,
     bucketExists: storage.bucketExists,
     hermesServiceTokenConfigured,
-    queueNotStuck
+    queueNotStuck,
+    recentSenderTraceSeen,
+    recentSenderTraceWithAttachment
   };
 
   if (!database.ok || !storage.ok || !storage.bucketExists) {
@@ -391,11 +545,26 @@ function deriveFileDeliveryDiagnosis(params: {
     };
   }
 
+  if (recentSenderTraceSeen && !recentSenderTraceWithAttachment) {
+    return {
+      code: 'sender-no-attachments',
+      verdict: 'Hermes reached this deployment but did not claim any attachments',
+      summary: 'Recent Hermes delivery traces reached this webui, but none of those sender traces claimed attachments, so the sender path is still not attempting file delivery here.',
+      receiverHealthy,
+      queueNotStuck,
+      senderConfigVerified: false,
+      verificationScope: 'receiver-only',
+      checks
+    };
+  }
+
   if (database.attachmentStats.assistantAttachmentSignal === 'absent' || database.attachmentStats.assistantAttachmentSignal === 'rare') {
     return {
       code: 'upstream-likely',
       verdict: 'Receiver healthy, likely upstream sender or deployment issue',
-      summary: 'Based on receiver-side checks only: database and storage are healthy, the bucket exists, Hermes auth is configured, and the queue is not stuck, but assistant attachments are absent or rare on this receiver.',
+      summary: recentSenderTraceSeen
+        ? 'Based on receiver-side checks only: database and storage are healthy, the bucket exists, Hermes auth is configured, the queue is not stuck, and this deployment has seen Hermes sender traces, but assistant attachments are still absent or rare here.'
+        : 'Based on receiver-side checks only: database and storage are healthy, the bucket exists, Hermes auth is configured, and the queue is not stuck, but assistant attachments are absent or rare on this receiver and no recent Hermes sender traces have reached this deployment.',
       receiverHealthy,
       queueNotStuck,
       senderConfigVerified: false,
@@ -419,10 +588,11 @@ function deriveFileDeliveryDiagnosis(params: {
 export async function collectMaintenanceSnapshot(event: RequestEvent) {
   const config = getConfig();
   const memoryUsage = process.memoryUsage();
-  const [build, database, storage, queue] = await Promise.all([
+  const [build, database, storage, deliveryTraces, queue] = await Promise.all([
     getBuildInfo(),
     getDatabaseTelemetry(),
     getStorageTelemetry(),
+    getHermesDeliveryTraceTelemetry(),
     getHermesQueueStats().catch((error) => ({
       queued: 0,
       processing: 0,
@@ -481,10 +651,12 @@ export async function collectMaintenanceSnapshot(event: RequestEvent) {
     },
     database,
     storage,
+    deliveryTraces,
     queue,
     fileDeliveryDiagnosis: deriveFileDeliveryDiagnosis({
       database,
       storage,
+      deliveryTraces,
       queue,
       hermesServiceTokenConfigured:
         config.hermesServiceToken !== 'change-me' && config.hermesServiceToken.length > 0

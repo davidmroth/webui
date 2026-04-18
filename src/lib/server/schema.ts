@@ -5,6 +5,7 @@ import { migration as attachmentMessageLinkMigration } from './migrations/002_at
 import { migration as attachmentTableContractMigration } from './migrations/003_attachment_table_contract';
 import { migration as llamacppParityMigration } from './migrations/004_llamacpp_parity';
 import { migration as streamingSupportMigration } from './migrations/005_streaming_support';
+import { migration as deliveryTracesMigration } from './migrations/006_delivery_traces';
 
 interface SchemaMigrationRow {
   id: string;
@@ -26,7 +27,8 @@ const migrations: Migration[] = [
   attachmentMessageLinkMigration,
   attachmentTableContractMigration,
   llamacppParityMigration,
-  streamingSupportMigration
+  streamingSupportMigration,
+  deliveryTracesMigration
 ];
 
 export async function runDatabaseMigrations(): Promise<MigrationResult> {

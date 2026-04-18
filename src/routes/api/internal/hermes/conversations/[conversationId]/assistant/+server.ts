@@ -4,7 +4,8 @@ import {
   storeAssistantMessageWithAttachments,
   openStreamingAssistantMessage,
   appendAssistantChunk,
-  finalizeStreamingAssistantMessage
+  finalizeStreamingAssistantMessage,
+  recordHermesDeliveryTrace
 } from '$server/chat';
 import { getConfig } from '$server/env';
 
@@ -20,6 +21,32 @@ interface AttachmentUpload {
   type: string;
   size: number;
   arrayBuffer(): Promise<ArrayBuffer>;
+}
+
+interface SenderTraceInput {
+  traceId?: unknown;
+  route?: unknown;
+  senderBaseUrl?: unknown;
+  senderTargetUrl?: unknown;
+  senderHostname?: unknown;
+  sessionPlatform?: unknown;
+  sessionChatId?: unknown;
+  attachmentCount?: unknown;
+  attachmentNames?: unknown;
+  contentLength?: unknown;
+}
+
+interface NormalizedSenderTrace {
+  senderTraceId: string | null;
+  route: string;
+  senderBaseUrl: string | null;
+  senderTargetUrl: string | null;
+  senderHostname: string | null;
+  senderSessionPlatform: string | null;
+  senderSessionChatId: string | null;
+  attachmentCount: number;
+  attachmentNames: string[];
+  contentLength: number;
 }
 
 function isAuthorized(request: Request) {
@@ -45,6 +72,81 @@ function createAttachmentUpload(
       return bufferToArrayBuffer(buffer);
     }
   };
+}
+
+function normalizeOptionalString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function normalizeStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0);
+}
+
+function normalizeNonNegativeInteger(value: unknown, fallback: number): number {
+  const normalized = Number(value);
+  if (!Number.isFinite(normalized)) {
+    return Math.max(0, Math.floor(fallback));
+  }
+
+  return Math.max(0, Math.floor(normalized));
+}
+
+function normalizeSenderTraceInput(
+  raw: unknown,
+  fallback: { attachmentCount: number; attachmentNames: string[]; contentLength: number }
+): NormalizedSenderTrace | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return null;
+  }
+
+  const input = raw as SenderTraceInput;
+  return {
+    senderTraceId: normalizeOptionalString(input.traceId),
+    route: normalizeOptionalString(input.route) ?? 'unknown',
+    senderBaseUrl: normalizeOptionalString(input.senderBaseUrl),
+    senderTargetUrl: normalizeOptionalString(input.senderTargetUrl),
+    senderHostname: normalizeOptionalString(input.senderHostname),
+    senderSessionPlatform: normalizeOptionalString(input.sessionPlatform),
+    senderSessionChatId: normalizeOptionalString(input.sessionChatId),
+    attachmentCount: normalizeNonNegativeInteger(input.attachmentCount, fallback.attachmentCount),
+    attachmentNames: normalizeStringArray(input.attachmentNames).slice(0, 20),
+    contentLength: normalizeNonNegativeInteger(input.contentLength, fallback.contentLength)
+  };
+}
+
+async function persistSenderTrace(
+  conversationId: string,
+  senderTrace: NormalizedSenderTrace | null,
+  options: { receiverMessageId?: string | null; receiverStatus: 'accepted' | 'rejected'; errorText?: string | null }
+) {
+  if (!senderTrace) {
+    return;
+  }
+
+  try {
+    await recordHermesDeliveryTrace({
+      senderTraceId: senderTrace.senderTraceId,
+      conversationId,
+      receiverMessageId: options.receiverMessageId ?? null,
+      route: senderTrace.route,
+      senderBaseUrl: senderTrace.senderBaseUrl,
+      senderTargetUrl: senderTrace.senderTargetUrl,
+      senderHostname: senderTrace.senderHostname,
+      senderSessionPlatform: senderTrace.senderSessionPlatform,
+      senderSessionChatId: senderTrace.senderSessionChatId,
+      attachmentCount: senderTrace.attachmentCount,
+      attachmentNames: senderTrace.attachmentNames,
+      contentLength: senderTrace.contentLength,
+      receiverStatus: options.receiverStatus,
+      errorText: options.errorText ?? null
+    });
+  } catch {
+    // Delivery trace persistence is diagnostic only and must not block message intake.
+  }
 }
 
 function parseJsonAttachments(rawAttachments: unknown): AttachmentUpload[] {
@@ -122,7 +224,7 @@ function normalizeTimingsInput(raw: unknown): Record<string, unknown> | undefine
   return obj;
 }
 
-export async function POST({ params, request }) {
+export async function POST({ params, request }: { params: { conversationId: string }; request: Request }) {
   if (!isAuthorized(request)) {
     return json({ error: 'Unauthorized' }, { status: 401 });
   }
@@ -133,7 +235,7 @@ export async function POST({ params, request }) {
     const content = String(formData.get('content') || '').trim();
     const files = formData
       .getAll('attachments')
-      .filter((value): value is File => value instanceof File && value.size > 0);
+      .filter((value: FormDataEntryValue): value is File => value instanceof File && value.size > 0);
     if (!content && files.length === 0) {
       return json({ error: 'Assistant content or attachment is required.' }, { status: 400 });
     }
@@ -158,7 +260,26 @@ export async function POST({ params, request }) {
     return json({ ok: true, messageId }, { status: 201 });
   }
 
-  const body = await request.json().catch(() => ({}));
+  const body: Record<string, unknown> = await request.json().catch(() => ({}));
+
+  const rawAttachmentNames = Array.isArray(body.attachments)
+    ? body.attachments
+        .map((attachment: unknown) => {
+          if (!attachment || typeof attachment !== 'object') {
+            return null;
+          }
+
+          const fileName = (attachment as AssistantJsonAttachment).fileName;
+          return typeof fileName === 'string' && fileName.trim() ? fileName.trim() : null;
+        })
+        .filter((fileName: string | null): fileName is string => Boolean(fileName))
+    : [];
+  const rawContent = typeof body.content === 'string' ? body.content.trim() : '';
+  const senderTrace = normalizeSenderTraceInput(body.senderTrace, {
+    attachmentCount: rawAttachmentNames.length,
+    attachmentNames: rawAttachmentNames,
+    contentLength: rawContent.length
+  });
 
   // ----- Chunked streaming path -----------------------------------------
   // Hermes can post incremental token deltas instead of (or before) a final
@@ -205,6 +326,10 @@ export async function POST({ params, request }) {
   try {
     attachments = parseJsonAttachments(body.attachments);
   } catch (error) {
+    await persistSenderTrace(params.conversationId, senderTrace, {
+      receiverStatus: 'rejected',
+      errorText: error instanceof Error ? error.message : 'Invalid assistant attachments.'
+    });
     return json(
       { error: error instanceof Error ? error.message : 'Invalid assistant attachments.' },
       { status: 400 }
@@ -212,21 +337,41 @@ export async function POST({ params, request }) {
   }
 
   if (!content && attachments.length === 0) {
+    await persistSenderTrace(params.conversationId, senderTrace, {
+      receiverStatus: 'rejected',
+      errorText: 'Assistant content or attachment is required.'
+    });
     return json({ error: 'Assistant content or attachment is required.' }, { status: 400 });
   }
 
-  const messageId = attachments.length
-    ? await storeAssistantMessageWithAttachments(
-        params.conversationId,
-        content,
-        attachments,
-        { timings: normalizeTimingsInput(body.timings) }
-      )
-    : await storeAssistantMessage(
-        params.conversationId,
-        content,
-        { timings: normalizeTimingsInput(body.timings) }
-      );
+  try {
+    const messageId = attachments.length
+      ? await storeAssistantMessageWithAttachments(
+          params.conversationId,
+          content,
+          attachments,
+          { timings: normalizeTimingsInput(body.timings) }
+        )
+      : await storeAssistantMessage(
+          params.conversationId,
+          content,
+          { timings: normalizeTimingsInput(body.timings) }
+        );
 
-  return json({ ok: true, messageId }, { status: 201 });
+    await persistSenderTrace(params.conversationId, senderTrace, {
+      receiverMessageId: messageId,
+      receiverStatus: 'accepted'
+    });
+
+    return json({ ok: true, messageId }, { status: 201 });
+  } catch (error) {
+    await persistSenderTrace(params.conversationId, senderTrace, {
+      receiverStatus: 'rejected',
+      errorText: error instanceof Error ? error.message : 'Failed to store assistant message.'
+    });
+    return json(
+      { error: error instanceof Error ? error.message : 'Failed to store assistant message.' },
+      { status: 500 }
+    );
+  }
 }

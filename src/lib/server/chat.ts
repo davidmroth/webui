@@ -53,8 +53,103 @@ interface HermesQueueStatsRow {
   stale_processing: number;
 }
 
+interface HermesDeliveryTraceRow {
+  id: string;
+  sender_trace_id: string | null;
+  conversation_id: string;
+  receiver_message_id: string | null;
+  route: string;
+  sender_base_url: string | null;
+  sender_target_url: string | null;
+  sender_hostname: string | null;
+  sender_session_platform: string | null;
+  sender_session_chat_id: string | null;
+  attachment_count: number | string;
+  attachment_names: string | string[] | null;
+  content_length: number | string;
+  receiver_status: 'accepted' | 'rejected';
+  error_text: string | null;
+  created_at: Date | string;
+}
+
+export interface HermesDeliveryTrace {
+  id: string;
+  senderTraceId: string | null;
+  conversationId: string;
+  receiverMessageId: string | null;
+  route: string;
+  senderBaseUrl: string | null;
+  senderTargetUrl: string | null;
+  senderHostname: string | null;
+  senderSessionPlatform: string | null;
+  senderSessionChatId: string | null;
+  attachmentCount: number;
+  attachmentNames: string[];
+  contentLength: number;
+  receiverStatus: 'accepted' | 'rejected';
+  errorText: string | null;
+  createdAt: string;
+}
+
+export interface RecordHermesDeliveryTraceInput {
+  senderTraceId?: string | null;
+  conversationId: string;
+  receiverMessageId?: string | null;
+  route?: string | null;
+  senderBaseUrl?: string | null;
+  senderTargetUrl?: string | null;
+  senderHostname?: string | null;
+  senderSessionPlatform?: string | null;
+  senderSessionChatId?: string | null;
+  attachmentCount?: number;
+  attachmentNames?: string[];
+  contentLength?: number;
+  receiverStatus?: 'accepted' | 'rejected';
+  errorText?: string | null;
+}
+
 function toIsoString(value: Date | string): string {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
+}
+
+function parseAttachmentNames(value: string | string[] | null | undefined): string[] {
+  if (Array.isArray(value)) {
+    return value.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0);
+  }
+
+  if (typeof value !== 'string' || !value.trim()) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return Array.isArray(parsed)
+      ? parsed.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function mapHermesDeliveryTrace(row: HermesDeliveryTraceRow): HermesDeliveryTrace {
+  return {
+    id: row.id,
+    senderTraceId: row.sender_trace_id,
+    conversationId: row.conversation_id,
+    receiverMessageId: row.receiver_message_id,
+    route: row.route,
+    senderBaseUrl: row.sender_base_url,
+    senderTargetUrl: row.sender_target_url,
+    senderHostname: row.sender_hostname,
+    senderSessionPlatform: row.sender_session_platform,
+    senderSessionChatId: row.sender_session_chat_id,
+    attachmentCount: Number(row.attachment_count ?? 0),
+    attachmentNames: parseAttachmentNames(row.attachment_names),
+    contentLength: Number(row.content_length ?? 0),
+    receiverStatus: row.receiver_status,
+    errorText: row.error_text,
+    createdAt: toIsoString(row.created_at)
+  };
 }
 
 function mapAttachment(row: AttachmentRow): MessageAttachment {
@@ -555,6 +650,95 @@ export async function getHermesQueueStats() {
     staleProcessing: Number(rows[0]?.stale_processing ?? 0),
     leaseSeconds
   };
+}
+
+export async function recordHermesDeliveryTrace(input: RecordHermesDeliveryTraceInput) {
+  const traceId = randomUUID();
+  await execute(
+    `INSERT INTO hermes_delivery_traces (
+       id,
+       sender_trace_id,
+       conversation_id,
+       receiver_message_id,
+       route,
+       sender_base_url,
+       sender_target_url,
+       sender_hostname,
+       sender_session_platform,
+       sender_session_chat_id,
+       attachment_count,
+       attachment_names,
+       content_length,
+       receiver_status,
+       error_text
+     ) VALUES (
+       :id,
+       :sender_trace_id,
+       :conversation_id,
+       :receiver_message_id,
+       :route,
+       :sender_base_url,
+       :sender_target_url,
+       :sender_hostname,
+       :sender_session_platform,
+       :sender_session_chat_id,
+       :attachment_count,
+       :attachment_names,
+       :content_length,
+       :receiver_status,
+       :error_text
+     )`,
+    {
+      id: traceId,
+      sender_trace_id: input.senderTraceId ?? null,
+      conversation_id: input.conversationId,
+      receiver_message_id: input.receiverMessageId ?? null,
+      route: input.route?.trim() || 'unknown',
+      sender_base_url: input.senderBaseUrl?.trim() || null,
+      sender_target_url: input.senderTargetUrl?.trim() || null,
+      sender_hostname: input.senderHostname?.trim() || null,
+      sender_session_platform: input.senderSessionPlatform?.trim() || null,
+      sender_session_chat_id: input.senderSessionChatId?.trim() || null,
+      attachment_count: Math.max(0, Number(input.attachmentCount ?? 0)),
+      attachment_names:
+        input.attachmentNames && input.attachmentNames.length > 0
+          ? JSON.stringify(input.attachmentNames)
+          : null,
+      content_length: Math.max(0, Number(input.contentLength ?? 0)),
+      receiver_status: input.receiverStatus ?? 'accepted',
+      error_text: input.errorText?.trim() || null
+    }
+  );
+
+  return traceId;
+}
+
+export async function listRecentHermesDeliveryTraces(limit = 10): Promise<HermesDeliveryTrace[]> {
+  const safeLimit = Math.max(1, Math.min(Math.floor(limit), 20));
+  const rows = await query<HermesDeliveryTraceRow>(
+    `SELECT
+       id,
+       sender_trace_id,
+       conversation_id,
+       receiver_message_id,
+       route,
+       sender_base_url,
+       sender_target_url,
+       sender_hostname,
+       sender_session_platform,
+       sender_session_chat_id,
+       attachment_count,
+       attachment_names,
+       content_length,
+       receiver_status,
+       error_text,
+       created_at
+     FROM hermes_delivery_traces
+     ORDER BY created_at DESC
+     LIMIT ${safeLimit}`
+  );
+
+  return rows.map(mapHermesDeliveryTrace);
 }
 
 export async function storeAssistantMessage(

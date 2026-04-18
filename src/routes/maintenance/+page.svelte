@@ -36,7 +36,7 @@
     if (code === 'receiver-ready') {
       return 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300';
     }
-    if (code === 'upstream-likely') {
+    if (code === 'upstream-likely' || code === 'sender-no-attachments') {
       return 'bg-amber-500/15 text-amber-700 dark:text-amber-300';
     }
     return 'bg-destructive/15 text-destructive';
@@ -242,9 +242,71 @@
               <div><span class="font-medium">Bucket exists:</span> {snapshot.fileDeliveryDiagnosis.checks.bucketExists ? 'yes' : 'no'}</div>
               <div><span class="font-medium">Hermes token configured:</span> {snapshot.fileDeliveryDiagnosis.checks.hermesServiceTokenConfigured ? 'yes' : 'no'}</div>
               <div><span class="font-medium">Queue not stuck:</span> {snapshot.fileDeliveryDiagnosis.checks.queueNotStuck ? 'yes' : 'no'}</div>
+              <div><span class="font-medium">Recent sender trace seen:</span> {snapshot.fileDeliveryDiagnosis.checks.recentSenderTraceSeen ? 'yes' : 'no'}</div>
+              <div><span class="font-medium">Recent sender trace with attachment:</span> {snapshot.fileDeliveryDiagnosis.checks.recentSenderTraceWithAttachment ? 'yes' : 'no'}</div>
               <div><span class="font-medium">Sender config verified:</span> {snapshot.fileDeliveryDiagnosis.senderConfigVerified ? 'yes' : 'no'}</div>
             </div>
           </div>
+        </div>
+
+        <div class="rounded-xl border border-border bg-card p-5 shadow-sm">
+          <h2 class="text-lg font-semibold">Recent Hermes delivery traces</h2>
+          <p class="mt-2 text-sm text-muted-foreground">
+            Sender-declared webchat delivery attempts that actually reached this deployment. Use this to compare what Hermes said it posted against what the receiver stored.
+          </p>
+
+          <div class="mt-4 grid gap-3 md:grid-cols-2 text-sm">
+            <div class="rounded-md bg-muted/40 p-4">
+              <div><span class="font-medium">Total traces:</span> {snapshot.deliveryTraces.totalCount}</div>
+              <div><span class="font-medium">Accepted:</span> {snapshot.deliveryTraces.acceptedCount}</div>
+              <div><span class="font-medium">Rejected:</span> {snapshot.deliveryTraces.rejectedCount}</div>
+              <div><span class="font-medium">With attachments:</span> {snapshot.deliveryTraces.withAttachmentsCount}</div>
+              <div><span class="font-medium">Last received:</span> {snapshot.deliveryTraces.lastReceivedAt ?? 'never'}</div>
+            </div>
+
+            <div class="rounded-md bg-muted/40 p-4">
+              <div><span class="font-medium">Trace query OK:</span> {snapshot.deliveryTraces.ok ? 'yes' : 'no'}</div>
+              {#if snapshot.deliveryTraces.error}
+                <div class="text-destructive">{snapshot.deliveryTraces.error}</div>
+              {/if}
+              {#if !snapshot.deliveryTraces.totalCount}
+                <div class="mt-2 text-muted-foreground">No Hermes delivery traces have reached this deployment yet.</div>
+              {/if}
+            </div>
+          </div>
+
+          {#if snapshot.deliveryTraces.recent.length > 0}
+            <div class="mt-4 space-y-3">
+              {#each snapshot.deliveryTraces.recent as trace}
+                <div class="rounded-lg border border-border bg-muted/30 p-4 text-sm">
+                  <div class="flex items-start justify-between gap-3">
+                    <div>
+                      <div class="font-medium">{trace.route} at {trace.createdAt}</div>
+                      <div class="mt-1 text-muted-foreground">Target: {trace.senderTargetUrl ?? 'n/a'}</div>
+                    </div>
+                    <span class={`rounded-full px-2 py-1 text-xs font-medium ${trace.receiverStatus === 'accepted' ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300' : 'bg-destructive/15 text-destructive'}`}>
+                      {trace.receiverStatus}
+                    </span>
+                  </div>
+
+                  <div class="mt-3 grid gap-2 md:grid-cols-2">
+                    <div>Conversation: {trace.conversationId}</div>
+                    <div>Receiver message: {trace.receiverMessageId ?? 'n/a'}</div>
+                    <div>Trace id: {trace.senderTraceId ?? 'n/a'}</div>
+                    <div>Sender host: {trace.senderHostname ?? 'n/a'}</div>
+                    <div>Session: {trace.senderSessionPlatform ?? 'n/a'} / {trace.senderSessionChatId ?? 'n/a'}</div>
+                    <div>Content length: {trace.contentLength}</div>
+                    <div>Attachment count: {trace.attachmentCount}</div>
+                    <div>Attachment names: {trace.attachmentNames.length ? trace.attachmentNames.join(', ') : 'none'}</div>
+                  </div>
+
+                  {#if trace.errorText}
+                    <p class="mt-3 text-destructive">{trace.errorText}</p>
+                  {/if}
+                </div>
+              {/each}
+            </div>
+          {/if}
         </div>
 
         <div class="rounded-xl border border-border bg-card p-5 shadow-sm">
