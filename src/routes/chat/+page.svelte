@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, tick } from 'svelte';
+  import { onMount, tick, untrack } from 'svelte';
   import {
     ArrowDown,
     ArrowUp,
@@ -61,10 +61,14 @@
     messages = data.messages;
     conversations = data.conversations;
     if (data.currentConversationId) {
-      serverAssistantBusyByConversation = {
-        ...serverAssistantBusyByConversation,
-        [data.currentConversationId]: Boolean(data.assistantBusy)
-      };
+      const conversationId = data.currentConversationId;
+      const busy = Boolean(data.assistantBusy);
+      untrack(() => {
+        serverAssistantBusyByConversation = {
+          ...serverAssistantBusyByConversation,
+          [conversationId]: busy
+        };
+      });
     }
   });
 
