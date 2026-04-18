@@ -791,16 +791,6 @@
               <input type="hidden" name="conversationId" value={currentConversationId ?? ''} />
 
               <div class="llama-composer">
-                <textarea
-                  bind:this={composerElement}
-                  class="llama-textarea"
-                  bind:value={draftMessage}
-                  placeholder="Type a message..."
-                  oninput={autoResizeComposer}
-                  onkeydown={handleComposerKeydown}
-                  onpaste={handleComposerPaste}
-                ></textarea>
-
                 {#if pendingFiles.length > 0}
                   <div class="pending-files">
                     {#each pendingFiles as file}
@@ -815,8 +805,8 @@
                   </div>
                 {/if}
 
-                <div class="llama-composer-footer">
-                  <div class="llama-composer-actions">
+                <div class="llama-composer-row">
+                  <div class="llama-composer-actions llama-composer-actions-left">
                     <details class="attachment-menu" bind:open={attachmentMenuOpen}>
                       <summary class="compose-icon-button" aria-label="Open attachments menu">
                         <Paperclip class="h-4 w-4" />
@@ -882,7 +872,17 @@
                     />
                   </div>
 
-                  <div class="llama-status-chips">
+                  <textarea
+                    bind:this={composerElement}
+                    class="llama-textarea"
+                    bind:value={draftMessage}
+                    placeholder="Type a message..."
+                    oninput={autoResizeComposer}
+                    onkeydown={handleComposerKeydown}
+                    onpaste={handleComposerPaste}
+                  ></textarea>
+
+                  <div class="llama-composer-actions llama-composer-actions-right">
                     {#if isAssistantBusy}
                       <div class="llama-chip busy" role="status" aria-live="polite">
                         <span class="chip-loader" aria-hidden="true">
