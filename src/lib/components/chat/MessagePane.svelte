@@ -161,7 +161,6 @@
                 <span class="assistant-typing-dot"></span>
                 <span class="assistant-typing-dot"></span>
               </span>
-              <span class="assistant-typing-label">Thinking through the reply</span>
             </div>
           {:else if message.content}
             {#if message.role === 'assistant'}
@@ -199,11 +198,11 @@
               <span class="assistant-stream-pulse"></span>
               <span>Assistant is still typing...</span>
             </div>
-          {:else if message.status !== 'complete'}
+          {:else if message.status !== 'complete' && !isStreamingAssistant(message)}
             <div class="message-meta">Status: {message.status}</div>
           {/if}
 
-          {#if message.role === 'assistant'}
+          {#if message.role === 'assistant' && !(isStreamingAssistant(message) && !hasVisibleContent(message))}
             {@const stats = buildMessageStats(message, index)}
             <div class="assistant-meta-row">
               <div class="assistant-meta-cluster assistant-model-badges">
@@ -273,6 +272,7 @@
             </div>
           {/if}
 
+          {#if !(isStreamingAssistant(message) && !hasVisibleContent(message))}
           <div class={`llama-message-actions ${message.role === 'user' ? 'user-actions' : 'assistant-actions'}`} aria-label="Message actions">
             <button
               class={`message-action-icon ${copiedMessageId === message.id ? 'is-active' : ''}`}
@@ -297,6 +297,7 @@
               <Trash2 class="h-3 w-3" />
             </button>
           </div>
+          {/if}
         </div>
       </div>
     {/each}
