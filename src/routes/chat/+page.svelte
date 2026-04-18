@@ -3,6 +3,7 @@
   import {
     ArrowDown,
     ArrowUp,
+    ChevronsLeft,
     File as FileIcon,
     FileText,
     Image,
@@ -10,9 +11,9 @@
     Mic,
     Moon,
     PanelLeft,
+    Paperclip,
     PlugZap,
     Search,
-    Settings2,
     Square,
     SquarePen,
     Sun
@@ -657,7 +658,18 @@
       ></button>
     {/if}
     <aside class="llama-sidebar">
-      <div class="llama-brand">llama.cpp</div>
+      <div class="llama-sidebar-header">
+        <div class="llama-brand">llama.cpp</div>
+        <button
+          type="button"
+          class="llama-toolbar-button llama-sidebar-collapse"
+          aria-label="Hide sidebar"
+          title="Hide sidebar"
+          onclick={() => (sidebarCollapsed = true)}
+        >
+          <ChevronsLeft class="h-4 w-4" />
+        </button>
+      </div>
 
       <div class="llama-nav">
         <button class="llama-nav-item" type="button" onclick={startNewChat}>
@@ -726,9 +738,7 @@
           <div class="llama-header-title">{activeConversationTitle()}</div>
         </div>
 
-        <button class="llama-toolbar-button" type="button" disabled aria-label="Settings unavailable">
-          <Settings2 class="h-4 w-4" />
-        </button>
+        <div class="llama-topbar-spacer" aria-hidden="true"></div>
       </div>
 
       <div class="llama-chat-stage">
@@ -808,7 +818,9 @@
                 <div class="llama-composer-footer">
                   <div class="llama-composer-actions">
                     <details class="attachment-menu" bind:open={attachmentMenuOpen}>
-                      <summary class="compose-icon-button" aria-label="Open attachments menu">+</summary>
+                      <summary class="compose-icon-button" aria-label="Open attachments menu">
+                        <Paperclip class="h-4 w-4" />
+                      </summary>
                       <div class="attachment-menu-popover">
                         <div class="attachment-menu-list">
                           <button class="attachment-menu-item" type="button" onclick={() => openAttachmentPicker('image/*')}>

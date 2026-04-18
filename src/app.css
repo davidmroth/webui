@@ -512,7 +512,6 @@ a {
   border: 1px solid var(--border);
   border-radius: 1.9rem;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.75), rgba(248, 246, 241, 0.92));
-  box-shadow: var(--shadow);
   backdrop-filter: blur(20px);
   transition: grid-template-columns 200ms ease;
 }
@@ -713,6 +712,18 @@ a {
   display: grid;
   gap: 0.75rem;
   padding: 0.25rem;
+  margin-top: auto;
+}
+
+.llama-sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.llama-sidebar-collapse {
+  flex: 0 0 auto;
 }
 
 .llama-footer-actions {

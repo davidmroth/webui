@@ -50,12 +50,19 @@
   }: Props = $props();
   let statsViewByMessageId = $state<Record<string, StatsView>>({});
 
-  const modelDisplayName = publicEnv.PUBLIC_MODEL_DISPLAY_NAME || 'Assistant';
+  const modelDisplayName = publicEnv.PUBLIC_MODEL_DISPLAY_NAME || '';
   const modelBadges = [
     publicEnv.PUBLIC_MODEL_SIZE_LABEL,
     publicEnv.PUBLIC_MODEL_CAPABILITY_LABEL,
     publicEnv.PUBLIC_MODEL_FILE_LABEL
   ].filter(Boolean);
+
+  function resolveModelName(message: ChatMessage): string {
+    const messageModel = typeof (message as { model?: unknown }).model === 'string'
+      ? ((message as { model?: string }).model ?? '').trim()
+      : '';
+    return messageModel || modelDisplayName;
+  }
 
   function formatRole(role: ChatMessage['role']) {
     return role === 'assistant' ? 'Assistant' : role === 'system' ? 'System' : 'You';
@@ -210,12 +217,15 @@
 
           {#if message.role === 'assistant' && !(isStreamingAssistant(message) && !hasVisibleContent(message))}
             {@const stats = buildMessageStats(message, index)}
+            {@const resolvedModelName = resolveModelName(message)}
             <div class="assistant-meta-row">
               <div class="assistant-meta-cluster assistant-model-badges">
-                <div class="assistant-model-badge assistant-model-name" title={`${modelDisplayName} model`}>
-                  <Package class="h-3 w-3" />
-                  <span>{modelDisplayName}</span>
-                </div>
+                {#if resolvedModelName}
+                  <div class="assistant-model-badge assistant-model-name" title={`${resolvedModelName} model`}>
+                    <Package class="h-3 w-3" />
+                    <span>{resolvedModelName}</span>
+                  </div>
+                {/if}
 
                 {#each modelBadges as badge}
                   <div class="assistant-model-badge assistant-model-tag">{badge}</div>
