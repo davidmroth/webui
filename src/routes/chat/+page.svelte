@@ -553,6 +553,8 @@
   }
 
   function handleComposerKeydown(event: KeyboardEvent) {
+    // On mobile, Enter inserts a newline; users send via the button.
+    if (isMobileViewport) return;
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault();
       if (!isSending) {
@@ -894,7 +896,9 @@
                 </div>
               </div>
 
-              <div class="llama-footnote">Press Enter to send, Shift + Enter for new line.</div>
+              {#if !isMobileViewport}
+                <div class="llama-footnote">Press Enter to send, Shift + Enter for new line.</div>
+              {/if}
 
               {#if errorMessage || form?.error}
                 <div class="error-banner">{errorMessage ?? form?.error}</div>
