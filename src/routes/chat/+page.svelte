@@ -68,9 +68,26 @@
     resetComposerHeight();
   }
 
+  function createClientId(prefix = '') {
+    const webCrypto = globalThis.crypto;
+
+    if (webCrypto?.randomUUID) {
+      return `${prefix}${webCrypto.randomUUID()}`;
+    }
+
+    if (webCrypto?.getRandomValues) {
+      const buffer = new Uint32Array(4);
+      webCrypto.getRandomValues(buffer);
+      const randomPart = Array.from(buffer, (value) => value.toString(16).padStart(8, '0')).join('');
+      return `${prefix}${randomPart}`;
+    }
+
+    return `${prefix}${Date.now().toString(16)}-${Math.random().toString(16).slice(2)}`;
+  }
+
   function createPendingAttachment(file: File): PendingAttachment {
     return {
-      id: crypto.randomUUID(),
+      id: createClientId(),
       file,
       previewUrl: URL.createObjectURL(file)
     };
@@ -217,7 +234,7 @@
     }));
 
     const optimisticMessage: ChatMessage = {
-      id: `pending-${crypto.randomUUID()}`,
+      id: createClientId('pending-'),
       role: 'user',
       content: draftMessage,
       createdAt: new Date().toISOString(),
