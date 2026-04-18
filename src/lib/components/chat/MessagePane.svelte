@@ -170,25 +170,27 @@
               {/each}
             </div>
           {/if}
-          <div class="message-meta">Status: {message.status}</div>
+          {#if message.status !== 'complete'}
+            <div class="message-meta">Status: {message.status}</div>
+          {/if}
 
           {#if message.role === 'assistant'}
             {@const stats = buildMessageStats(message, index)}
             <div class="assistant-meta-row">
-              <div class="assistant-model-badges">
+              <div class="assistant-meta-cluster assistant-model-badges">
                 <div class="assistant-model-badge assistant-model-name" title={`${modelDisplayName} model`}>
-                  <Package class="h-3.5 w-3.5" />
+                  <Package class="h-3 w-3" />
                   <span>{modelDisplayName}</span>
                 </div>
 
                 {#each modelBadges as badge}
-                  <div class="assistant-model-badge">{badge}</div>
+                  <div class="assistant-model-badge assistant-model-tag">{badge}</div>
                 {/each}
               </div>
 
               {#if stats}
                 {@const view = activeStatsView(message.id)}
-                <div class="assistant-stats-row">
+                <div class="assistant-meta-cluster assistant-stats-row">
                   <div class="assistant-stats-toggle">
                     <button
                       type="button"
@@ -198,7 +200,7 @@
                       title={stats.promptTokens === null ? 'Reading metrics unavailable' : 'Reading metrics'}
                       onclick={() => setStatsView(message.id, 'reading')}
                     >
-                      <BookOpenText class="h-3.5 w-3.5" />
+                      <BookOpenText class="h-3 w-3" />
                     </button>
                     <button
                       type="button"
@@ -207,12 +209,12 @@
                       title="Generation metrics"
                       onclick={() => setStatsView(message.id, 'generation')}
                     >
-                      <Sparkles class="h-3.5 w-3.5" />
+                      <Sparkles class="h-3 w-3" />
                     </button>
                   </div>
 
                   <div class="assistant-stat-chip" title={view === 'reading' ? 'Prompt tokens' : 'Generated tokens'}>
-                    <WholeWord class="h-3.5 w-3.5" />
+                    <WholeWord class="h-3 w-3" />
                     <span>
                       {view === 'reading'
                         ? `${stats.promptTokens?.toLocaleString() ?? 0} tokens`
@@ -221,7 +223,7 @@
                   </div>
 
                   <div class="assistant-stat-chip" title={view === 'reading' ? 'Prompt processing time' : 'Generation time'}>
-                    <Clock3 class="h-3.5 w-3.5" />
+                    <Clock3 class="h-3 w-3" />
                     <span>
                       {view === 'reading'
                         ? formatDuration(stats.promptSeconds)
@@ -230,7 +232,7 @@
                   </div>
 
                   <div class="assistant-stat-chip" title={view === 'reading' ? 'Prompt processing speed' : 'Generation speed'}>
-                    <Gauge class="h-3.5 w-3.5" />
+                    <Gauge class="h-3 w-3" />
                     <span>
                       {view === 'reading'
                         ? `${(stats.promptTokensPerSecond ?? 0).toFixed(2)} t/s`
