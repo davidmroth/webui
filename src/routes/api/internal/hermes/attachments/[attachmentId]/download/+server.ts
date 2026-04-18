@@ -18,7 +18,7 @@ export async function GET({ params, request }) {
   }
 
   const body = await getAttachmentBuffer(attachment.storage_key);
-  return new Response(body, {
+  return new Response(new Uint8Array(body), {
     status: 200,
     headers: {
       'Content-Type': attachment.content_type,

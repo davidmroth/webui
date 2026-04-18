@@ -5,7 +5,7 @@
 </script>
 
 <svelte:head>
-  <title>Hermes WebUI</title>
+  <title>llama.cpp</title>
 </svelte:head>
 
 {@render children()}
