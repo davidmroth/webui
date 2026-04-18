@@ -598,9 +598,6 @@
 
         <div class="llama-header-copy">
           <div class="llama-header-title">{activeConversationTitle()}</div>
-          <div class="llama-header-subtitle">
-            Current backend preserved: session auth, MySQL conversations, Hermes queue, attachment uploads.
-          </div>
         </div>
 
         <button class="llama-toolbar-button" type="button" disabled aria-label="Settings unavailable">
