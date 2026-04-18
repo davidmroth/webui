@@ -38,6 +38,13 @@ interface EventRow {
   created_at: Date | string;
 }
 
+interface HermesQueueStatsRow {
+  queued: number;
+  processing: number;
+  acked: number;
+  stale_processing: number;
+}
+
 function toIsoString(value: Date | string): string {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
 }
@@ -220,6 +227,7 @@ export async function enqueueUserMessage(userId: string, conversationId: string,
 }
 
 export async function dequeueHermesEvent() {
+  const leaseSeconds = Math.max(30, getConfig().hermesEventLeaseSeconds);
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
@@ -232,9 +240,18 @@ export async function dequeueHermesEvent() {
        INNER JOIN users ON users.id = hermes_events.user_id
        INNER JOIN messages ON messages.id = hermes_events.message_id
        WHERE hermes_events.status = 'queued'
-       ORDER BY hermes_events.created_at ASC
+          OR (
+            hermes_events.status = 'processing'
+            AND hermes_events.claimed_at IS NOT NULL
+            AND hermes_events.claimed_at < UTC_TIMESTAMP() - INTERVAL ? SECOND
+          )
+       ORDER BY
+         CASE WHEN hermes_events.status = 'queued' THEN 0 ELSE 1 END,
+         COALESCE(hermes_events.claimed_at, hermes_events.created_at) ASC,
+         hermes_events.created_at ASC
        LIMIT 1
-       FOR UPDATE SKIP LOCKED`
+       FOR UPDATE SKIP LOCKED`,
+      [leaseSeconds]
     );
 
      const row = (rows as EventRow[])[0];
@@ -291,6 +308,35 @@ export async function ackHermesEvent(eventId: string) {
      WHERE id = :id`,
     { id: eventId }
   );
+}
+
+export async function getHermesQueueStats() {
+  const leaseSeconds = Math.max(30, getConfig().hermesEventLeaseSeconds);
+  const rows = await query<HermesQueueStatsRow>(
+    `SELECT
+       SUM(CASE WHEN status = 'queued' THEN 1 ELSE 0 END) AS queued,
+       SUM(CASE WHEN status = 'processing' THEN 1 ELSE 0 END) AS processing,
+       SUM(CASE WHEN status = 'acked' THEN 1 ELSE 0 END) AS acked,
+       SUM(
+         CASE
+           WHEN status = 'processing'
+            AND claimed_at IS NOT NULL
+            AND claimed_at < UTC_TIMESTAMP() - INTERVAL :lease_seconds SECOND
+           THEN 1
+           ELSE 0
+         END
+       ) AS stale_processing
+     FROM hermes_events`,
+    { lease_seconds: leaseSeconds }
+  );
+
+  return {
+    queued: Number(rows[0]?.queued ?? 0),
+    processing: Number(rows[0]?.processing ?? 0),
+    acked: Number(rows[0]?.acked ?? 0),
+    staleProcessing: Number(rows[0]?.stale_processing ?? 0),
+    leaseSeconds
+  };
 }
 
 export async function storeAssistantMessage(conversationId: string, content: string) {

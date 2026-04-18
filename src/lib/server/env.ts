@@ -26,6 +26,7 @@ export function getConfig() {
     objectStorageBucket: getEnv('OBJECT_STORAGE_BUCKET', 'hermes-webui'),
     sessionCookieName: getEnv('SESSION_COOKIE_NAME', 'hermes_webui_session'),
     hermesServiceToken: getEnv('HERMES_WEBCHAT_SERVICE_TOKEN', 'change-me'),
+    hermesEventLeaseSeconds: getNumber('HERMES_EVENT_LEASE_SECONDS', 120),
     bootstrapUserName: getEnv('BOOTSTRAP_USER_NAME', 'Owner'),
     bootstrapUserKey: getEnv('BOOTSTRAP_USER_KEY', 'dev-webui-key'),
     publicAppName: getEnv('PUBLIC_APP_NAME', 'Hermes WebUI')

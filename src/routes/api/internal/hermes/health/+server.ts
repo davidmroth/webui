@@ -1,5 +1,6 @@
 import { json } from '@sveltejs/kit';
 import { getConfig } from '$server/env';
+import { getHermesQueueStats } from '$server/chat';
 
 function isAuthorized(request: Request) {
   const expected = getConfig().hermesServiceToken;
@@ -12,5 +13,6 @@ export async function GET({ request }) {
     return json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  return json({ ok: true, service: 'hermes-webui' });
+  const queue = await getHermesQueueStats();
+  return json({ ok: true, service: 'hermes-webui', queue });
 }
