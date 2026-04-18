@@ -27,6 +27,13 @@ interface AttachmentRow {
   storage_key: string;
 }
 
+interface AttachmentUpload {
+  name: string;
+  type: string;
+  size: number;
+  arrayBuffer(): Promise<ArrayBuffer>;
+}
+
 interface EventRow {
   id: string;
   conversation_id: string;
@@ -100,7 +107,7 @@ async function saveAttachmentsForMessage(
   userId: string,
   conversationId: string,
   messageId: string,
-  files: File[]
+  files: AttachmentUpload[]
 ) {
   const config = getConfig();
   const stored: MessageAttachment[] = [];
@@ -362,7 +369,7 @@ export async function storeAssistantMessage(conversationId: string, content: str
 export async function storeAssistantMessageWithAttachments(
   conversationId: string,
   content: string,
-  files: File[] = []
+  files: AttachmentUpload[] = []
 ) {
   const ownerId = await getConversationOwnerId(conversationId);
   if (!ownerId) {

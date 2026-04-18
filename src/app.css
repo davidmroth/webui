@@ -230,6 +230,9 @@
   @apply bg-transparent p-0 text-sm;
 }
 .markdown-content table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
   @apply my-3 w-full border-collapse text-sm;
 }
 .markdown-content th,
@@ -238,6 +241,11 @@
 }
 .markdown-content th {
   @apply bg-muted font-semibold;
+}
+.markdown-content th,
+.markdown-content td,
+.markdown-content code {
+  overflow-wrap: anywhere;
 }
 .markdown-content hr {
   @apply border-border my-6 border-t;
@@ -650,6 +658,7 @@ a {
 .llama-message-card {
   display: grid;
   gap: 0.65rem;
+  min-width: 0;
   padding: 1rem 1.05rem;
   border: 1px solid var(--border);
   border-radius: 1.2rem;
@@ -694,6 +703,7 @@ a {
 }
 
 .llama-message-body {
+  min-width: 0;
   white-space: pre-wrap;
   font-size: 0.875rem;
   line-height: 1.55;
@@ -706,18 +716,28 @@ a {
 .attachment-stack {
   display: grid;
   gap: 0.7rem;
+  min-width: 0;
 }
 
 .attachment-card {
   display: grid;
-  grid-template-columns: auto 1fr;
+  grid-template-columns: auto minmax(0, 1fr);
   gap: 0.8rem;
   align-items: center;
+  min-width: 0;
   padding: 0.75rem;
   border: 1px solid var(--border);
   border-radius: 1rem;
   background: var(--panel-muted);
   text-decoration: none;
+}
+
+.attachment-card > div {
+  min-width: 0;
+}
+
+.attachment-card > div > div {
+  overflow-wrap: anywhere;
 }
 
 .attachment-preview {
@@ -970,6 +990,7 @@ a {
   display: flex;
   flex-wrap: wrap;
   gap: 0.3rem;
+  min-width: 0;
 }
 
 .assistant-meta-row {
@@ -977,6 +998,7 @@ a {
   flex-wrap: wrap;
   align-items: center;
   gap: 0.45rem 0.5rem;
+  min-width: 0;
   margin-top: 0.1rem;
 }
 
@@ -987,6 +1009,7 @@ a {
   align-items: center;
   gap: 0.35rem;
   flex-wrap: wrap;
+  min-width: 0;
 }
 
 .assistant-model-badge,
@@ -994,6 +1017,7 @@ a {
   display: inline-flex;
   align-items: center;
   gap: 0.28rem;
+  max-width: 100%;
   min-height: 1.45rem;
   padding: 0.12rem 0.45rem;
   border: none;
@@ -1003,6 +1027,12 @@ a {
   font-size: 0.72rem;
   line-height: 1;
   white-space: nowrap;
+}
+
+.assistant-model-badge span,
+.assistant-stat-chip span {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .assistant-model-name {

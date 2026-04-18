@@ -13,7 +13,6 @@ Initial implementation of a browser-first Hermes channel using SvelteKit, MySQL,
 
 ## What is not implemented yet
 
-- Attachment upload/download flows.
 - Streaming assistant chunks in the browser.
 - Rich message actions and llama.cpp UI feature parity.
 - Durable retry leasing for Hermes events beyond the initial queue/ack path.
@@ -44,3 +43,35 @@ Hermes uses the `webchat` adapter to poll:
 - `POST /api/internal/hermes/conversations/:id/assistant`
 
 The browser never sees the Hermes service token.
+
+Assistant replies can include files in either of these forms:
+
+1. `multipart/form-data` with one or more `attachments` file parts.
+2. `application/json` with an `attachments` array for agent-friendly delivery.
+
+JSON attachment payloads support these fields per item:
+
+- `fileName`: download name shown in the chat UI.
+- `contentType`: optional MIME type. Defaults to `text/plain; charset=utf-8` for `text` and `application/octet-stream` for `base64Data`.
+- `text`: UTF-8 text file contents.
+- `base64Data`: binary file contents encoded as base64.
+
+Example:
+
+```json
+{
+	"content": "Attached the whitepaper.",
+	"attachments": [
+		{
+			"fileName": "hisa_white_paper.md",
+			"contentType": "text/markdown; charset=utf-8",
+			"text": "# HISA\n\n..."
+		},
+		{
+			"fileName": "chart.png",
+			"contentType": "image/png",
+			"base64Data": "iVBORw0KGgoAAAANSUhEUgAA..."
+		}
+	]
+}
+```
