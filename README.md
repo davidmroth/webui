@@ -75,3 +75,14 @@ Example:
 	]
 }
 ```
+
+If your Hermes adapter is outside this repository, you can still exercise the sender side from here:
+
+```bash
+npm run post-assistant-message -- \
+	--conversation 123e4567-e89b-12d3-a456-426614174000 \
+	--content "Attached the whitepaper." \
+	--file /tmp/hisa_white_paper.md
+```
+
+The helper script reads `HERMES_WEBCHAT_SERVICE_TOKEN` from the environment and posts JSON attachments to the internal assistant endpoint. Set `WEBUI_BASE_URL` if Hermes reaches the webui on a non-default address such as `http://webui:3000` inside Docker.
