@@ -27,6 +27,14 @@ Initial implementation of a browser-first Hermes channel using SvelteKit, MySQL,
 6. Open `http://localhost:3000` by default, or use whatever value you set for `WEBUI_PORT` in `.env`. If you access the dev server through a custom hostname such as `ai.local`, add it to `__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS` in `.env`. The exposed MySQL and MinIO ports are also configurable there. `MYSQL_HOST_PORT` only changes the port published to your host machine; the `webui` container still connects to the `mysql` service on internal port `3306` so host-port changes do not break container-to-container traffic.
 7. Sign in with the bootstrap key from `.env`.
 
+### Maintenance page
+
+Set `MAINTENANCE_TOKEN` in `.env` to enable the token-gated maintenance page at `/maintenance`.
+
+- You can unlock it with the form on the page or by opening `/maintenance?token=YOUR_TOKEN` once; that sets an HttpOnly cookie and redirects to a clean URL.
+- The page exposes build metadata, runtime details, Hermes queue stats, database counts, object-storage status, and a raw JSON snapshot for debugging deployment mismatches.
+- `MAINTENANCE_COOKIE_NAME` lets you override the cookie name if you need to run multiple instances side by side.
+
 Optional llama-style display badges can be configured with `PUBLIC_MODEL_DISPLAY_NAME`, `PUBLIC_MODEL_SIZE_LABEL`, `PUBLIC_MODEL_CAPABILITY_LABEL`, and `PUBLIC_MODEL_FILE_LABEL`. These only affect the frontend metadata row shown under assistant messages.
 
 The app runs versioned database migrations and records them in `schema_migrations`. Existing MySQL volumes are upgraded automatically on startup, and you can also run them explicitly during deploys with `docker compose exec webui npm run migrate`. If you run the CLI from the host shell instead, override `DATABASE_HOST` and `DATABASE_PORT` to point at the host-exposed MySQL port, which defaults to `MYSQL_HOST_PORT`.
@@ -43,6 +51,8 @@ Hermes uses the `webchat` adapter to poll:
 - `POST /api/internal/hermes/conversations/:id/assistant`
 
 The browser never sees the Hermes service token.
+
+The maintenance page is separate from the browser login flow and uses `MAINTENANCE_TOKEN`, not `BOOTSTRAP_USER_KEY` or `HERMES_WEBCHAT_SERVICE_TOKEN`.
 
 Assistant replies can include files in either of these forms:
 

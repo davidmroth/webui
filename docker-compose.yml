@@ -3,6 +3,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    restart: always
     command: sh -c "npm install && npm run dev"
     working_dir: /app
     ports:
@@ -44,6 +45,7 @@ services:
 
   minio:
     image: minio/minio:latest
+    restart: always
     command: server /data --console-address ":9001"
     ports:
       - "${MINIO_API_PORT:-9000}:9000"
