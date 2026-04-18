@@ -31,13 +31,15 @@
     copiedMessageId?: string | null;
     onCopy?: (message: ChatMessage) => void;
     scrollContainer?: HTMLDivElement | null;
+    onScroll?: () => void;
   }
 
   let {
     messages,
     copiedMessageId = null,
     onCopy,
-    scrollContainer = $bindable(null)
+    scrollContainer = $bindable(null),
+    onScroll
   }: Props = $props();
   let statsViewByMessageId = $state<Record<string, StatsView>>({});
 
@@ -123,7 +125,7 @@
   }
 </script>
 
-<div bind:this={scrollContainer} class="llama-message-scroll">
+<div bind:this={scrollContainer} class="llama-message-scroll" onscroll={onScroll}>
   <div class="llama-message-stack">
     {#if messages.length === 0}
       <div class="card" style="padding: 1rem; color: var(--text-muted);">
@@ -251,21 +253,21 @@
               title={copiedMessageId === message.id ? 'Copied' : 'Copy'}
               onclick={() => onCopy?.(message)}
             >
-              <Copy class="h-4 w-4" />
+              <Copy class="h-3 w-3" />
             </button>
             <button class="message-action-icon disabled" type="button" title="Edit unavailable" disabled>
-              <Edit class="h-4 w-4" />
+              <Edit class="h-3 w-3" />
             </button>
             {#if message.role === 'assistant'}
               <button class="message-action-icon disabled" type="button" title="Regenerate unavailable" disabled>
-                <RefreshCw class="h-4 w-4" />
+                <RefreshCw class="h-3 w-3" />
               </button>
             {/if}
             <button class="message-action-icon disabled" type="button" title="Branch unavailable" disabled>
-              <GitBranch class="h-4 w-4" />
+              <GitBranch class="h-3 w-3" />
             </button>
             <button class="message-action-icon disabled" type="button" title="Delete unavailable" disabled>
-              <Trash2 class="h-4 w-4" />
+              <Trash2 class="h-3 w-3" />
             </button>
           </div>
         </div>

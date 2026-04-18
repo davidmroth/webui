@@ -1,5 +1,21 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
+  import {
+    ArrowUp,
+    Database,
+    File as FileIcon,
+    FileText,
+    Image,
+    MessageSquareText,
+    Mic,
+    PanelLeft,
+    PlugZap,
+    Search,
+    Settings2,
+    Sparkles,
+    Square,
+    SquarePen
+  } from '@lucide/svelte';
   import ConversationList from '$components/chat/ConversationList.svelte';
   import MessagePane from '$components/chat/MessagePane.svelte';
   import type { ChatMessage, ConversationSummary } from '$lib/types';
@@ -26,6 +42,9 @@
   let composerElement = $state<HTMLTextAreaElement | null>(null);
   let messageScrollElement = $state<HTMLDivElement | null>(null);
   let attachmentInput = $state<HTMLInputElement | null>(null);
+  let shouldAutoScroll = $state(true);
+
+  const AUTO_SCROLL_AT_BOTTOM_THRESHOLD = 10;
 
   $effect(() => {
     currentConversationId = data.currentConversationId;
@@ -44,6 +63,34 @@
 
   function activeConversationTitle() {
     return conversations.find((conversation) => conversation.id === currentConversationId)?.title ?? 'New chat';
+  }
+
+  function isNearBottom() {
+    if (!messageScrollElement) {
+      return true;
+    }
+
+    const distanceFromBottom =
+      messageScrollElement.scrollHeight - messageScrollElement.clientHeight - messageScrollElement.scrollTop;
+
+    return distanceFromBottom < AUTO_SCROLL_AT_BOTTOM_THRESHOLD;
+  }
+
+  function handleMessageScroll() {
+    shouldAutoScroll = isNearBottom();
+  }
+
+  async function scrollMessagesToBottom(behavior: ScrollBehavior = 'auto') {
+    await tick();
+    if (!messageScrollElement) {
+      return;
+    }
+
+    messageScrollElement.scrollTo({
+      top: messageScrollElement.scrollHeight,
+      behavior
+    });
+    shouldAutoScroll = true;
   }
 
   function setChatUrl(conversationId: string | null) {
@@ -156,7 +203,10 @@
     conversations = payload.conversations;
   }
 
-  async function loadMessages(conversationId: string | null) {
+  async function loadMessages(conversationId: string | null, options: { forceScroll?: boolean } = {}) {
+    const previousScrollTop = messageScrollElement?.scrollTop ?? 0;
+    const shouldStickToBottom = options.forceScroll ?? isNearBottom();
+
     if (!conversationId) {
       messages = [];
       return;
@@ -171,7 +221,13 @@
     messages = payload.messages;
     await tick();
     if (messageScrollElement) {
-      messageScrollElement.scrollTop = messageScrollElement.scrollHeight;
+      if (shouldStickToBottom) {
+        messageScrollElement.scrollTop = messageScrollElement.scrollHeight;
+        shouldAutoScroll = true;
+      } else {
+        messageScrollElement.scrollTop = previousScrollTop;
+        shouldAutoScroll = false;
+      }
     }
   }
 
@@ -183,7 +239,7 @@
     currentConversationId = conversationId;
     errorMessage = null;
     setChatUrl(conversationId);
-    await loadMessages(conversationId);
+    await loadMessages(conversationId, { forceScroll: true });
     focusComposer();
   }
 
@@ -243,10 +299,7 @@
     };
 
     messages = [...messages, optimisticMessage];
-    await tick();
-    if (messageScrollElement) {
-      messageScrollElement.scrollTop = messageScrollElement.scrollHeight;
-    }
+    await scrollMessagesToBottom();
 
     const filesToSend = [...pendingFiles];
     const originalDraft = draftMessage;
@@ -297,7 +350,7 @@
       }
 
       await refreshConversations();
-      await loadMessages(conversationId);
+      await loadMessages(conversationId, { forceScroll: true });
       revokePendingFiles(filesToSend);
       focusComposer();
     } catch (error) {
@@ -371,7 +424,7 @@
     const handlePopState = async () => {
       const url = new URL(window.location.href);
       currentConversationId = url.searchParams.get('conversation');
-      await loadMessages(currentConversationId);
+      await loadMessages(currentConversationId, { forceScroll: true });
     };
 
     tick().then(() => {
@@ -397,17 +450,17 @@
 
       <div class="llama-nav">
         <button class="llama-nav-item" type="button" onclick={startNewChat}>
-          <span class="llama-nav-icon">✎</span>
+          <span class="llama-nav-icon"><SquarePen class="h-4 w-4" /></span>
           <span>New chat</span>
         </button>
 
         <label class="llama-search-input">
-          <span class="llama-nav-icon">⌕</span>
+          <span class="llama-nav-icon"><Search class="h-4 w-4" /></span>
           <input bind:value={searchQuery} placeholder="Search" />
         </label>
 
         <div class="llama-nav-item disabled" aria-disabled="true">
-          <span class="llama-nav-icon">⛓</span>
+          <span class="llama-nav-icon"><PlugZap class="h-4 w-4" /></span>
           <span>MCP Servers</span>
         </div>
       </div>
@@ -434,7 +487,7 @@
     <section class="llama-main">
       <div class="llama-topbar">
         <button class="llama-toolbar-button" type="button" disabled aria-label="Sidebar controls unavailable">
-          ◫
+          <PanelLeft class="h-4 w-4" />
         </button>
 
         <div class="llama-header-copy">
@@ -445,7 +498,7 @@
         </div>
 
         <button class="llama-toolbar-button" type="button" disabled aria-label="Settings unavailable">
-          ⚙
+          <Settings2 class="h-4 w-4" />
         </button>
       </div>
 
@@ -469,6 +522,7 @@
               messages={messages}
               copiedMessageId={copiedMessageId}
               onCopy={copyMessage}
+              onScroll={handleMessageScroll}
             />
           {/if}
 
@@ -514,14 +568,14 @@
                       <div class="attachment-menu-popover">
                         <div class="attachment-menu-list">
                           <button class="attachment-menu-item" type="button" onclick={() => openAttachmentPicker('image/*')}>
-                            <span class="menu-item-icon">▣</span>
+                            <span class="menu-item-icon"><Image class="h-4 w-4" /></span>
                             <span class="menu-item-copy">
                               <span class="menu-item-label">Images</span>
                             </span>
                           </button>
 
                           <div class="disabled-menu-item" aria-disabled="true">
-                            <span class="menu-item-icon">◌</span>
+                            <span class="menu-item-icon"><Mic class="h-4 w-4" /></span>
                             <span class="menu-item-copy">
                               <span class="menu-item-label">Audio Files</span>
                               <span class="menu-item-note">Current backend does not support capture or audio workflows yet.</span>
@@ -529,21 +583,21 @@
                           </div>
 
                           <button class="attachment-menu-item" type="button" onclick={() => openAttachmentPicker('.txt,.md,.json,.csv,.xml,.yaml,.yml,.js,.ts,.py,.rb,.go,.java,.c,.cpp,.rs')}>
-                            <span class="menu-item-icon">▤</span>
+                            <span class="menu-item-icon"><FileText class="h-4 w-4" /></span>
                             <span class="menu-item-copy">
                               <span class="menu-item-label">Text Files</span>
                             </span>
                           </button>
 
                           <button class="attachment-menu-item" type="button" onclick={() => openAttachmentPicker('.pdf,application/pdf')}>
-                            <span class="menu-item-icon">◫</span>
+                            <span class="menu-item-icon"><FileIcon class="h-4 w-4" /></span>
                             <span class="menu-item-copy">
                               <span class="menu-item-label">PDF Files</span>
                             </span>
                           </button>
 
                           <div class="disabled-menu-item" aria-disabled="true">
-                            <span class="menu-item-icon">☰</span>
+                            <span class="menu-item-icon"><MessageSquareText class="h-4 w-4" /></span>
                             <span class="menu-item-copy">
                               <span class="menu-item-label">System Message</span>
                               <span class="menu-item-note">Visible for parity, not wired to Hermes yet.</span>
@@ -553,7 +607,7 @@
                           <div class="menu-divider"></div>
 
                           <div class="disabled-menu-item" aria-disabled="true">
-                            <span class="menu-item-icon">⛓</span>
+                            <span class="menu-item-icon"><PlugZap class="h-4 w-4" /></span>
                             <span class="menu-item-copy">
                               <span class="menu-item-label">MCP Servers</span>
                               <span class="menu-item-note">Greyed out until backend support exists.</span>
@@ -574,19 +628,23 @@
 
                   <div class="llama-status-chips">
                     <div class="llama-chip">
-                      <span class="chip-icon">◉</span>
+                      <span class="chip-icon"><Sparkles class="h-3.5 w-3.5" /></span>
                       <span>Hermes queue</span>
                     </div>
                     <div class="llama-chip">
-                      <span class="chip-icon">⌁</span>
+                      <span class="chip-icon"><Database class="h-3.5 w-3.5" /></span>
                       <span>Server stored</span>
                     </div>
                     <div class="llama-chip disabled">
-                      <span class="chip-icon">⚙</span>
+                      <span class="chip-icon"><Settings2 class="h-3.5 w-3.5" /></span>
                       <span>Model controls unavailable</span>
                     </div>
                     <button class="send-button" type="submit" aria-label="Send message" disabled={isSending}>
-                      {#if isSending}■{:else}↑{/if}
+                      {#if isSending}
+                        <Square class="h-3.5 w-3.5" />
+                      {:else}
+                        <ArrowUp class="h-3.5 w-3.5" />
+                      {/if}
                     </button>
                   </div>
                 </div>
