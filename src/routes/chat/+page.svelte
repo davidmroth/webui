@@ -43,6 +43,7 @@
   let messageScrollElement = $state<HTMLDivElement | null>(null);
   let attachmentInput = $state<HTMLInputElement | null>(null);
   let shouldAutoScroll = $state(true);
+  let sidebarCollapsed = $state(false);
 
   const AUTO_SCROLL_AT_BOTTOM_THRESHOLD = 10;
 
@@ -444,7 +445,7 @@
 </script>
 
 <div class="shell">
-  <div class="llama-frame">
+  <div class="llama-frame" class:sidebar-collapsed={sidebarCollapsed}>
     <aside class="llama-sidebar">
       <div class="llama-brand">llama.cpp</div>
 
@@ -486,7 +487,12 @@
 
     <section class="llama-main">
       <div class="llama-topbar">
-        <button class="llama-toolbar-button" type="button" disabled aria-label="Sidebar controls unavailable">
+        <button
+          class="llama-toolbar-button"
+          type="button"
+          aria-label={sidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'}
+          onclick={() => (sidebarCollapsed = !sidebarCollapsed)}
+        >
           <PanelLeft class="h-4 w-4" />
         </button>
 

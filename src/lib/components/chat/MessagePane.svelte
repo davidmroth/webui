@@ -14,6 +14,7 @@
   } from '@lucide/svelte';
   import { env as publicEnv } from '$env/dynamic/public';
   import type { ChatMessage } from '$lib/types-legacy';
+  import { renderMarkdown } from '$lib/utils/markdown';
 
   type StatsView = 'reading' | 'generation';
 
@@ -146,7 +147,11 @@
             </div>
           </div>
           {#if message.content}
-            <div class="llama-message-body">{message.content}</div>
+            {#if message.role === 'assistant'}
+              <div class="llama-message-body markdown-content">{@html renderMarkdown(message.content)}</div>
+            {:else}
+              <div class="llama-message-body">{message.content}</div>
+            {/if}
           {/if}
           {#if message.attachments.length > 0}
             <div class="attachment-stack">
