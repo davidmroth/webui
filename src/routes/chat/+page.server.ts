@@ -1,5 +1,11 @@
 import { fail, redirect } from '@sveltejs/kit';
-import { createConversation, enqueueUserMessage, listConversations, listMessages } from '$server/chat';
+import {
+  createConversation,
+  enqueueUserMessage,
+  isConversationBusy,
+  listConversations,
+  listMessages
+} from '$server/chat';
 import { requireSession } from '$server/auth';
 
 export async function load(event) {
@@ -7,13 +13,19 @@ export async function load(event) {
   const conversations = await listConversations(session.userId);
   const requestedConversation = event.url.searchParams.get('conversation');
   const currentConversationId = requestedConversation || conversations[0]?.id || null;
-  const messages = currentConversationId ? await listMessages(session.userId, currentConversationId) : [];
+  const [messages, assistantBusy] = currentConversationId
+    ? await Promise.all([
+        listMessages(session.userId, currentConversationId),
+        isConversationBusy(session.userId, currentConversationId)
+      ])
+    : [[], false];
 
   return {
     session,
     conversations,
     currentConversationId,
-    messages
+    messages,
+    assistantBusy
   };
 }
 

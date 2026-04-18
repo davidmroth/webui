@@ -39,6 +39,7 @@
   let conversations = $state<ConversationSummary[]>([]);
   let pendingFiles = $state<PendingAttachment[]>([]);
   let pendingAssistantByConversation = $state<Record<string, PendingAssistantState>>({});
+  let serverAssistantBusyByConversation = $state<Record<string, boolean>>({});
   let attachmentMenuOpen = $state(false);
   let searchQuery = $state('');
   let draftMessage = $state('');
@@ -59,6 +60,12 @@
     currentConversationId = data.currentConversationId;
     messages = data.messages;
     conversations = data.conversations;
+    if (data.currentConversationId) {
+      serverAssistantBusyByConversation = {
+        ...serverAssistantBusyByConversation,
+        [data.currentConversationId]: Boolean(data.assistantBusy)
+      };
+    }
   });
 
   const filteredConversations = $derived.by(() => {
@@ -84,7 +91,8 @@
   });
 
   const isAssistantBusy = $derived(
-    displayMessages.some((message) => message.role === 'assistant' && message.status === 'streaming')
+    displayMessages.some((message) => message.role === 'assistant' && message.status === 'streaming') ||
+      (currentConversationId ? serverAssistantBusyByConversation[currentConversationId] === true : false)
   );
 
   const showJumpToBottom = $derived(displayMessages.length > 0 && !shouldAutoScroll);
@@ -297,6 +305,10 @@
     const payload = await response.json();
     syncPendingAssistant(conversationId, payload.messages);
     messages = payload.messages;
+    serverAssistantBusyByConversation = {
+      ...serverAssistantBusyByConversation,
+      [conversationId]: Boolean(payload.assistantBusy)
+    };
     await tick();
     if (messageScrollElement) {
       if (shouldStickToBottom) {

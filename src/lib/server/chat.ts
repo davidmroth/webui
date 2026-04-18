@@ -159,8 +159,15 @@ async function saveAttachmentsForMessage(
 }
 
 export async function listConversations(userId: string): Promise<ConversationSummary[]> {
-  const rows = await query<ConversationRow>(
-    `SELECT id, title, updated_at
+  const rows = await query<ConversationRow & { assistant_busy: number | string }>(
+    `SELECT conversations.id,
+            conversations.title,
+            conversations.updated_at,
+            EXISTS (
+              SELECT 1 FROM hermes_events
+              WHERE hermes_events.conversation_id = conversations.id
+                AND hermes_events.status IN ('queued', 'processing')
+            ) AS assistant_busy
      FROM conversations
      WHERE user_id = :user_id
      ORDER BY updated_at DESC`,
@@ -170,7 +177,8 @@ export async function listConversations(userId: string): Promise<ConversationSum
   return rows.map((row) => ({
     id: row.id,
     title: row.title,
-    updatedAt: toIsoString(row.updated_at)
+    updatedAt: toIsoString(row.updated_at),
+    assistantBusy: Number(row.assistant_busy) > 0
   }));
 }
 
@@ -203,6 +211,20 @@ export async function listMessages(userId: string, conversationId: string): Prom
     status: row.status,
     attachments: attachmentsByMessageId.get(row.id) ?? []
   }));
+}
+
+export async function isConversationBusy(userId: string, conversationId: string): Promise<boolean> {
+  const rows = await query<{ pending: number | string }>(
+    `SELECT COUNT(*) AS pending
+     FROM hermes_events
+     INNER JOIN conversations ON conversations.id = hermes_events.conversation_id
+     WHERE hermes_events.conversation_id = :conversation_id
+       AND conversations.user_id = :user_id
+       AND hermes_events.status IN ('queued', 'processing')`,
+    { conversation_id: conversationId, user_id: userId }
+  );
+  const pending = Number(rows[0]?.pending ?? 0);
+  return pending > 0;
 }
 
 export async function enqueueUserMessage(userId: string, conversationId: string, content: string, files: File[] = []) {

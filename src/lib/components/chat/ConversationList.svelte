@@ -23,11 +23,19 @@
         class="llama-conversation-link"
         onclick={() => onSelect?.(conversation.id)}
       >
-        <div class="llama-conversation-title">{conversation.title}</div>
+        <div class="llama-conversation-title">
+          {#if conversation.assistantBusy}
+            <span class="llama-conversation-busy" aria-label="Agent working" title="Agent working"></span>
+          {/if}
+          {conversation.title}
+        </div>
         <div class="llama-conversation-meta">
           {new Date(conversation.updatedAt).toLocaleDateString([], { month: 'short', day: 'numeric' })}
           ·
           {new Date(conversation.updatedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+          {#if conversation.assistantBusy}
+            · <span class="llama-conversation-busy-label">working</span>
+          {/if}
         </div>
       </button>
     {/each}

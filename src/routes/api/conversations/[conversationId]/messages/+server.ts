@@ -1,11 +1,14 @@
 import { json } from '@sveltejs/kit';
-import { enqueueUserMessage, listMessages } from '$server/chat';
+import { enqueueUserMessage, isConversationBusy, listMessages } from '$server/chat';
 import { requireSession } from '$server/auth';
 
 export async function GET(event) {
   const session = await requireSession(event);
-  const messages = await listMessages(session.userId, event.params.conversationId);
-  return json({ messages });
+  const [messages, assistantBusy] = await Promise.all([
+    listMessages(session.userId, event.params.conversationId),
+    isConversationBusy(session.userId, event.params.conversationId)
+  ]);
+  return json({ messages, assistantBusy });
 }
 
 export async function POST(event) {
