@@ -1627,6 +1627,13 @@ a {
     transform: translateX(0);
     transition: transform 220ms ease, opacity 220ms ease;
     box-shadow: 0 24px 60px rgba(0, 0, 0, 0.18);
+    /* Drawer must be fully opaque so content behind it doesn't bleed through. */
+    background: var(--panel-strong, #ffffff);
+    backdrop-filter: none;
+  }
+
+  :root.dark .llama-sidebar {
+    background: var(--panel-strong, #15161a);
   }
 
   /* sidebar-collapsed = closed drawer on mobile */
