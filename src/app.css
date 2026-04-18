@@ -506,10 +506,9 @@ a {
   height: calc(100dvh - 1.5rem);
   min-height: 0;
   overflow: hidden;
-  border: 1px solid var(--border);
-  border-radius: 1.9rem;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.75), rgba(248, 246, 241, 0.92));
-  backdrop-filter: blur(20px);
+  border: none;
+  border-radius: 0;
+  background: transparent;
   transition: grid-template-columns 200ms ease;
 }
 
