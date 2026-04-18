@@ -883,16 +883,6 @@
                   ></textarea>
 
                   <div class="llama-composer-actions llama-composer-actions-right">
-                    {#if isAssistantBusy}
-                      <div class="llama-chip busy" role="status" aria-live="polite">
-                        <span class="chip-loader" aria-hidden="true">
-                          <span></span>
-                          <span></span>
-                          <span></span>
-                        </span>
-                        <span>Assistant busy</span>
-                      </div>
-                    {/if}
                     <button class="send-button" type="submit" aria-label="Send message" disabled={isSending}>
                       {#if isSending}
                         <Square class="h-3.5 w-3.5" />

@@ -914,13 +914,22 @@ a {
 
 .llama-message-row.user {
   justify-self: end;
-  width: min(100%, 44rem);
+  width: auto;
+  max-width: min(100%, 44rem);
+}
+
+.llama-message-row.user > .llama-message-card {
+  background: var(--panel-strong);
+  border-radius: 1.4rem;
+  padding: 0.7rem 1rem;
+  width: fit-content;
+  margin-left: auto;
 }
 
 .llama-message-row.assistant,
 .llama-message-row.system {
-  justify-self: start;
-  width: min(100%, 48rem);
+  justify-self: stretch;
+  width: 100%;
 }
 
 .llama-message-header {
