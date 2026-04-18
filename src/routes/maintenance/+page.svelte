@@ -31,6 +31,16 @@
   function pretty(value: unknown) {
     return JSON.stringify(value, null, 2);
   }
+
+  function verdictClasses(code: string) {
+    if (code === 'receiver-ready') {
+      return 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300';
+    }
+    if (code === 'upstream-likely') {
+      return 'bg-amber-500/15 text-amber-700 dark:text-amber-300';
+    }
+    return 'bg-destructive/15 text-destructive';
+  }
 </script>
 
 <svelte:head>
@@ -190,6 +200,49 @@
               {#if snapshot.storage.error}
                 <p class="mt-3 text-sm text-destructive">{snapshot.storage.error}</p>
               {/if}
+            </div>
+          </div>
+        </div>
+
+        <div class="rounded-xl border border-border bg-card p-5 shadow-sm">
+          <h2 class="text-lg font-semibold">File delivery diagnosis</h2>
+          <p class="mt-2 text-sm text-muted-foreground">
+            Receiver-side diagnosis only. This verifies what webui can prove locally, not the live Hermes sender target or tool schema.
+          </p>
+
+          <div class="mt-4 rounded-lg border border-border bg-muted/40 p-4">
+            <div class="flex items-start justify-between gap-3">
+              <div>
+                <div class="font-medium">{snapshot.fileDeliveryDiagnosis.verdict}</div>
+                <p class="mt-1 text-sm text-muted-foreground">{snapshot.fileDeliveryDiagnosis.summary}</p>
+              </div>
+              <span class={`rounded-full px-2 py-1 text-xs font-medium ${verdictClasses(snapshot.fileDeliveryDiagnosis.code)}`}>
+                {snapshot.fileDeliveryDiagnosis.code}
+              </span>
+            </div>
+
+            <div class="mt-4 grid gap-3 md:grid-cols-2">
+              <div class="rounded-md bg-background p-3 text-sm">
+                <div><span class="font-medium">Metadata mode:</span> {snapshot.build.metadataMode}</div>
+                <div><span class="font-medium">Last attachment:</span> {snapshot.database.attachmentStats.lastAttachmentAt ?? 'never'}</div>
+                <div><span class="font-medium">Last assistant attachment:</span> {snapshot.database.attachmentStats.lastAssistantAttachmentAt ?? 'never'}</div>
+                <div><span class="font-medium">Assistant attachment signal:</span> {snapshot.database.attachmentStats.assistantAttachmentSignal}</div>
+              </div>
+              <div class="rounded-md bg-background p-3 text-sm">
+                <div><span class="font-medium">Total attachments:</span> {snapshot.database.attachmentStats.totalCount}</div>
+                <div><span class="font-medium">Assistant attachments:</span> {snapshot.database.attachmentStats.assistantCount}</div>
+                <div><span class="font-medium">User attachments:</span> {snapshot.database.attachmentStats.userCount}</div>
+                <div><span class="font-medium">Verification scope:</span> {snapshot.fileDeliveryDiagnosis.verificationScope}</div>
+              </div>
+            </div>
+
+            <div class="mt-4 grid gap-2 text-sm">
+              <div><span class="font-medium">Database OK:</span> {snapshot.fileDeliveryDiagnosis.checks.databaseOk ? 'yes' : 'no'}</div>
+              <div><span class="font-medium">Storage OK:</span> {snapshot.fileDeliveryDiagnosis.checks.storageOk ? 'yes' : 'no'}</div>
+              <div><span class="font-medium">Bucket exists:</span> {snapshot.fileDeliveryDiagnosis.checks.bucketExists ? 'yes' : 'no'}</div>
+              <div><span class="font-medium">Hermes token configured:</span> {snapshot.fileDeliveryDiagnosis.checks.hermesServiceTokenConfigured ? 'yes' : 'no'}</div>
+              <div><span class="font-medium">Queue not stuck:</span> {snapshot.fileDeliveryDiagnosis.checks.queueNotStuck ? 'yes' : 'no'}</div>
+              <div><span class="font-medium">Sender config verified:</span> {snapshot.fileDeliveryDiagnosis.senderConfigVerified ? 'yes' : 'no'}</div>
             </div>
           </div>
         </div>
