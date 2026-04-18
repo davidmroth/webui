@@ -3,6 +3,7 @@ import { execute, query } from './migrations/helpers';
 import { migration as baseSchemaMigration } from './migrations/001_base_schema';
 import { migration as attachmentMessageLinkMigration } from './migrations/002_attachment_message_link';
 import { migration as attachmentTableContractMigration } from './migrations/003_attachment_table_contract';
+import { migration as llamacppParityMigration } from './migrations/004_llamacpp_parity';
 
 interface SchemaMigrationRow {
   id: string;
@@ -22,7 +23,8 @@ let schemaReadyPromise: Promise<void> | null = null;
 const migrations: Migration[] = [
   baseSchemaMigration,
   attachmentMessageLinkMigration,
-  attachmentTableContractMigration
+  attachmentTableContractMigration,
+  llamacppParityMigration
 ];
 
 export async function runDatabaseMigrations(): Promise<MigrationResult> {

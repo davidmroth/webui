@@ -13,7 +13,7 @@
     WholeWord
   } from '@lucide/svelte';
   import { env as publicEnv } from '$env/dynamic/public';
-  import type { ChatMessage } from '$lib/types';
+  import type { ChatMessage } from '$lib/types-legacy';
 
   type StatsView = 'reading' | 'generation';
 

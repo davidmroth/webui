@@ -1,11 +1,19 @@
 <script lang="ts">
   import '../app.css';
+  import { ModeWatcher } from 'mode-watcher';
+  import { Toaster } from 'svelte-sonner';
+  import * as Tooltip from '$lib/components/ui/tooltip';
 
-  let { data, children } = $props();
+  let { children } = $props();
 </script>
 
 <svelte:head>
-  <title>llama.cpp</title>
+  <title>Hermes</title>
 </svelte:head>
 
-{@render children()}
+<ModeWatcher />
+<Toaster richColors position="bottom-right" />
+
+<Tooltip.Provider delayDuration={200}>
+  {@render children()}
+</Tooltip.Provider>

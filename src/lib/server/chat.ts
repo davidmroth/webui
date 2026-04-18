@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { execute, pool, query } from './db';
 import { getConfig } from './env';
 import { getObjectBuffer, uploadObject } from './storage';
-import type { ChatMessage, ConversationSummary, MessageAttachment } from '$lib/types';
+import type { ChatMessage, ConversationSummary, MessageAttachment } from '$lib/types-legacy';
 
 interface ConversationRow {
   id: string;

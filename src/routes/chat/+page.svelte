@@ -18,7 +18,7 @@
   } from '@lucide/svelte';
   import ConversationList from '$components/chat/ConversationList.svelte';
   import MessagePane from '$components/chat/MessagePane.svelte';
-  import type { ChatMessage, ConversationSummary } from '$lib/types';
+  import type { ChatMessage, ConversationSummary } from '$lib/types-legacy';
 
   type PendingAttachment = {
     id: string;

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { ConversationSummary } from '$lib/types';
+  import type { ConversationSummary } from '$lib/types-legacy';
 
   interface Props {
     conversations: ConversationSummary[];
