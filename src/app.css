@@ -1,5 +1,7 @@
 @import 'tailwindcss';
 @import 'tw-animate-css';
+@import 'katex/dist/katex.min.css';
+@import 'highlight.js/styles/github.css';
 
 @custom-variant dark (&:is(.dark *));
 
@@ -251,6 +253,91 @@
   @apply border-border my-6 border-t;
 }
 
+/* Highlight.js — make GitHub-light theme respect our token surfaces and
+   provide a dark variant via the .dark class (mode-watcher). */
+.markdown-content .hljs,
+.hljs {
+  background: var(--code-background);
+  color: var(--code-foreground);
+}
+
+:is(.dark *) .hljs {
+  color: #c9d1d9;
+}
+:is(.dark *) .hljs-doctag,
+:is(.dark *) .hljs-keyword,
+:is(.dark *) .hljs-meta .hljs-keyword,
+:is(.dark *) .hljs-template-tag,
+:is(.dark *) .hljs-template-variable,
+:is(.dark *) .hljs-type,
+:is(.dark *) .hljs-variable.language_ {
+  color: #ff7b72;
+}
+:is(.dark *) .hljs-title,
+:is(.dark *) .hljs-title.class_,
+:is(.dark *) .hljs-title.class_.inherited__,
+:is(.dark *) .hljs-title.function_ {
+  color: #d2a8ff;
+}
+:is(.dark *) .hljs-attr,
+:is(.dark *) .hljs-attribute,
+:is(.dark *) .hljs-literal,
+:is(.dark *) .hljs-meta,
+:is(.dark *) .hljs-number,
+:is(.dark *) .hljs-operator,
+:is(.dark *) .hljs-variable,
+:is(.dark *) .hljs-selector-attr,
+:is(.dark *) .hljs-selector-class,
+:is(.dark *) .hljs-selector-id {
+  color: #79c0ff;
+}
+:is(.dark *) .hljs-string,
+:is(.dark *) .hljs-meta .hljs-string,
+:is(.dark *) .hljs-regexp {
+  color: #a5d6ff;
+}
+:is(.dark *) .hljs-built_in,
+:is(.dark *) .hljs-symbol {
+  color: #ffa657;
+}
+:is(.dark *) .hljs-comment,
+:is(.dark *) .hljs-code,
+:is(.dark *) .hljs-formula {
+  color: #8b949e;
+}
+:is(.dark *) .hljs-name,
+:is(.dark *) .hljs-quote,
+:is(.dark *) .hljs-selector-tag,
+:is(.dark *) .hljs-selector-pseudo {
+  color: #7ee787;
+}
+:is(.dark *) .hljs-subst {
+  color: #c9d1d9;
+}
+:is(.dark *) .hljs-section {
+  color: #1f6feb;
+  font-weight: bold;
+}
+:is(.dark *) .hljs-bullet {
+  color: #f2cc60;
+}
+:is(.dark *) .hljs-emphasis {
+  color: #c9d1d9;
+  font-style: italic;
+}
+:is(.dark *) .hljs-strong {
+  color: #c9d1d9;
+  font-weight: bold;
+}
+:is(.dark *) .hljs-addition {
+  color: #aff5b4;
+  background-color: #033a16;
+}
+:is(.dark *) .hljs-deletion {
+  color: #ffdcd7;
+  background-color: #67060c;
+}
+
 /* === Legacy chat page styles (TO BE REMOVED IN PHASE 6) === */
 :root {
   color-scheme: light;
@@ -274,6 +361,27 @@
   font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
+:root.dark {
+  color-scheme: dark;
+  --bg: #0f0f10;
+  --bg-accent: #18181a;
+  --panel: rgba(28, 28, 30, 0.82);
+  --panel-strong: rgba(34, 34, 36, 0.94);
+  --panel-muted: rgba(24, 24, 26, 0.92);
+  --border: rgba(255, 255, 255, 0.10);
+  --border-strong: rgba(255, 255, 255, 0.18);
+  --text: #ececec;
+  --text-muted: #9a9a9a;
+  --text-faint: #6f6f6f;
+  --accent: #f1f1ef;
+  --accent-soft: rgba(255, 255, 255, 0.08);
+  --accent-strong: #ffffff;
+  --disabled-bg: rgba(255, 255, 255, 0.05);
+  --disabled-text: #5a5a5a;
+  --shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+  --shadow-soft: 0 8px 22px rgba(0, 0, 0, 0.35);
+}
+
 * {
   box-sizing: border-box;
 }
@@ -291,6 +399,79 @@ body {
   background:
     radial-gradient(circle at top left, rgba(255, 255, 255, 0.75), transparent 30%),
     linear-gradient(180deg, #f9f7f3 0%, #f0ede7 100%);
+}
+
+:root.dark body {
+  background:
+    radial-gradient(circle at top left, rgba(255, 255, 255, 0.06), transparent 35%),
+    linear-gradient(180deg, #0f0f10 0%, #161618 100%);
+}
+
+/* Dark-mode surface overrides for legacy llama-* chat shell.
+   Replaces hardcoded white/cream rgbas with token-driven surfaces. */
+:root.dark .llama-frame {
+  background: linear-gradient(180deg, var(--panel-strong), var(--panel-muted));
+  border-color: var(--border);
+}
+:root.dark .llama-sidebar {
+  background: linear-gradient(180deg, var(--panel-muted), var(--bg-accent));
+  border-right-color: var(--border);
+}
+:root.dark .llama-search-input,
+:root.dark .field,
+:root.dark .textarea {
+  background: var(--accent-soft);
+  border-color: var(--border);
+}
+:root.dark .llama-nav-item:hover,
+:root.dark .llama-nav-button:hover,
+:root.dark .llama-conversation-link:hover {
+  background: var(--accent-soft);
+  border-color: var(--border);
+}
+:root.dark .llama-conversation-link.active {
+  background: var(--panel-strong);
+  border-color: var(--border-strong);
+}
+:root.dark .llama-toolbar-button,
+:root.dark .secondary-button,
+:root.dark .llama-secondary-button {
+  background: var(--accent-soft);
+  color: var(--text);
+  border-color: var(--border);
+}
+:root.dark .llama-toolbar-button:hover,
+:root.dark .secondary-button:hover,
+:root.dark .llama-secondary-button:hover {
+  background: var(--panel-strong);
+}
+:root.dark .llama-jump-to-bottom {
+  background: var(--panel-strong);
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+:root.dark .compose-icon-button {
+  background: var(--accent-soft);
+  color: var(--text);
+}
+:root.dark .send-button {
+  background: var(--accent);
+  color: var(--accent-foreground, #16161a);
+  border-color: var(--accent);
+}
+:root.dark .llama-composer-wrap {
+  background: linear-gradient(180deg, transparent 0%, rgba(15, 15, 16, 0.92) 18%, rgba(15, 15, 16, 0.98) 100%);
+}
+:root.dark .llama-message-card,
+:root.dark .llama-user-card,
+:root.dark .card {
+  background: var(--panel-strong);
+  border-color: var(--border);
+}
+:root.dark .attachment-menu-popover {
+  background: var(--panel-strong);
+  color: var(--text);
+  border-color: var(--border);
 }
 
 button,
@@ -316,6 +497,10 @@ a {
   min-height: 100vh;
   padding: 0.75rem;
   overflow: hidden;
+}
+
+.llama-mobile-backdrop {
+  display: none;
 }
 
 .llama-frame {
@@ -528,6 +713,18 @@ a {
   display: grid;
   gap: 0.75rem;
   padding: 0.25rem;
+}
+
+.llama-footer-actions {
+  display: flex;
+  align-items: stretch;
+  gap: 0.55rem;
+}
+
+.llama-footer-actions .llama-theme-toggle {
+  flex: 0 0 auto;
+  width: 2.6rem;
+  height: 2.6rem;
 }
 
 .llama-user-card,
@@ -1357,7 +1554,7 @@ a {
   font-weight: 600;
 }
 
-@media (max-width: 960px) {
+@media (max-width: 768px) {
   .shell {
     height: 100dvh;
     padding: 0;
@@ -1366,27 +1563,80 @@ a {
   .llama-frame {
     height: 100dvh;
     border-radius: 0;
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+    position: relative;
   }
 
+  /* Sidebar becomes an off-canvas drawer */
   .llama-sidebar {
-    border-right: none;
-    border-bottom: 1px solid rgba(29, 29, 24, 0.08);
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 60;
+    width: min(86vw, 320px);
+    border-right: 1px solid var(--border);
+    border-bottom: none;
+    transform: translateX(0);
+    transition: transform 220ms ease, opacity 220ms ease;
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.18);
+  }
+
+  /* sidebar-collapsed = closed drawer on mobile */
+  .llama-frame.sidebar-collapsed {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+  }
+
+  .llama-frame.sidebar-collapsed > .llama-sidebar {
+    transform: translateX(-100%);
+    visibility: visible;
+    opacity: 1;
+    pointer-events: none;
+  }
+
+  /* Backdrop button rendered by the page when drawer is open */
+  .llama-mobile-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 55;
+    border: 0;
+    padding: 0;
+    background: rgba(0, 0, 0, 0.42);
+    backdrop-filter: blur(2px);
+    cursor: pointer;
   }
 
   .llama-topbar {
     padding-top: 0.8rem;
   }
+
+  /* Touch-friendly hit areas */
+  .llama-toolbar-button,
+  .compose-icon-button,
+  .send-button,
+  .message-action-icon,
+  .llama-jump-to-bottom {
+    min-width: 2.75rem;
+    min-height: 2.75rem;
+  }
+
+  .message-action-icon {
+    padding: 0.55rem;
+  }
+
+  /* Constrain attachment popover so it never overflows the viewport */
+  .attachment-menu-popover {
+    max-width: calc(100vw - 2rem);
+  }
 }
 
-@media (max-width: 640px) {
+@media (max-width: 480px) {
   .llama-sidebar {
     padding: 0.9rem 0.75rem;
   }
 
   .llama-jump-to-bottom {
-    width: 2.5rem;
-    height: 2.5rem;
     transform: translate(-50%, calc(-100% - 0.3rem));
   }
 
@@ -1410,6 +1660,14 @@ a {
 
   .assistant-model-badges,
   .assistant-stats-row {
+    flex-wrap: wrap;
     gap: 0.28rem;
+  }
+}
+
+/* Drag overlay only for devices that can actually drag-drop files */
+@media (hover: none) {
+  .llama-drag-overlay {
+    display: none !important;
   }
 }

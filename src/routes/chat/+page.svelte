@@ -8,13 +8,16 @@
     Image,
     MessageSquareText,
     Mic,
+    Moon,
     PanelLeft,
     PlugZap,
     Search,
     Settings2,
     Square,
-    SquarePen
+    SquarePen,
+    Sun
   } from '@lucide/svelte';
+  import { mode, toggleMode } from 'mode-watcher';
   import ConversationList from '$components/chat/ConversationList.svelte';
   import MessagePane from '$components/chat/MessagePane.svelte';
   import type { ChatMessage, ConversationSummary } from '$lib/types-legacy';
@@ -45,14 +48,28 @@
   let isRefreshing = $state(false);
   let copiedMessageId = $state<string | null>(null);
   let errorMessage = $state<string | null>(null);
+  let busyMessageIds = $state<Set<string>>(new Set());
   let isDragActive = $state(false);
   let composerElement = $state<HTMLTextAreaElement | null>(null);
   let messageScrollElement = $state<HTMLDivElement | null>(null);
   let attachmentInput = $state<HTMLInputElement | null>(null);
   let shouldAutoScroll = $state(true);
   let sidebarCollapsed = $state(false);
+  let isMobileViewport = $state(false);
 
   const AUTO_SCROLL_AT_BOTTOM_THRESHOLD = 10;
+
+  function syncMobileViewport() {
+    if (typeof window === 'undefined') return;
+    const next = window.matchMedia('(max-width: 768px)').matches;
+    if (next !== isMobileViewport) {
+      isMobileViewport = next;
+      // On switching INTO mobile, default the drawer to closed.
+      if (next) {
+        sidebarCollapsed = true;
+      }
+    }
+  }
 
   $effect(() => {
     currentConversationId = data.currentConversationId;
@@ -318,12 +335,14 @@
 
   async function selectConversation(conversationId: string) {
     if (conversationId === currentConversationId) {
+      if (isMobileViewport) sidebarCollapsed = true;
       return;
     }
 
     currentConversationId = conversationId;
     errorMessage = null;
     setChatUrl(conversationId);
+    if (isMobileViewport) sidebarCollapsed = true;
     await loadMessages(conversationId, { forceScroll: true });
     focusComposer();
   }
@@ -335,6 +354,7 @@
     clearPendingFiles();
     errorMessage = null;
     setChatUrl(null);
+    if (isMobileViewport) sidebarCollapsed = true;
     tick().then(() => {
       resetComposerHeight();
       focusComposer();
@@ -352,6 +372,66 @@
       }, 1200);
     } catch {
       errorMessage = 'Copy is not available in this browser context.';
+    }
+  }
+
+  function markBusy(messageId: string, busy: boolean) {
+    const next = new Set(busyMessageIds);
+    if (busy) next.add(messageId);
+    else next.delete(messageId);
+    busyMessageIds = next;
+  }
+
+  async function deleteMessage(message: ChatMessage) {
+    if (!currentConversationId || message.id.startsWith('pending-')) return;
+    if (typeof window !== 'undefined' && !window.confirm('Delete this message?')) return;
+    markBusy(message.id, true);
+    try {
+      const response = await fetch(
+        `/api/conversations/${currentConversationId}/messages/${message.id}`,
+        { method: 'DELETE' }
+      );
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.error || 'Unable to delete message.');
+      }
+      await loadMessages(currentConversationId);
+      await refreshConversations();
+    } catch (error) {
+      errorMessage = error instanceof Error ? error.message : 'Unable to delete message.';
+    } finally {
+      markBusy(message.id, false);
+    }
+  }
+
+  async function regenerateMessage(message: ChatMessage) {
+    if (!currentConversationId || message.role !== 'assistant' || message.id.startsWith('pending-')) {
+      return;
+    }
+    markBusy(message.id, true);
+    try {
+      const response = await fetch(
+        `/api/conversations/${currentConversationId}/messages/${message.id}/regenerate`,
+        { method: 'POST' }
+      );
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.error || 'Unable to regenerate message.');
+      }
+      const payload = await response.json();
+      // Drop the assistant message and stage a placeholder so the UI shows the
+      // typing indicator until the polling loop picks up the new reply.
+      const placeholderId = createClientId('pending-assistant-');
+      messages = messages
+        .filter((entry) => entry.id !== message.id)
+        .concat(createPendingAssistantMessage(placeholderId));
+      setPendingAssistant(currentConversationId, payload.userMessageId, placeholderId);
+      await refreshConversations();
+      await loadMessages(currentConversationId);
+    } catch (error) {
+      errorMessage = error instanceof Error ? error.message : 'Unable to regenerate message.';
+    } finally {
+      markBusy(message.id, false);
     }
   }
 
@@ -533,12 +613,34 @@
       focusComposer();
     });
 
+    syncMobileViewport();
+    const mediaQuery = window.matchMedia('(max-width: 768px)');
+    const onMediaChange = () => syncMobileViewport();
+    if (mediaQuery.addEventListener) {
+      mediaQuery.addEventListener('change', onMediaChange);
+    } else {
+      mediaQuery.addListener(onMediaChange);
+    }
+
+    const onKeydown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && isMobileViewport && !sidebarCollapsed) {
+        sidebarCollapsed = true;
+      }
+    };
+    window.addEventListener('keydown', onKeydown);
+
     const interval = window.setInterval(refresh, 2000);
     window.addEventListener('popstate', handlePopState);
 
     return () => {
       window.clearInterval(interval);
       window.removeEventListener('popstate', handlePopState);
+      window.removeEventListener('keydown', onKeydown);
+      if (mediaQuery.removeEventListener) {
+        mediaQuery.removeEventListener('change', onMediaChange);
+      } else {
+        mediaQuery.removeListener(onMediaChange);
+      }
       clearPendingFiles();
     };
   });
@@ -546,6 +648,14 @@
 
 <div class="shell">
   <div class="llama-frame" class:sidebar-collapsed={sidebarCollapsed}>
+    {#if isMobileViewport && !sidebarCollapsed}
+      <button
+        type="button"
+        class="llama-mobile-backdrop"
+        aria-label="Close sidebar"
+        onclick={() => (sidebarCollapsed = true)}
+      ></button>
+    {/if}
     <aside class="llama-sidebar">
       <div class="llama-brand">llama.cpp</div>
 
@@ -579,9 +689,25 @@
           <div style="font-weight: 600; margin-top: 0.2rem;">{data.session.displayName}</div>
         </div>
 
-        <form method="POST" action="/logout">
-          <button class="secondary-button" type="submit" style="width: 100%;">Sign out</button>
-        </form>
+        <div class="llama-footer-actions">
+          <button
+            type="button"
+            class="llama-toolbar-button llama-theme-toggle"
+            aria-label={mode.current === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+            title={mode.current === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+            onclick={toggleMode}
+          >
+            {#if mode.current === 'dark'}
+              <Sun class="h-4 w-4" />
+            {:else}
+              <Moon class="h-4 w-4" />
+            {/if}
+          </button>
+
+          <form method="POST" action="/logout" style="flex: 1;">
+            <button class="secondary-button" type="submit" style="width: 100%;">Sign out</button>
+          </form>
+        </div>
       </div>
     </aside>
 
@@ -624,7 +750,10 @@
               bind:scrollContainer={messageScrollElement}
               messages={displayMessages}
               copiedMessageId={copiedMessageId}
+              busyMessageIds={busyMessageIds}
               onCopy={copyMessage}
+              onRegenerate={regenerateMessage}
+              onDelete={deleteMessage}
               onScroll={handleMessageScroll}
             />
           {/if}

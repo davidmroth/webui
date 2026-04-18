@@ -223,8 +223,154 @@ export async function isConversationBusy(userId: string, conversationId: string)
        AND hermes_events.status IN ('queued', 'processing')`,
     { conversation_id: conversationId, user_id: userId }
   );
-  const pending = Number(rows[0]?.pending ?? 0);
-  return pending > 0;
+  if (Number(rows[0]?.pending ?? 0) > 0) {
+    return true;
+  }
+
+  // Also treat any in-progress streaming assistant message as busy.
+  const streamingRows = await query<{ pending: number | string }>(
+    `SELECT COUNT(*) AS pending
+     FROM messages
+     INNER JOIN conversations ON conversations.id = messages.conversation_id
+     WHERE messages.conversation_id = :conversation_id
+       AND conversations.user_id = :user_id
+       AND messages.status = 'streaming'`,
+    { conversation_id: conversationId, user_id: userId }
+  );
+  return Number(streamingRows[0]?.pending ?? 0) > 0;
+}
+
+/**
+ * Locate the streaming assistant message id (if any) for a conversation owned
+ * by the user. Used by the SSE endpoint and the Stop button.
+ */
+export async function findActiveAssistantMessage(
+  userId: string,
+  conversationId: string
+): Promise<string | null> {
+  const rows = await query<{ id: string }>(
+    `SELECT messages.id
+     FROM messages
+     INNER JOIN conversations ON conversations.id = messages.conversation_id
+     WHERE messages.conversation_id = :conversation_id
+       AND conversations.user_id = :user_id
+       AND messages.role = 'assistant'
+       AND messages.status = 'streaming'
+     ORDER BY messages.created_at DESC
+     LIMIT 1`,
+    { conversation_id: conversationId, user_id: userId }
+  );
+  return rows[0]?.id ?? null;
+}
+
+/**
+ * Get the message status + accumulated content for streaming. Used to decide
+ * when to close the SSE stream.
+ */
+export async function getMessageStatus(messageId: string) {
+  const rows = await query<{ id: string; status: 'complete' | 'streaming' | 'error'; content: string }>(
+    'SELECT id, status, content FROM messages WHERE id = :id LIMIT 1',
+    { id: messageId }
+  );
+  return rows[0] ?? null;
+}
+
+/**
+ * Append a streaming chunk for an assistant message. The (message_id, seq)
+ * unique key prevents duplicate writes if the producer retries.
+ */
+export async function appendAssistantChunk(messageId: string, seq: number, delta: string) {
+  await execute(
+    `INSERT IGNORE INTO hermes_message_chunks (message_id, seq, delta)
+     VALUES (:message_id, :seq, :delta)`,
+    { message_id: messageId, seq, delta }
+  );
+}
+
+/**
+ * Read all chunks for a message above a given sequence number. Used by SSE.
+ */
+export async function listAssistantChunks(messageId: string, afterSeq: number) {
+  return query<{ seq: number; delta: string }>(
+    `SELECT seq, delta
+     FROM hermes_message_chunks
+     WHERE message_id = :message_id AND seq > :after_seq
+     ORDER BY seq ASC`,
+    { message_id: messageId, after_seq: afterSeq }
+  );
+}
+
+/**
+ * Open a new streaming assistant message. Seeds an empty row that chunks will
+ * be appended to. Returns the message id.
+ */
+export async function openStreamingAssistantMessage(conversationId: string): Promise<string> {
+  const ownerId = await getConversationOwnerId(conversationId);
+  if (!ownerId) {
+    throw new Error(`Conversation not found: ${conversationId}`);
+  }
+  const messageId = randomUUID();
+  await execute(
+    `INSERT INTO messages (id, conversation_id, role, content, source, status)
+     VALUES (:id, :conversation_id, 'assistant', '', 'hermes', 'streaming')`,
+    { id: messageId, conversation_id: conversationId }
+  );
+  await execute(
+    'UPDATE conversations SET updated_at = UTC_TIMESTAMP() WHERE id = :id',
+    { id: conversationId }
+  );
+  return messageId;
+}
+
+/**
+ * Finalize a streaming assistant message by writing the final assembled
+ * content and marking it complete.
+ */
+export async function finalizeStreamingAssistantMessage(messageId: string, finalContent: string) {
+  await execute(
+    `UPDATE messages
+     SET content = :content, status = 'complete'
+     WHERE id = :id`,
+    { id: messageId, content: finalContent }
+  );
+}
+
+/**
+ * Cancel the in-flight assistant turn for a conversation: marks any queued or
+ * processing events cancelled and finalizes any streaming assistant message
+ * with whatever has been received so far. Returns true if any rows changed.
+ */
+export async function cancelActiveAssistantTurn(
+  userId: string,
+  conversationId: string
+): Promise<boolean> {
+  const eventResult = await execute(
+    `UPDATE hermes_events
+     INNER JOIN conversations ON conversations.id = hermes_events.conversation_id
+     SET hermes_events.status = 'cancelled', hermes_events.cancelled_at = UTC_TIMESTAMP()
+     WHERE hermes_events.conversation_id = :conversation_id
+       AND conversations.user_id = :user_id
+       AND hermes_events.status IN ('queued', 'processing')`,
+    { conversation_id: conversationId, user_id: userId }
+  );
+
+  const streamingId = await findActiveAssistantMessage(userId, conversationId);
+  if (streamingId) {
+    const chunks = await listAssistantChunks(streamingId, -1);
+    const assembled = chunks.map((row) => row.delta).join('');
+    await execute(
+      `UPDATE messages SET status = 'complete', content = :content WHERE id = :id`,
+      { id: streamingId, content: assembled }
+    );
+  }
+
+  // mysql2 OkPacket has affectedRows; the helper returns its result. We treat
+  // either a cancelled event OR a closed streaming message as a success signal.
+  const affected =
+    typeof eventResult === 'object' && eventResult !== null && 'affectedRows' in eventResult
+      ? Number((eventResult as { affectedRows?: number }).affectedRows ?? 0)
+      : 0;
+  return affected > 0 || streamingId !== null;
 }
 
 export async function enqueueUserMessage(userId: string, conversationId: string, content: string, files: File[] = []) {
@@ -428,4 +574,126 @@ export async function getAttachmentForInternal(attachmentId: string) {
 
 export async function getAttachmentBuffer(storageKey: string) {
   return getObjectBuffer(storageKey);
+}
+
+/**
+ * Delete a single message owned by the user. Removes attachments and any queued
+ * Hermes events tied to it. Returns true if a message was deleted.
+ */
+export async function deleteMessageForUser(
+  userId: string,
+  conversationId: string,
+  messageId: string
+): Promise<boolean> {
+  const rows = await query<{ id: string }>(
+    `SELECT messages.id
+     FROM messages
+     INNER JOIN conversations ON conversations.id = messages.conversation_id
+     WHERE messages.id = :message_id
+       AND messages.conversation_id = :conversation_id
+       AND conversations.user_id = :user_id
+     LIMIT 1`,
+    { message_id: messageId, conversation_id: conversationId, user_id: userId }
+  );
+  if (rows.length === 0) {
+    return false;
+  }
+
+  // Cascade-delete in correct order: events → attachments → message.
+  await execute(
+    'DELETE FROM hermes_events WHERE message_id = :message_id',
+    { message_id: messageId }
+  );
+  await execute(
+    'DELETE FROM attachments WHERE message_id = :message_id',
+    { message_id: messageId }
+  );
+  await execute(
+    'DELETE FROM messages WHERE id = :message_id',
+    { message_id: messageId }
+  );
+  await execute(
+    'UPDATE conversations SET updated_at = UTC_TIMESTAMP() WHERE id = :id AND user_id = :user_id',
+    { id: conversationId, user_id: userId }
+  );
+
+  return true;
+}
+
+/**
+ * Regenerate a previous assistant turn. Deletes the assistant message and
+ * re-enqueues the immediately-preceding user message for Hermes to reprocess.
+ * Returns the new event id, or null if the message could not be regenerated.
+ */
+export async function regenerateAssistantMessage(
+  userId: string,
+  conversationId: string,
+  assistantMessageId: string
+): Promise<{ eventId: string; userMessageId: string } | null> {
+  // Verify ownership and that the message is an assistant message.
+  const target = await query<{ id: string; created_at: Date | string }>(
+    `SELECT messages.id, messages.created_at
+     FROM messages
+     INNER JOIN conversations ON conversations.id = messages.conversation_id
+     WHERE messages.id = :message_id
+       AND messages.conversation_id = :conversation_id
+       AND messages.role = 'assistant'
+       AND conversations.user_id = :user_id
+     LIMIT 1`,
+    { message_id: assistantMessageId, conversation_id: conversationId, user_id: userId }
+  );
+  if (target.length === 0) {
+    return null;
+  }
+
+  // Find the most recent user message before the assistant message.
+  const userRows = await query<{ id: string; content: string }>(
+    `SELECT id, content
+     FROM messages
+     WHERE conversation_id = :conversation_id
+       AND role = 'user'
+       AND created_at <= :anchor
+     ORDER BY created_at DESC
+     LIMIT 1`,
+    { conversation_id: conversationId, anchor: target[0].created_at }
+  );
+  if (userRows.length === 0) {
+    return null;
+  }
+
+  const previousUser = userRows[0];
+
+  // Delete the prior assistant message + any attached events.
+  await execute(
+    'DELETE FROM hermes_events WHERE message_id = :message_id',
+    { message_id: assistantMessageId }
+  );
+  await execute(
+    'DELETE FROM attachments WHERE message_id = :message_id',
+    { message_id: assistantMessageId }
+  );
+  await execute(
+    'DELETE FROM messages WHERE id = :message_id',
+    { message_id: assistantMessageId }
+  );
+
+  // Re-enqueue the prior user message for Hermes.
+  const eventId = randomUUID();
+  await execute(
+    `INSERT INTO hermes_events (id, user_id, conversation_id, message_id, event_type, status, payload)
+     VALUES (:id, :user_id, :conversation_id, :message_id, 'message', 'queued', :payload)`,
+    {
+      id: eventId,
+      user_id: userId,
+      conversation_id: conversationId,
+      message_id: previousUser.id,
+      payload: JSON.stringify({ text: previousUser.content, regenerate: true })
+    }
+  );
+  await execute(
+    'UPDATE conversations SET updated_at = UTC_TIMESTAMP() WHERE id = :id AND user_id = :user_id',
+    { id: conversationId, user_id: userId }
+  );
+
+  return { eventId, userMessageId: previousUser.id };
 }

@@ -31,6 +31,9 @@
     messages: ChatMessage[];
     copiedMessageId?: string | null;
     onCopy?: (message: ChatMessage) => void;
+    onRegenerate?: (message: ChatMessage) => void;
+    onDelete?: (message: ChatMessage) => void;
+    busyMessageIds?: Set<string>;
     scrollContainer?: HTMLDivElement | null;
     onScroll?: () => void;
   }
@@ -39,6 +42,9 @@
     messages,
     copiedMessageId = null,
     onCopy,
+    onRegenerate,
+    onDelete,
+    busyMessageIds,
     scrollContainer = $bindable(null),
     onScroll
   }: Props = $props();
@@ -273,6 +279,7 @@
           {/if}
 
           {#if !(isStreamingAssistant(message) && !hasVisibleContent(message))}
+          {@const isBusy = busyMessageIds?.has(message.id) ?? false}
           <div class={`llama-message-actions ${message.role === 'user' ? 'user-actions' : 'assistant-actions'}`} aria-label="Message actions">
             <button
               class={`message-action-icon ${copiedMessageId === message.id ? 'is-active' : ''}`}
@@ -286,14 +293,26 @@
               <Edit class="h-3 w-3" />
             </button>
             {#if message.role === 'assistant'}
-              <button class="message-action-icon disabled" type="button" title="Regenerate unavailable" disabled>
+              <button
+                class="message-action-icon"
+                type="button"
+                title={isBusy ? 'Regenerating…' : 'Regenerate'}
+                disabled={isBusy || !onRegenerate}
+                onclick={() => onRegenerate?.(message)}
+              >
                 <RefreshCw class="h-3 w-3" />
               </button>
             {/if}
             <button class="message-action-icon disabled" type="button" title="Branch unavailable" disabled>
               <GitBranch class="h-3 w-3" />
             </button>
-            <button class="message-action-icon disabled" type="button" title="Delete unavailable" disabled>
+            <button
+              class="message-action-icon"
+              type="button"
+              title={isBusy ? 'Working…' : 'Delete'}
+              disabled={isBusy || !onDelete}
+              onclick={() => onDelete?.(message)}
+            >
               <Trash2 class="h-3 w-3" />
             </button>
           </div>

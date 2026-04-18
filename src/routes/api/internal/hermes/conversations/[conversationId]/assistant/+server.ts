@@ -1,5 +1,11 @@
 import { json } from '@sveltejs/kit';
-import { storeAssistantMessage, storeAssistantMessageWithAttachments } from '$server/chat';
+import {
+  storeAssistantMessage,
+  storeAssistantMessageWithAttachments,
+  openStreamingAssistantMessage,
+  appendAssistantChunk,
+  finalizeStreamingAssistantMessage
+} from '$server/chat';
 import { getConfig } from '$server/env';
 
 interface AssistantJsonAttachment {
@@ -120,6 +126,45 @@ export async function POST({ params, request }) {
   }
 
   const body = await request.json().catch(() => ({}));
+
+  // ----- Chunked streaming path -----------------------------------------
+  // Hermes can post incremental token deltas instead of (or before) a final
+  // content payload by sending { delta, seq, done, messageId? }. The first
+  // chunk omits messageId to open a new streaming message; subsequent chunks
+  // pass back the returned id.
+  if (typeof body.delta === 'string' || body.done === true) {
+    const seq = Number.isFinite(body.seq) ? Number(body.seq) : 0;
+    const delta = typeof body.delta === 'string' ? body.delta : '';
+    const done = body.done === true;
+    let messageId = typeof body.messageId === 'string' ? body.messageId : '';
+
+    if (!messageId) {
+      messageId = await openStreamingAssistantMessage(params.conversationId);
+    }
+
+    if (delta) {
+      await appendAssistantChunk(messageId, seq, delta);
+    }
+
+    if (done) {
+      const finalContent =
+        typeof body.content === 'string' ? body.content : '';
+      // If the producer didn't pass an explicit final content payload, the
+      // chunk log itself is the source of truth — finalizeStreamingAssistantMessage
+      // assumes the caller passes the assembled content. Fall back to assembling.
+      if (finalContent) {
+        await finalizeStreamingAssistantMessage(messageId, finalContent);
+      } else {
+        const { listAssistantChunks } = await import('$server/chat');
+        const chunks = await listAssistantChunks(messageId, -1);
+        const assembled = chunks.map((row) => row.delta).join('');
+        await finalizeStreamingAssistantMessage(messageId, assembled);
+      }
+    }
+
+    return json({ ok: true, messageId, seq, done }, { status: 200 });
+  }
+
   const content = typeof body.content === 'string' ? body.content.trim() : '';
 
   let attachments: AttachmentUpload[] = [];
