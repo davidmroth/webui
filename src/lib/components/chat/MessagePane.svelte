@@ -1,5 +1,30 @@
 <script lang="ts">
+  import {
+    BookOpenText,
+    Clock3,
+    Copy,
+    Edit,
+    Gauge,
+    GitBranch,
+    Package,
+    RefreshCw,
+    Sparkles,
+    Trash2,
+    WholeWord
+  } from '@lucide/svelte';
+  import { env as publicEnv } from '$env/dynamic/public';
   import type { ChatMessage } from '$lib/types';
+
+  type StatsView = 'reading' | 'generation';
+
+  interface MessageStats {
+    promptTokens: number | null;
+    promptSeconds: number | null;
+    promptTokensPerSecond: number | null;
+    generatedTokens: number;
+    generatedSeconds: number;
+    generatedTokensPerSecond: number;
+  }
 
   interface Props {
     messages: ChatMessage[];
@@ -14,9 +39,87 @@
     onCopy,
     scrollContainer = $bindable(null)
   }: Props = $props();
+  let statsViewByMessageId = $state<Record<string, StatsView>>({});
+
+  const modelDisplayName = publicEnv.PUBLIC_MODEL_DISPLAY_NAME || 'Assistant';
+  const modelBadges = [
+    publicEnv.PUBLIC_MODEL_SIZE_LABEL,
+    publicEnv.PUBLIC_MODEL_CAPABILITY_LABEL,
+    publicEnv.PUBLIC_MODEL_FILE_LABEL
+  ].filter(Boolean);
 
   function formatRole(role: ChatMessage['role']) {
     return role === 'assistant' ? 'Assistant' : role === 'system' ? 'System' : 'You';
+  }
+
+  function estimateTokenCount(content: string) {
+    const normalized = content.trim();
+    if (!normalized) {
+      return 0;
+    }
+
+    return Math.max(1, normalized.split(/\s+/).length);
+  }
+
+  function clamp(value: number, min: number, max: number) {
+    return Math.min(max, Math.max(min, value));
+  }
+
+  function buildMessageStats(message: ChatMessage, index: number): MessageStats | null {
+    if (message.role !== 'assistant') {
+      return null;
+    }
+
+    const generatedTokens = estimateTokenCount(message.content);
+    const previousUser = [...messages.slice(0, index)].reverse().find((entry) => entry.role === 'user');
+    const promptTokens = previousUser ? estimateTokenCount(previousUser.content) : null;
+
+    const diffSeconds = previousUser
+      ? (new Date(message.createdAt).getTime() - new Date(previousUser.createdAt).getTime()) / 1000
+      : null;
+
+    const totalSeconds = diffSeconds && Number.isFinite(diffSeconds) && diffSeconds > 0
+      ? clamp(diffSeconds, 0.1, 120)
+      : clamp(generatedTokens / 100, 0.1, 12);
+
+    const promptSeconds = promptTokens
+      ? clamp(Math.min(totalSeconds * 0.4, promptTokens / 120), 0.05, totalSeconds)
+      : null;
+
+    const generatedSeconds = clamp(totalSeconds - (promptSeconds ?? 0), 0.05, 120);
+
+    return {
+      promptTokens,
+      promptSeconds,
+      promptTokensPerSecond:
+        promptTokens && promptSeconds ? promptTokens / promptSeconds : null,
+      generatedTokens,
+      generatedSeconds,
+      generatedTokensPerSecond: generatedTokens / generatedSeconds
+    };
+  }
+
+  function formatDuration(seconds: number | null) {
+    if (!seconds || !Number.isFinite(seconds)) {
+      return '0.0s';
+    }
+
+    if (seconds >= 60) {
+      return `${(seconds / 60).toFixed(1)}m`;
+    }
+
+    return `${seconds.toFixed(1)}s`;
+  }
+
+  function activeStatsView(messageId: string): StatsView {
+    return statsViewByMessageId[messageId] ?? 'generation';
+  }
+
+  function setStatsView(messageId: string, view: StatsView) {
+    statsViewByMessageId = {
+      ...statsViewByMessageId,
+      [messageId]: view
+    };
   }
 </script>
 
@@ -28,7 +131,7 @@
       </div>
     {/if}
 
-    {#each messages as message}
+    {#each messages as message, index}
       <div class={`llama-message-row ${message.role}`}>
         <div class="llama-message-card">
           <div class="llama-message-header">
@@ -69,20 +172,98 @@
           {/if}
           <div class="message-meta">Status: {message.status}</div>
 
-          <div class="llama-message-actions" aria-label="Message actions">
-            <button class="message-action-button" type="button" onclick={() => onCopy?.(message)}>
-              {copiedMessageId === message.id ? 'Copied' : 'Copy'}
+          {#if message.role === 'assistant'}
+            {@const stats = buildMessageStats(message, index)}
+            <div class="assistant-meta-row">
+              <div class="assistant-model-badges">
+                <div class="assistant-model-badge assistant-model-name" title={`${modelDisplayName} model`}>
+                  <Package class="h-3.5 w-3.5" />
+                  <span>{modelDisplayName}</span>
+                </div>
+
+                {#each modelBadges as badge}
+                  <div class="assistant-model-badge">{badge}</div>
+                {/each}
+              </div>
+
+              {#if stats}
+                {@const view = activeStatsView(message.id)}
+                <div class="assistant-stats-row">
+                  <div class="assistant-stats-toggle">
+                    <button
+                      type="button"
+                      class:active={view === 'reading'}
+                      class="stats-toggle-button"
+                      disabled={stats.promptTokens === null}
+                      title={stats.promptTokens === null ? 'Reading metrics unavailable' : 'Reading metrics'}
+                      onclick={() => setStatsView(message.id, 'reading')}
+                    >
+                      <BookOpenText class="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      class:active={view === 'generation'}
+                      class="stats-toggle-button"
+                      title="Generation metrics"
+                      onclick={() => setStatsView(message.id, 'generation')}
+                    >
+                      <Sparkles class="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+
+                  <div class="assistant-stat-chip" title={view === 'reading' ? 'Prompt tokens' : 'Generated tokens'}>
+                    <WholeWord class="h-3.5 w-3.5" />
+                    <span>
+                      {view === 'reading'
+                        ? `${stats.promptTokens?.toLocaleString() ?? 0} tokens`
+                        : `${stats.generatedTokens.toLocaleString()} tokens`}
+                    </span>
+                  </div>
+
+                  <div class="assistant-stat-chip" title={view === 'reading' ? 'Prompt processing time' : 'Generation time'}>
+                    <Clock3 class="h-3.5 w-3.5" />
+                    <span>
+                      {view === 'reading'
+                        ? formatDuration(stats.promptSeconds)
+                        : formatDuration(stats.generatedSeconds)}
+                    </span>
+                  </div>
+
+                  <div class="assistant-stat-chip" title={view === 'reading' ? 'Prompt processing speed' : 'Generation speed'}>
+                    <Gauge class="h-3.5 w-3.5" />
+                    <span>
+                      {view === 'reading'
+                        ? `${(stats.promptTokensPerSecond ?? 0).toFixed(2)} t/s`
+                        : `${stats.generatedTokensPerSecond.toFixed(2)} t/s`}
+                    </span>
+                  </div>
+                </div>
+              {/if}
+            </div>
+          {/if}
+
+          <div class={`llama-message-actions ${message.role === 'user' ? 'user-actions' : 'assistant-actions'}`} aria-label="Message actions">
+            <button
+              class={`message-action-icon ${copiedMessageId === message.id ? 'is-active' : ''}`}
+              type="button"
+              title={copiedMessageId === message.id ? 'Copied' : 'Copy'}
+              onclick={() => onCopy?.(message)}
+            >
+              <Copy class="h-4 w-4" />
             </button>
-            <button class="message-action-button disabled" type="button" disabled>
-              Edit
+            <button class="message-action-icon disabled" type="button" title="Edit unavailable" disabled>
+              <Edit class="h-4 w-4" />
             </button>
             {#if message.role === 'assistant'}
-              <button class="message-action-button disabled" type="button" disabled>
-                Regenerate
+              <button class="message-action-icon disabled" type="button" title="Regenerate unavailable" disabled>
+                <RefreshCw class="h-4 w-4" />
               </button>
             {/if}
-            <button class="message-action-button disabled" type="button" disabled>
-              Delete
+            <button class="message-action-icon disabled" type="button" title="Branch unavailable" disabled>
+              <GitBranch class="h-4 w-4" />
+            </button>
+            <button class="message-action-icon disabled" type="button" title="Delete unavailable" disabled>
+              <Trash2 class="h-4 w-4" />
             </button>
           </div>
         </div>

@@ -697,6 +697,106 @@ a {
   gap: 0.45rem;
 }
 
+.assistant-meta-row {
+  display: grid;
+  gap: 0.7rem;
+  margin-top: 0.2rem;
+}
+
+.assistant-model-badges,
+.assistant-stats-row {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
+.assistant-model-badge,
+.assistant-stat-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.38rem;
+  min-height: 1.85rem;
+  padding: 0.24rem 0.6rem;
+  border: 1px solid rgba(29, 29, 24, 0.08);
+  border-radius: 999px;
+  background: rgba(31, 31, 28, 0.06);
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  line-height: 1;
+}
+
+.assistant-model-name {
+  font-weight: 600;
+  color: #66655f;
+}
+
+.assistant-stats-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.18rem;
+  border-radius: 0.75rem;
+  background: rgba(31, 31, 28, 0.08);
+}
+
+.stats-toggle-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.8rem;
+  height: 1.8rem;
+  border: none;
+  border-radius: 0.6rem;
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.stats-toggle-button.active {
+  background: rgba(255, 255, 255, 0.98);
+  color: var(--text);
+  box-shadow: 0 1px 3px rgba(29, 29, 24, 0.12);
+}
+
+.stats-toggle-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.assistant-actions {
+  justify-content: flex-start;
+}
+
+.user-actions {
+  justify-content: flex-end;
+}
+
+.message-action-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.85rem;
+  height: 1.85rem;
+  border: none;
+  border-radius: 0.55rem;
+  background: transparent;
+  color: #1c1c19;
+}
+
+.message-action-icon:hover {
+  background: rgba(31, 31, 28, 0.06);
+}
+
+.message-action-icon.is-active {
+  color: #66655f;
+  background: rgba(31, 31, 28, 0.08);
+}
+
+.message-action-icon.disabled {
+  color: var(--disabled-text);
+  cursor: not-allowed;
+}
+
 .message-action-button {
   border: 1px solid rgba(29, 29, 24, 0.08);
   border-radius: 999px;
@@ -819,5 +919,10 @@ a {
 
   .llama-status-chips {
     justify-content: flex-start;
+  }
+
+  .assistant-model-badges,
+  .assistant-stats-row {
+    gap: 0.35rem;
   }
 }
