@@ -63,6 +63,7 @@
     document.documentElement.classList.contains('mobile-viewport');
   let sidebarCollapsed = $state(initialIsMobile);
   let isMobileViewport = $state(initialIsMobile);
+  const appName = $derived(data.appName || 'Hermes WebUI');
 
   const AUTO_SCROLL_AT_BOTTOM_THRESHOLD = 10;
 
@@ -673,7 +674,7 @@
     {/if}
     <aside class="llama-sidebar">
       <div class="llama-sidebar-header">
-        <div class="llama-brand">llama.cpp</div>
+        <div class="llama-brand">{appName}</div>
         <button
           type="button"
           class="llama-toolbar-button llama-sidebar-collapse"
@@ -766,7 +767,7 @@
         >
           {#if displayMessages.length === 0}
             <div class="llama-empty-state">
-              <h1>llama.cpp</h1>
+              <h1>{appName}</h1>
               <p>Type a message or upload files to get started.</p>
             </div>
           {:else}

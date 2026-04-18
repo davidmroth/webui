@@ -16,6 +16,7 @@ interface MessageRow {
   content: string;
   created_at: Date | string;
   status: 'complete' | 'streaming' | 'error';
+  timings?: string | object | null;
 }
 
 interface AttachmentRow {
@@ -193,7 +194,7 @@ export async function createConversation(userId: string, title = 'New conversati
 
 export async function listMessages(userId: string, conversationId: string): Promise<ChatMessage[]> {
   const rows = await query<MessageRow>(
-    `SELECT messages.id, messages.role, messages.content, messages.created_at, messages.status
+    `SELECT messages.id, messages.role, messages.content, messages.created_at, messages.status, messages.timings
      FROM messages
      INNER JOIN conversations ON conversations.id = messages.conversation_id
      WHERE messages.conversation_id = :conversation_id AND conversations.user_id = :user_id
@@ -209,8 +210,36 @@ export async function listMessages(userId: string, conversationId: string): Prom
     content: row.content,
     createdAt: toIsoString(row.created_at),
     status: row.status,
-    attachments: attachmentsByMessageId.get(row.id) ?? []
+    attachments: attachmentsByMessageId.get(row.id) ?? [],
+    timings: parseTimings(row.timings)
   }));
+}
+
+/**
+ * Normalize the ``messages.timings`` JSON column into a plain object. MySQL's
+ * mysql2 driver may return it as a parsed object (when the JSON column type is
+ * recognized) or as a string (older drivers / aggregated queries). Returns
+ * ``null`` for missing / invalid values rather than throwing — the UI treats
+ * absent timings as "hide the stats panel".
+ */
+function parseTimings(raw: string | object | null | undefined) {
+  if (raw == null) {
+    return null;
+  }
+  if (typeof raw === 'object') {
+    return raw as ChatMessage['timings'];
+  }
+  if (typeof raw === 'string') {
+    if (raw.trim() === '') {
+      return null;
+    }
+    try {
+      return JSON.parse(raw) as ChatMessage['timings'];
+    } catch {
+      return null;
+    }
+  }
+  return null;
 }
 
 export async function isConversationBusy(userId: string, conversationId: string): Promise<boolean> {
@@ -326,13 +355,27 @@ export async function openStreamingAssistantMessage(conversationId: string): Pro
  * Finalize a streaming assistant message by writing the final assembled
  * content and marking it complete.
  */
-export async function finalizeStreamingAssistantMessage(messageId: string, finalContent: string) {
-  await execute(
-    `UPDATE messages
-     SET content = :content, status = 'complete'
-     WHERE id = :id`,
-    { id: messageId, content: finalContent }
-  );
+export async function finalizeStreamingAssistantMessage(
+  messageId: string,
+  finalContent: string,
+  options: { timings?: unknown } = {}
+) {
+  const timingsJson = serializeTimingsForStorage(options.timings);
+  if (timingsJson === null) {
+    await execute(
+      `UPDATE messages
+       SET content = :content, status = 'complete'
+       WHERE id = :id`,
+      { id: messageId, content: finalContent }
+    );
+  } else {
+    await execute(
+      `UPDATE messages
+       SET content = :content, status = 'complete', timings = :timings
+       WHERE id = :id`,
+      { id: messageId, content: finalContent, timings: timingsJson }
+    );
+  }
 }
 
 /**
@@ -514,17 +557,22 @@ export async function getHermesQueueStats() {
   };
 }
 
-export async function storeAssistantMessage(conversationId: string, content: string) {
+export async function storeAssistantMessage(
+  conversationId: string,
+  content: string,
+  options: { timings?: unknown } = {}
+) {
   const ownerId = await getConversationOwnerId(conversationId);
   if (!ownerId) {
     throw new Error(`Conversation not found: ${conversationId}`);
   }
 
   const messageId = randomUUID();
+  const timingsJson = serializeTimingsForStorage(options.timings);
   await execute(
-    `INSERT INTO messages (id, conversation_id, role, content, source, status)
-     VALUES (:id, :conversation_id, 'assistant', :content, 'hermes', 'complete')`,
-    { id: messageId, conversation_id: conversationId, content }
+    `INSERT INTO messages (id, conversation_id, role, content, source, status, timings)
+     VALUES (:id, :conversation_id, 'assistant', :content, 'hermes', 'complete', :timings)`,
+    { id: messageId, conversation_id: conversationId, content, timings: timingsJson }
   );
   await execute(
     'UPDATE conversations SET updated_at = UTC_TIMESTAMP() WHERE id = :id',
@@ -534,17 +582,43 @@ export async function storeAssistantMessage(conversationId: string, content: str
   return messageId;
 }
 
+/**
+ * Coerce a timings payload into a JSON string suitable for the
+ * ``messages.timings`` column. Returns ``null`` for empty / invalid input so
+ * the column stays NULL rather than holding `"null"` or `"{}"`.
+ */
+function serializeTimingsForStorage(timings: unknown): string | null {
+  if (timings == null) {
+    return null;
+  }
+  if (typeof timings !== 'object') {
+    return null;
+  }
+  if (Array.isArray(timings)) {
+    return null;
+  }
+  if (Object.keys(timings as object).length === 0) {
+    return null;
+  }
+  try {
+    return JSON.stringify(timings);
+  } catch {
+    return null;
+  }
+}
+
 export async function storeAssistantMessageWithAttachments(
   conversationId: string,
   content: string,
-  files: AttachmentUpload[] = []
+  files: AttachmentUpload[] = [],
+  options: { timings?: unknown } = {}
 ) {
   const ownerId = await getConversationOwnerId(conversationId);
   if (!ownerId) {
     throw new Error(`Conversation not found: ${conversationId}`);
   }
 
-  const messageId = await storeAssistantMessage(conversationId, content);
+  const messageId = await storeAssistantMessage(conversationId, content, options);
   await saveAttachmentsForMessage(ownerId, conversationId, messageId, files);
   return messageId;
 }

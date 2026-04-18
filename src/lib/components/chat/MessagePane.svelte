@@ -76,50 +76,54 @@
     return message.role === 'assistant' && message.status === 'streaming';
   }
 
-  function estimateTokenCount(content: string) {
-    const normalized = content.trim();
-    if (!normalized) {
-      return 0;
+  function toFiniteNumber(value: unknown): number | null {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return value;
     }
-
-    return Math.max(1, normalized.split(/\s+/).length);
+    if (typeof value === 'string' && value.trim() !== '') {
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : null;
+    }
+    return null;
   }
 
-  function clamp(value: number, min: number, max: number) {
-    return Math.min(max, Math.max(min, value));
-  }
-
-  function buildMessageStats(message: ChatMessage, index: number): MessageStats | null {
+  function buildMessageStats(message: ChatMessage, _index: number): MessageStats | null {
     if (message.role !== 'assistant') {
       return null;
     }
 
-    const generatedTokens = estimateTokenCount(message.content);
-    const previousUser = [...messages.slice(0, index)].reverse().find((entry) => entry.role === 'user');
-    const promptTokens = previousUser ? estimateTokenCount(previousUser.content) : null;
+    // Real timings only — when the upstream provider doesn't emit llama.cpp
+    // ``timings`` (OpenAI, Anthropic, ...), we hide the stats panel rather
+    // than fabricating estimates from word counts and wall-clock diffs.
+    const timings = message.timings;
+    if (!timings || typeof timings !== 'object') {
+      return null;
+    }
 
-    const diffSeconds = previousUser
-      ? (new Date(message.createdAt).getTime() - new Date(previousUser.createdAt).getTime()) / 1000
-      : null;
+    const promptTokens = toFiniteNumber((timings as Record<string, unknown>).prompt_n);
+    const promptMs = toFiniteNumber((timings as Record<string, unknown>).prompt_ms);
+    const generatedTokens = toFiniteNumber((timings as Record<string, unknown>).predicted_n);
+    const generatedMs = toFiniteNumber((timings as Record<string, unknown>).predicted_ms);
 
-    const totalSeconds = diffSeconds && Number.isFinite(diffSeconds) && diffSeconds > 0
-      ? clamp(diffSeconds, 0.1, 120)
-      : clamp(generatedTokens / 100, 0.1, 12);
+    // Need at least the generation side to surface anything meaningful.
+    if (generatedTokens == null || generatedMs == null || generatedMs <= 0) {
+      return null;
+    }
 
-    const promptSeconds = promptTokens
-      ? clamp(Math.min(totalSeconds * 0.4, promptTokens / 120), 0.05, totalSeconds)
-      : null;
-
-    const generatedSeconds = clamp(totalSeconds - (promptSeconds ?? 0), 0.05, 120);
+    const promptSeconds = promptMs != null && promptMs > 0 ? promptMs / 1000 : null;
+    const generatedSeconds = generatedMs / 1000;
 
     return {
       promptTokens,
       promptSeconds,
       promptTokensPerSecond:
-        promptTokens && promptSeconds ? promptTokens / promptSeconds : null,
+        promptTokens != null && promptSeconds != null && promptSeconds > 0
+          ? promptTokens / promptSeconds
+          : null,
       generatedTokens,
       generatedSeconds,
-      generatedTokensPerSecond: generatedTokens / generatedSeconds
+      generatedTokensPerSecond:
+        generatedSeconds > 0 ? generatedTokens / generatedSeconds : 0
     };
   }
 

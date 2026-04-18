@@ -23,6 +23,12 @@ export interface PostAssistantMessageInput {
   conversationId: string;
   content?: string;
   attachments?: HermesAssistantAttachment[];
+  /**
+   * Optional llama.cpp-style timings captured by the agent for the final LLM
+   * call this turn. Forwarded to the WebUI as a top-level field; absent for
+   * providers that don't emit timings.
+   */
+  timings?: Record<string, unknown> | null;
 }
 
 interface AssistantPostSuccess {
@@ -141,7 +147,8 @@ export async function postAssistantMessage(
       },
       body: JSON.stringify({
         content,
-        attachments
+        attachments,
+        ...(input.timings ? { timings: input.timings } : {})
       })
     }
   );

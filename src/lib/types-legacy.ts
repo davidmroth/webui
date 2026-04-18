@@ -27,4 +27,11 @@ export interface ChatMessage {
   createdAt: string;
   status: 'complete' | 'streaming' | 'error';
   attachments: MessageAttachment[];
+  /**
+   * Real llama.cpp-style inference timings for assistant messages, when the
+   * upstream provider emits them. ``null``/``undefined`` for providers that
+   * don't (OpenAI, Anthropic, etc.) — the UI hides its stats panel when
+   * these are absent rather than fabricating estimates.
+   */
+  timings?: import('./types/chat').ChatMessageTimings | null;
 }

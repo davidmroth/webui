@@ -105,6 +105,23 @@ function parseJsonAttachments(rawAttachments: unknown): AttachmentUpload[] {
   });
 }
 
+/**
+ * Coerce a raw `body.timings` value into a plain object suitable for
+ * persisting in `messages.timings`. Returns `undefined` when the input is
+ * absent / wrong-shaped so callers can skip the option entirely (the storage
+ * helper treats absent timings as NULL).
+ */
+function normalizeTimingsInput(raw: unknown): Record<string, unknown> | undefined {
+  if (raw == null || typeof raw !== 'object' || Array.isArray(raw)) {
+    return undefined;
+  }
+  const obj = raw as Record<string, unknown>;
+  if (Object.keys(obj).length === 0) {
+    return undefined;
+  }
+  return obj;
+}
+
 export async function POST({ params, request }) {
   if (!isAuthorized(request)) {
     return json({ error: 'Unauthorized' }, { status: 401 });
@@ -121,7 +138,23 @@ export async function POST({ params, request }) {
       return json({ error: 'Assistant content or attachment is required.' }, { status: 400 });
     }
 
-    const messageId = await storeAssistantMessageWithAttachments(params.conversationId, content, files);
+    let timings: Record<string, unknown> | undefined;
+    const rawTimings = formData.get('timings');
+    if (typeof rawTimings === 'string' && rawTimings.trim()) {
+      try {
+        timings = normalizeTimingsInput(JSON.parse(rawTimings));
+      } catch {
+        // Silently drop malformed timings — not worth failing the post.
+        timings = undefined;
+      }
+    }
+
+    const messageId = await storeAssistantMessageWithAttachments(
+      params.conversationId,
+      content,
+      files,
+      { timings }
+    );
     return json({ ok: true, messageId }, { status: 201 });
   }
 
@@ -149,16 +182,17 @@ export async function POST({ params, request }) {
     if (done) {
       const finalContent =
         typeof body.content === 'string' ? body.content : '';
+      const timings = normalizeTimingsInput(body.timings);
       // If the producer didn't pass an explicit final content payload, the
       // chunk log itself is the source of truth — finalizeStreamingAssistantMessage
       // assumes the caller passes the assembled content. Fall back to assembling.
       if (finalContent) {
-        await finalizeStreamingAssistantMessage(messageId, finalContent);
+        await finalizeStreamingAssistantMessage(messageId, finalContent, { timings });
       } else {
         const { listAssistantChunks } = await import('$server/chat');
         const chunks = await listAssistantChunks(messageId, -1);
         const assembled = chunks.map((row) => row.delta).join('');
-        await finalizeStreamingAssistantMessage(messageId, assembled);
+        await finalizeStreamingAssistantMessage(messageId, assembled, { timings });
       }
     }
 
@@ -182,8 +216,17 @@ export async function POST({ params, request }) {
   }
 
   const messageId = attachments.length
-    ? await storeAssistantMessageWithAttachments(params.conversationId, content, attachments)
-    : await storeAssistantMessage(params.conversationId, content);
+    ? await storeAssistantMessageWithAttachments(
+        params.conversationId,
+        content,
+        attachments,
+        { timings: normalizeTimingsInput(body.timings) }
+      )
+    : await storeAssistantMessage(
+        params.conversationId,
+        content,
+        { timings: normalizeTimingsInput(body.timings) }
+      );
 
   return json({ ok: true, messageId }, { status: 201 });
 }
