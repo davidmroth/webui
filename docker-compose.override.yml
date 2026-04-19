@@ -1,0 +1,7 @@
+services:
+  # phpMyAdmin — database admin UI.
+  phpmyadmin:
+    environment:
+      PMA_HOSTS: mysql,ls-30e5849e96ebc8f59cdcd1a12515d3a0bb5189e6.cdizh6eku0w8.us-east-2.rds.amazonaws.com
+    ports:
+      - "${PHPMYADMIN_PORT:-8888}:80"

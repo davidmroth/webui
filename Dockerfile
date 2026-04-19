@@ -24,14 +24,16 @@ RUN \
 
 FROM node:20-bookworm-slim AS base
 WORKDIR /app
-COPY package.json ./
-RUN npm install
+COPY package.json package-lock.json ./
+RUN npm ci
 COPY . .
 RUN npm run build
 
 
 FROM node:20-bookworm-slim AS final
 WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev
 COPY --from=version /git/.build.json ./version.json
 COPY --from=base /app/build ./build
 EXPOSE 3000

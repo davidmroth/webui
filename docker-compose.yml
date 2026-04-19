@@ -56,6 +56,15 @@ services:
     volumes:
       - minio_data:/data
 
+  # phpMyAdmin — database admin UI.
+  phpmyadmin:
+    image: phpmyadmin:latest
+
+    depends_on:
+      mysql:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
   hermes_home:
   mysql_data:
