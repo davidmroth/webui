@@ -171,6 +171,19 @@
     resetComposerHeight();
   }
 
+  function handleComposerInput(event: Event) {
+    const inputEvent = event as InputEvent;
+    // Fallback path for environments where onpaste is not fired consistently.
+    if (inputEvent.inputType === 'insertFromPaste' && composerElement) {
+      const normalized = normalizePastedText(composerElement.value);
+      if (normalized !== composerElement.value) {
+        draftMessage = normalized;
+      }
+    }
+
+    autoResizeComposer();
+  }
+
   function createClientId(prefix = '') {
     const webCrypto = globalThis.crypto;
 
@@ -577,6 +590,7 @@
       .split('\n')
       .map((line) => line.replace(/[ \t]+$/g, ''))
       .join('\n')
+      .replace(/\n{3,}/g, '\n\n')
       .replace(/^\s+|\s+$/g, '');
   }
 
@@ -592,13 +606,17 @@
       return;
     }
 
-    const pastedText = event.clipboardData?.getData('text/plain') ?? '';
+    const pastedText =
+      event.clipboardData?.getData('text/plain') ??
+      event.clipboardData?.getData('text') ??
+      event.clipboardData?.getData('Text') ??
+      '';
     const normalized = normalizePastedText(pastedText);
+    event.preventDefault();
     if (!normalized) {
       return;
     }
 
-    event.preventDefault();
     const start = composerElement.selectionStart ?? draftMessage.length;
     const end = composerElement.selectionEnd ?? draftMessage.length;
     composerElement.setRangeText(normalized, start, end, 'end');
@@ -920,7 +938,7 @@
                     class="llama-textarea"
                     bind:value={draftMessage}
                     placeholder="Type a message..."
-                    oninput={autoResizeComposer}
+                    oninput={handleComposerInput}
                     onkeydown={handleComposerKeydown}
                     onpaste={handleComposerPaste}
                   ></textarea>
