@@ -570,12 +570,40 @@
     }
   }
 
+  function normalizePastedText(text: string) {
+    // Keep user formatting intact while trimming accidental outer/trailing whitespace.
+    return text
+      .replace(/\r\n?/g, '\n')
+      .split('\n')
+      .map((line) => line.replace(/[ \t]+$/g, ''))
+      .join('\n')
+      .replace(/^\s+|\s+$/g, '');
+  }
+
   function handleComposerPaste(event: ClipboardEvent) {
     const files = Array.from(event.clipboardData?.files ?? []);
     if (files.length > 0) {
       event.preventDefault();
       appendFiles(files);
+      return;
     }
+
+    if (!composerElement) {
+      return;
+    }
+
+    const pastedText = event.clipboardData?.getData('text/plain') ?? '';
+    const normalized = normalizePastedText(pastedText);
+    if (!normalized) {
+      return;
+    }
+
+    event.preventDefault();
+    const start = composerElement.selectionStart ?? draftMessage.length;
+    const end = composerElement.selectionEnd ?? draftMessage.length;
+    composerElement.setRangeText(normalized, start, end, 'end');
+    draftMessage = composerElement.value;
+    resetComposerHeight();
   }
 
   function handleDragOver(event: DragEvent) {
