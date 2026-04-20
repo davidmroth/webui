@@ -29,6 +29,7 @@
 
   interface Props {
     messages: ChatMessage[];
+    use24HourTime?: boolean;
     copiedMessageId?: string | null;
     onCopy?: (message: ChatMessage) => void;
     onRegenerate?: (message: ChatMessage) => void;
@@ -40,6 +41,7 @@
 
   let {
     messages,
+    use24HourTime = false,
     copiedMessageId = null,
     onCopy,
     onRegenerate,
@@ -149,6 +151,14 @@
       [messageId]: view
     };
   }
+
+  function formatMessageTime(value: string) {
+    return new Date(value).toLocaleTimeString([], {
+      hour: use24HourTime ? '2-digit' : 'numeric',
+      minute: '2-digit',
+      hour12: !use24HourTime
+    });
+  }
 </script>
 
 <div bind:this={scrollContainer} class="llama-message-scroll" onscroll={onScroll}>
@@ -168,7 +178,7 @@
               {formatRole(message.role)}
             </div>
             <div class="message-meta">
-              {new Date(message.createdAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+              {formatMessageTime(message.createdAt)}
             </div>
           </div>
           {#if isStreamingAssistant(message) && !hasVisibleContent(message)}

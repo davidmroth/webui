@@ -4,10 +4,19 @@
   interface Props {
     conversations: ConversationSummary[];
     currentConversationId: string | null;
+    use24HourTime?: boolean;
     onSelect?: (conversationId: string) => void;
   }
 
-  let { conversations, currentConversationId, onSelect }: Props = $props();
+  let { conversations, currentConversationId, use24HourTime = false, onSelect }: Props = $props();
+
+  function formatConversationTime(value: string) {
+    return new Date(value).toLocaleTimeString([], {
+      hour: use24HourTime ? '2-digit' : 'numeric',
+      minute: '2-digit',
+      hour12: !use24HourTime
+    });
+  }
 </script>
 
 <div class="llama-conversation-list">
@@ -32,7 +41,7 @@
         <div class="llama-conversation-meta">
           {new Date(conversation.updatedAt).toLocaleDateString([], { month: 'short', day: 'numeric' })}
           ·
-          {new Date(conversation.updatedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+          {formatConversationTime(conversation.updatedAt)}
           {#if conversation.assistantBusy}
             · <span class="llama-conversation-busy-label">working</span>
           {/if}

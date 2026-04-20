@@ -14,6 +14,7 @@
     Paperclip,
     PlugZap,
     Search,
+    Settings,
     Square,
     SquarePen,
     Sun
@@ -51,6 +52,8 @@
   let errorMessage = $state<string | null>(null);
   let busyMessageIds = $state<Set<string>>(new Set());
   let isDragActive = $state(false);
+  let settingsOpen = $state(false);
+  let use24HourTime = $state(false);
   let composerElement = $state<HTMLTextAreaElement | null>(null);
   let messageScrollElement = $state<HTMLDivElement | null>(null);
   let attachmentInput = $state<HTMLInputElement | null>(null);
@@ -78,6 +81,24 @@
   });
 
   const AUTO_SCROLL_AT_BOTTOM_THRESHOLD = 10;
+  const TIME_FORMAT_24H_LOCALSTORAGE_KEY = 'LlamaCppWebui.timeFormat24Hour';
+
+  function loadTimeFormatPreference() {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    use24HourTime = window.localStorage.getItem(TIME_FORMAT_24H_LOCALSTORAGE_KEY) === '1';
+  }
+
+  function setTimeFormatPreference(nextValue: boolean) {
+    use24HourTime = nextValue;
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    window.localStorage.setItem(TIME_FORMAT_24H_LOCALSTORAGE_KEY, nextValue ? '1' : '0');
+  }
 
   function syncMobileViewport() {
     if (typeof window === 'undefined') return;
@@ -686,6 +707,7 @@
         shouldAutoScroll = true;
       }
     });
+    loadTimeFormatPreference();
 
     syncMobileViewport();
     const mediaQuery = window.matchMedia('(max-width: 768px)');
@@ -697,8 +719,15 @@
     }
 
     const onKeydown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && isMobileViewport && !sidebarCollapsed) {
-        sidebarCollapsed = true;
+      if (event.key === 'Escape') {
+        if (settingsOpen) {
+          settingsOpen = false;
+          return;
+        }
+
+        if (isMobileViewport && !sidebarCollapsed) {
+          sidebarCollapsed = true;
+        }
       }
     };
     window.addEventListener('keydown', onKeydown);
@@ -765,6 +794,7 @@
       <ConversationList
         conversations={filteredConversations}
         currentConversationId={currentConversationId}
+        use24HourTime={use24HourTime}
         onSelect={selectConversation}
       />
 
@@ -813,7 +843,17 @@
           <div class="llama-header-title">{activeConversationTitle()}</div>
         </div>
 
-        <div class="llama-topbar-spacer" aria-hidden="true"></div>
+        <div class="llama-topbar-actions">
+          <button
+            class="llama-toolbar-button"
+            type="button"
+            aria-label="Open settings"
+            title="Settings"
+            onclick={() => (settingsOpen = true)}
+          >
+            <Settings class="h-4 w-4" />
+          </button>
+        </div>
       </div>
 
       <div class="llama-chat-stage">
@@ -834,6 +874,7 @@
             <MessagePane
               bind:scrollContainer={messageScrollElement}
               messages={displayMessages}
+              use24HourTime={use24HourTime}
               copiedMessageId={copiedMessageId}
               busyMessageIds={busyMessageIds}
               onCopy={copyMessage}
@@ -991,4 +1032,42 @@
       </div>
     </section>
   </div>
+
+  {#if settingsOpen}
+    <div class="llama-settings-modal-layer" role="presentation" onclick={() => (settingsOpen = false)}>
+      <section
+        class="llama-settings-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Settings"
+        onclick={(event) => event.stopPropagation()}
+      >
+        <header class="llama-settings-modal-header">
+          <h2>Settings</h2>
+        </header>
+
+        <div class="llama-settings-modal-body">
+          <div class="llama-settings-row">
+            <div class="llama-settings-copy">
+              <div class="llama-settings-title">24-hour time</div>
+              <div class="llama-settings-description">Use military time for message and conversation timestamps.</div>
+            </div>
+
+            <label class="llama-settings-toggle">
+              <input
+                type="checkbox"
+                checked={use24HourTime}
+                onchange={(event) => setTimeFormatPreference((event.currentTarget as HTMLInputElement).checked)}
+              />
+              <span>{use24HourTime ? 'On' : 'Off'}</span>
+            </label>
+          </div>
+        </div>
+
+        <footer class="llama-settings-modal-footer">
+          <button class="secondary-button" type="button" onclick={() => (settingsOpen = false)}>Done</button>
+        </footer>
+      </section>
+    </div>
+  {/if}
 </div>
