@@ -22,19 +22,43 @@ RUN \
     echo "Generated version.json:" && cat .build.json
 
 
-FROM node:20-bookworm-slim AS base
+#
+# Builder
+#
+FROM node:22-alpine AS base
+
 WORKDIR /app
+
 COPY package.json package-lock.json ./
 RUN npm ci
 COPY . .
 RUN npm run build
 
 
-FROM node:20-bookworm-slim AS final
+#
+# Runtime dependencies
+#
+FROM node:22-alpine AS runtime-deps
+
 WORKDIR /app
-COPY package.json package-lock.json ./
-RUN npm ci --omit=dev
+
+COPY package.json ./package.json
+RUN node -e "const fs=require('node:fs'); const pkg=require('./package.json'); const pick=(k)=>pkg.dependencies?.[k]||pkg.devDependencies?.[k]; const deps=['@sveltejs/kit','svelte','clsx','minio','mysql2','unified','remark-parse','remark-gfm','remark-breaks','remark-math','remark-rehype','rehype-katex','rehype-highlight','rehype-stringify']; const runtime={name:(pkg.name||'webui')+'-runtime',private:true,type:pkg.type||'module',dependencies:Object.fromEntries(deps.map((k)=>[k,pick(k)]).filter(([,v])=>Boolean(v)))}; fs.writeFileSync('package.json', JSON.stringify(runtime, null, 2));"
+RUN npm install --omit=dev --omit=optional --ignore-scripts --no-audit --no-fund && npm cache clean --force
+
+#
+# Final image
+#
+FROM node:22-alpine AS final
+
+ENV NODE_ENV=production
+
+WORKDIR /app
+
+COPY --from=runtime-deps /app/node_modules ./node_modules
+COPY --from=base /app/build /app
 COPY --from=version /git/.build.json ./version.json
-COPY --from=base /app/build ./build
+
+
 EXPOSE 3000
-CMD ["node", "build"]
+CMD ["node", "index.js"]

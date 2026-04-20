@@ -64,6 +64,18 @@
   let sidebarCollapsed = $state(initialIsMobile);
   let isMobileViewport = $state(initialIsMobile);
   const appName = $derived(data.appName || 'Hermes WebUI');
+  const sidebarBuildLabel = $derived.by(() => {
+    const buildInfo = data.buildInfo;
+    const version = String(buildInfo?.frontend ?? '0.0.0');
+    const branch = buildInfo?.gitBranch ? String(buildInfo.gitBranch) : 'n/a';
+    const commit = buildInfo?.gitCommitShort
+      ? String(buildInfo.gitCommitShort)
+      : buildInfo?.gitCommit
+        ? String(buildInfo.gitCommit).slice(0, 7)
+        : 'n/a';
+
+    return `v${version} · ${branch} · ${commit}`;
+  });
 
   const AUTO_SCROLL_AT_BOTTOM_THRESHOLD = 10;
 
@@ -781,6 +793,8 @@
             <button class="secondary-button" type="submit" style="width: 100%;">Sign out</button>
           </form>
         </div>
+
+        <div class="llama-build-meta" title="Frontend version, branch, and commit">{sidebarBuildLabel}</div>
       </div>
     </aside>
 

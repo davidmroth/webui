@@ -6,11 +6,15 @@ import {
   listConversations,
   listMessages
 } from '$server/chat';
+import { getBuildInfo } from '$server/maintenance';
 import { requireSession } from '$server/auth';
 
 export async function load(event) {
   const session = await requireSession(event);
-  const conversations = await listConversations(session.userId);
+  const [conversations, buildInfo] = await Promise.all([
+    listConversations(session.userId),
+    getBuildInfo()
+  ]);
   const requestedConversation = event.url.searchParams.get('conversation');
   const currentConversationId = requestedConversation || conversations[0]?.id || null;
   const [messages, assistantBusy] = currentConversationId
@@ -25,7 +29,8 @@ export async function load(event) {
     conversations,
     currentConversationId,
     messages,
-    assistantBusy
+    assistantBusy,
+    buildInfo
   };
 }
 
