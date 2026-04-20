@@ -55,6 +55,9 @@
   let isDragActive = $state(false);
   let settingsOpen = $state(false);
   let use24HourTime = $state(false);
+  let notificationsEnabled = $state(false);
+  let notificationPermission = $state<NotificationPermission>('default');
+  let seenAssistantMessageIds = $state<Set<string>>(new Set());
   let composerElement = $state<HTMLTextAreaElement | null>(null);
   let messageScrollElement = $state<HTMLDivElement | null>(null);
   let attachmentInput = $state<HTMLInputElement | null>(null);
@@ -83,6 +86,11 @@
 
   const AUTO_SCROLL_AT_BOTTOM_THRESHOLD = 10;
   const TIME_FORMAT_24H_LOCALSTORAGE_KEY = 'LlamaCppWebui.timeFormat24Hour';
+  const NOTIFICATIONS_ENABLED_LOCALSTORAGE_KEY = 'LlamaCppWebui.notificationsEnabled';
+  const NOTIFICATION_BODY_MAX_LENGTH = 180;
+  const notificationsSupported = $derived(
+    typeof window !== 'undefined' && typeof Notification !== 'undefined'
+  );
 
   function loadTimeFormatPreference() {
     if (typeof window === 'undefined') {
@@ -99,6 +107,142 @@
     }
 
     window.localStorage.setItem(TIME_FORMAT_24H_LOCALSTORAGE_KEY, nextValue ? '1' : '0');
+  }
+
+  function loadNotificationsPreference() {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    if (typeof Notification === 'undefined') {
+      notificationPermission = 'denied';
+      notificationsEnabled = false;
+      return;
+    }
+
+    notificationPermission = Notification.permission;
+    notificationsEnabled =
+      window.localStorage.getItem(NOTIFICATIONS_ENABLED_LOCALSTORAGE_KEY) === '1' &&
+      notificationPermission === 'granted';
+  }
+
+  function setNotificationsPreference(nextValue: boolean) {
+    notificationsEnabled = nextValue;
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    window.localStorage.setItem(NOTIFICATIONS_ENABLED_LOCALSTORAGE_KEY, nextValue ? '1' : '0');
+  }
+
+  function rememberAssistantMessages(nextMessages: ChatMessage[]) {
+    const nextSeen = new Set(seenAssistantMessageIds);
+    for (const message of nextMessages) {
+      if (message.role === 'assistant' && !message.id.startsWith('pending-')) {
+        nextSeen.add(message.id);
+      }
+    }
+    seenAssistantMessageIds = nextSeen;
+  }
+
+  function conversationTitle(conversationId: string) {
+    return conversations.find((conversation) => conversation.id === conversationId)?.title ?? 'New chat';
+  }
+
+  function formatNotificationBody(message: ChatMessage) {
+    const normalized = message.content.replace(/\s+/g, ' ').trim();
+    if (!normalized) {
+      return 'Assistant sent a new message.';
+    }
+
+    if (normalized.length <= NOTIFICATION_BODY_MAX_LENGTH) {
+      return normalized;
+    }
+
+    return `${normalized.slice(0, NOTIFICATION_BODY_MAX_LENGTH - 3)}...`;
+  }
+
+  async function showAssistantReplyNotification(conversationId: string, message: ChatMessage) {
+    if (typeof window === 'undefined' || typeof Notification === 'undefined') {
+      return;
+    }
+
+    const chatUrl = `/chat?conversation=${conversationId}`;
+    const notification = new Notification(`Hermes: ${conversationTitle(conversationId)}`, {
+      body: formatNotificationBody(message),
+      tag: `assistant-${message.id}`
+    });
+
+    notification.onclick = () => {
+      notification.close();
+      window.focus();
+      window.location.assign(chatUrl);
+    };
+  }
+
+  async function maybeNotifyAssistantReply(conversationId: string, nextMessages: ChatMessage[]) {
+    const assistantMessages = nextMessages.filter(
+      (message) => message.role === 'assistant' && !message.id.startsWith('pending-')
+    );
+    const unseen = assistantMessages.filter((message) => !seenAssistantMessageIds.has(message.id));
+
+    const shouldNotify =
+      notificationsEnabled &&
+      notificationPermission === 'granted' &&
+      typeof document !== 'undefined' &&
+      document.visibilityState !== 'visible';
+
+    if (shouldNotify && unseen.length > 0) {
+      const latest = unseen[unseen.length - 1];
+      await showAssistantReplyNotification(conversationId, latest);
+    }
+
+    rememberAssistantMessages(nextMessages);
+  }
+
+  async function handleNotificationsToggle(event: Event) {
+    const checkbox = event.currentTarget as HTMLInputElement;
+    const nextValue = checkbox.checked;
+
+    if (!nextValue) {
+      setNotificationsPreference(false);
+      return;
+    }
+
+    if (typeof window === 'undefined' || typeof Notification === 'undefined') {
+      checkbox.checked = false;
+      setNotificationsPreference(false);
+      errorMessage = 'Notifications are not available in this browser.';
+      return;
+    }
+
+    if (!window.isSecureContext) {
+      checkbox.checked = false;
+      setNotificationsPreference(false);
+      errorMessage = 'Notifications require HTTPS (or localhost).';
+      return;
+    }
+
+    let permission = Notification.permission;
+    if (permission !== 'granted') {
+      permission = await Notification.requestPermission();
+    }
+
+    notificationPermission = permission;
+
+    if (permission !== 'granted') {
+      checkbox.checked = false;
+      setNotificationsPreference(false);
+      errorMessage =
+        permission === 'denied'
+          ? 'Notifications are blocked. Enable them in browser site settings.'
+          : 'Notification permission was not granted.';
+      return;
+    }
+
+    setNotificationsPreference(true);
+    rememberAssistantMessages(messages);
+    errorMessage = null;
   }
 
   function syncMobileViewport() {
@@ -378,6 +522,7 @@
     const payload = await response.json();
     syncPendingAssistant(conversationId, payload.messages);
     messages = payload.messages;
+    await maybeNotifyAssistantReply(conversationId, payload.messages);
     serverAssistantBusyByConversation = {
       ...serverAssistantBusyByConversation,
       [conversationId]: Boolean(payload.assistantBusy)
@@ -743,6 +888,8 @@
       }
     });
     loadTimeFormatPreference();
+    loadNotificationsPreference();
+    rememberAssistantMessages(messages);
 
     syncMobileViewport();
     const mediaQuery = window.matchMedia('(max-width: 768px)');
@@ -767,6 +914,18 @@
     };
     window.addEventListener('keydown', onKeydown);
 
+    const onVisibilityChange = () => {
+      if (typeof Notification === 'undefined') {
+        return;
+      }
+
+      notificationPermission = Notification.permission;
+      if (notificationPermission !== 'granted' && notificationsEnabled) {
+        setNotificationsPreference(false);
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+
     const interval = window.setInterval(refresh, 2000);
     window.addEventListener('popstate', handlePopState);
 
@@ -774,6 +933,7 @@
       window.clearInterval(interval);
       window.removeEventListener('popstate', handlePopState);
       window.removeEventListener('keydown', onKeydown);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
       if (mediaQuery.removeEventListener) {
         mediaQuery.removeEventListener('change', onMediaChange);
       } else {
@@ -1128,6 +1288,30 @@
                 onchange={(event) => setTimeFormatPreference((event.currentTarget as HTMLInputElement).checked)}
               />
               <span>{use24HourTime ? 'On' : 'Off'}</span>
+            </label>
+          </div>
+
+          <div class="llama-settings-row">
+            <div class="llama-settings-copy">
+              <div class="llama-settings-title">Notifications</div>
+              <div class="llama-settings-description">
+                Notify when an assistant reply arrives while this chat is in the background.
+                {#if !notificationsSupported}
+                  Notifications are not supported in this browser.
+                {:else if notificationPermission === 'denied'}
+                  Permission is blocked; allow notifications in site settings.
+                {/if}
+              </div>
+            </div>
+
+            <label class="llama-settings-toggle">
+              <input
+                type="checkbox"
+                checked={notificationsEnabled}
+                onchange={handleNotificationsToggle}
+                disabled={!notificationsSupported}
+              />
+              <span>{notificationsEnabled ? 'On' : 'Off'}</span>
             </label>
           </div>
         </div>
