@@ -38,12 +38,31 @@ export async function POST(event) {
     const result = await enqueueUserMessage(session.userId, event.params.conversationId, content);
     return json(result, { status: 201 });
   } catch (error) {
+    const objectError =
+      error && typeof error === 'object' ? (error as Record<string, unknown>) : null;
+    const messageFromObject =
+      objectError && typeof objectError.message === 'string' && objectError.message.trim()
+        ? objectError.message.trim()
+        : null;
+    const codeFromObject =
+      objectError && typeof objectError.code === 'string' && objectError.code.trim()
+        ? objectError.code.trim()
+        : null;
+
+    const reason =
+      error instanceof Error && error.message
+        ? error.message
+        : messageFromObject || codeFromObject || 'Unknown upload error';
+
+    console.error('Failed to process message upload', {
+      conversationId: event.params.conversationId,
+      userId: session.userId,
+      reason
+    });
+
     return json(
       {
-        error:
-          error instanceof Error && error.message
-            ? `Unable to process message upload: ${error.message}`
-            : 'Unable to process message upload.'
+        error: `Unable to process message upload: ${reason}`
       },
       { status: 500 }
     );
