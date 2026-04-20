@@ -55,8 +55,8 @@ ENV NODE_ENV=production
 
 WORKDIR /app
 
-COPY --from=runtime-deps /app/node_modules ./node_modules
 COPY --from=base /app/build /app
+COPY --from=runtime-deps /app/node_modules ./node_modules
 COPY --from=version /git/.build.json ./version.json
 
 
