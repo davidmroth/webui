@@ -15,6 +15,7 @@ services:
       DATABASE_HOST: mysql
       DATABASE_PORT: 3306
       OBJECT_STORAGE_ENDPOINT: minio
+      OBJECT_STORAGE_PORT: 9000
       HERMES_WEBCHAT_SERVICE_TOKEN: ${HERMES_WEBCHAT_SERVICE_TOKEN}
     volumes:
       - ./:/app
