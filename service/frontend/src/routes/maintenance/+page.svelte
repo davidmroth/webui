@@ -210,7 +210,7 @@
           </div>
         </div>
 
-        <div class="rounded-xl border border-border bg-card p-5 shadow-sm">
+        <div class="rounded-xl border border-border bg-card p-5 shadow-sm xl:col-span-2">
           <h2 class="text-lg font-semibold">File delivery diagnosis</h2>
           <p class="mt-2 text-sm text-muted-foreground">
             Receiver-side diagnosis only. This verifies what webui can prove locally, not the live Hermes sender target or tool schema.
