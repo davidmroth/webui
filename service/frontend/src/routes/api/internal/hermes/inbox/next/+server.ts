@@ -1,7 +1,7 @@
 import { json } from '@sveltejs/kit';
 import { dequeueHermesEvent } from '$server/chat';
 import { getConfig } from '$server/env';
-import { noteHermesWorkerHeartbeat } from '$server/hermes-heartbeat';
+import { noteHermesWorkerAuthFailure, noteHermesWorkerHeartbeat } from '$server/hermes-heartbeat';
 
 function isAuthorized(request: Request) {
   const expected = getConfig().hermesServiceToken;
@@ -11,6 +11,7 @@ function isAuthorized(request: Request) {
 
 export async function GET({ request }) {
   if (!isAuthorized(request)) {
+    noteHermesWorkerAuthFailure('inbox-next');
     return json({ error: 'Unauthorized' }, { status: 401 });
   }
 

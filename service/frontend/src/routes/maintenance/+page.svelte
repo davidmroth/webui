@@ -249,6 +249,7 @@
               <div><span class="font-medium">Hermes token configured:</span> {snapshot.fileDeliveryDiagnosis.checks.hermesServiceTokenConfigured ? 'yes' : 'no'}</div>
               <div><span class="font-medium">Queue not stuck:</span> {snapshot.fileDeliveryDiagnosis.checks.queueNotStuck ? 'yes' : 'no'}</div>
               <div><span class="font-medium">Worker heartbeat fresh:</span> {snapshot.fileDeliveryDiagnosis.checks.workerHeartbeatFresh ? 'yes' : 'no'}</div>
+              <div><span class="font-medium">Recent worker auth failure:</span> {snapshot.fileDeliveryDiagnosis.checks.workerAuthFailureRecent ? 'yes' : 'no'}</div>
               <div><span class="font-medium">Queued without worker:</span> {snapshot.fileDeliveryDiagnosis.checks.queuedWithoutWorker ? 'yes' : 'no'}</div>
               <div><span class="font-medium">Recent sender trace seen:</span> {snapshot.fileDeliveryDiagnosis.checks.recentSenderTraceSeen ? 'yes' : 'no'}</div>
               <div><span class="font-medium">Recent sender trace with attachment:</span> {snapshot.fileDeliveryDiagnosis.checks.recentSenderTraceWithAttachment ? 'yes' : 'no'}</div>

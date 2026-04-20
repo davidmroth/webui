@@ -8,7 +8,7 @@ import {
   recordHermesDeliveryTrace
 } from '$server/chat';
 import { getConfig } from '$server/env';
-import { noteHermesWorkerHeartbeat } from '$server/hermes-heartbeat';
+import { noteHermesWorkerAuthFailure, noteHermesWorkerHeartbeat } from '$server/hermes-heartbeat';
 
 interface AssistantJsonAttachment {
   fileName?: unknown;
@@ -227,6 +227,7 @@ function normalizeTimingsInput(raw: unknown): Record<string, unknown> | undefine
 
 export async function POST({ params, request }: { params: { conversationId: string }; request: Request }) {
   if (!isAuthorized(request)) {
+    noteHermesWorkerAuthFailure('assistant-post');
     return json({ error: 'Unauthorized' }, { status: 401 });
   }
 

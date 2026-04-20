@@ -61,6 +61,7 @@ interface FileDeliveryChecks {
   hermesServiceTokenConfigured: boolean;
   queueNotStuck: boolean;
   workerHeartbeatFresh: boolean;
+  workerAuthFailureRecent: boolean;
   queuedWithoutWorker: boolean;
   recentSenderTraceSeen: boolean;
   recentSenderTraceWithAttachment: boolean;
@@ -498,6 +499,10 @@ function deriveFileDeliveryDiagnosis(params: {
   const { database, storage, deliveryTraces, queue, workerHeartbeat, hermesServiceTokenConfigured } = params;
   const queueNotStuck = !queue.error && Number(queue.staleProcessing ?? 0) === 0;
   const workerHeartbeatFresh = workerHeartbeat.isOnline;
+  const workerAuthFailureRecent =
+    Boolean(workerHeartbeat.authFailure?.seen) &&
+    typeof workerHeartbeat.authFailure?.ageSeconds === 'number' &&
+    workerHeartbeat.authFailure.ageSeconds <= 600;
   const queuedWithoutWorker = Number(queue.queued ?? 0) > 0 && !workerHeartbeatFresh;
   const receiverHealthy = database.ok && storage.ok && storage.bucketExists;
   const recentSenderTraceSeen = deliveryTraces.totalCount > 0;
@@ -509,6 +514,7 @@ function deriveFileDeliveryDiagnosis(params: {
     hermesServiceTokenConfigured,
     queueNotStuck,
     workerHeartbeatFresh,
+    workerAuthFailureRecent,
     queuedWithoutWorker,
     recentSenderTraceSeen,
     recentSenderTraceWithAttachment
@@ -554,6 +560,20 @@ function deriveFileDeliveryDiagnosis(params: {
   }
 
   if (queuedWithoutWorker) {
+    if (workerAuthFailureRecent) {
+      return {
+        code: 'worker-auth-failed',
+        verdict: 'Hermes worker auth failed recently',
+        summary:
+          'Queued work exists and the receiver recently saw unauthorized Hermes worker requests. This usually means WEBCHAT_SERVICE_TOKEN and HERMES_WEBCHAT_SERVICE_TOKEN do not match.',
+        receiverHealthy,
+        queueNotStuck,
+        senderConfigVerified: false,
+        verificationScope: 'receiver-only',
+        checks
+      };
+    }
+
     return {
       code: 'worker-heartbeat-stale',
       verdict: 'Hermes worker heartbeat is stale',
