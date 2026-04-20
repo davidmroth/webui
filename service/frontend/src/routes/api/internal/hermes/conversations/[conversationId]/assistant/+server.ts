@@ -8,6 +8,7 @@ import {
   recordHermesDeliveryTrace
 } from '$server/chat';
 import { getConfig } from '$server/env';
+import { noteHermesWorkerHeartbeat } from '$server/hermes-heartbeat';
 
 interface AssistantJsonAttachment {
   fileName?: unknown;
@@ -228,6 +229,8 @@ export async function POST({ params, request }: { params: { conversationId: stri
   if (!isAuthorized(request)) {
     return json({ error: 'Unauthorized' }, { status: 401 });
   }
+
+  noteHermesWorkerHeartbeat('assistant-post');
 
   const contentType = request.headers.get('content-type') || '';
   if (contentType.includes('multipart/form-data')) {

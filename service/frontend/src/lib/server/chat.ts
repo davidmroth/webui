@@ -2,12 +2,15 @@ import { randomUUID } from 'node:crypto';
 import { execute, pool, query } from './db';
 import { getConfig } from './env';
 import { getObjectBuffer, uploadObject } from './storage';
+import { getHermesWorkerHeartbeat } from './hermes-heartbeat';
 import type { ChatMessage, ConversationSummary, MessageAttachment } from '$lib/types-legacy';
 
 interface ConversationRow {
   id: string;
   title: string;
   updated_at: Date | string;
+  processing_count?: number | string;
+  queued_count?: number | string;
 }
 
 interface MessageRow {
@@ -255,26 +258,30 @@ async function saveAttachmentsForMessage(
 }
 
 export async function listConversations(userId: string): Promise<ConversationSummary[]> {
-  const rows = await query<ConversationRow & { assistant_busy: number | string }>(
+  const rows = await query<ConversationRow>(
     `SELECT conversations.id,
             conversations.title,
             conversations.updated_at,
-            EXISTS (
-              SELECT 1 FROM hermes_events
-              WHERE hermes_events.conversation_id = conversations.id
-                AND hermes_events.status IN ('queued', 'processing')
-            ) AS assistant_busy
+            COALESCE(SUM(CASE WHEN hermes_events.status = 'processing' THEN 1 ELSE 0 END), 0) AS processing_count,
+            COALESCE(SUM(CASE WHEN hermes_events.status = 'queued' THEN 1 ELSE 0 END), 0) AS queued_count
      FROM conversations
-     WHERE user_id = :user_id
-     ORDER BY updated_at DESC`,
+     LEFT JOIN hermes_events ON hermes_events.conversation_id = conversations.id
+     WHERE conversations.user_id = :user_id
+     GROUP BY conversations.id, conversations.title, conversations.updated_at
+     ORDER BY conversations.updated_at DESC`,
     { user_id: userId }
   );
+
+  const workerHeartbeat = getHermesWorkerHeartbeat();
+  const workerOnline = workerHeartbeat.isOnline;
 
   return rows.map((row) => ({
     id: row.id,
     title: row.title,
     updatedAt: toIsoString(row.updated_at),
-    assistantBusy: Number(row.assistant_busy) > 0
+    assistantBusy:
+      Number(row.processing_count ?? 0) > 0 || (Number(row.queued_count ?? 0) > 0 && workerOnline),
+    assistantStalled: Number(row.queued_count ?? 0) > 0 && !workerOnline
   }));
 }
 
@@ -338,8 +345,10 @@ function parseTimings(raw: string | object | null | undefined) {
 }
 
 export async function isConversationBusy(userId: string, conversationId: string): Promise<boolean> {
-  const rows = await query<{ pending: number | string }>(
-    `SELECT COUNT(*) AS pending
+  const rows = await query<{ queued: number | string; processing: number | string }>(
+    `SELECT
+       COALESCE(SUM(CASE WHEN hermes_events.status = 'queued' THEN 1 ELSE 0 END), 0) AS queued,
+       COALESCE(SUM(CASE WHEN hermes_events.status = 'processing' THEN 1 ELSE 0 END), 0) AS processing
      FROM hermes_events
      INNER JOIN conversations ON conversations.id = hermes_events.conversation_id
      WHERE hermes_events.conversation_id = :conversation_id
@@ -347,8 +356,15 @@ export async function isConversationBusy(userId: string, conversationId: string)
        AND hermes_events.status IN ('queued', 'processing')`,
     { conversation_id: conversationId, user_id: userId }
   );
-  if (Number(rows[0]?.pending ?? 0) > 0) {
+
+  const queued = Number(rows[0]?.queued ?? 0);
+  const processing = Number(rows[0]?.processing ?? 0);
+  if (processing > 0) {
     return true;
+  }
+
+  if (queued > 0) {
+    return getHermesWorkerHeartbeat().isOnline;
   }
 
   // Also treat any in-progress streaming assistant message as busy.

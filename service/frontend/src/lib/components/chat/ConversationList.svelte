@@ -33,8 +33,14 @@
         onclick={() => onSelect?.(conversation.id)}
       >
         <div class="llama-conversation-title">
-          {#if conversation.assistantBusy}
+          {#if conversation.assistantBusy && !conversation.assistantStalled}
             <span class="llama-conversation-busy" aria-label="Agent working" title="Agent working"></span>
+          {:else if conversation.assistantStalled}
+            <span
+              class="llama-conversation-stalled"
+              aria-label="Agent stalled"
+              title="Queued message is waiting for Hermes worker heartbeat"
+            ></span>
           {/if}
           {conversation.title}
         </div>
@@ -42,8 +48,10 @@
           {new Date(conversation.updatedAt).toLocaleDateString([], { month: 'short', day: 'numeric' })}
           ·
           {formatConversationTime(conversation.updatedAt)}
-          {#if conversation.assistantBusy}
+          {#if conversation.assistantBusy && !conversation.assistantStalled}
             · <span class="llama-conversation-busy-label">working</span>
+          {:else if conversation.assistantStalled}
+            · <span class="llama-conversation-stalled-label">stalled</span>
           {/if}
         </div>
       </button>

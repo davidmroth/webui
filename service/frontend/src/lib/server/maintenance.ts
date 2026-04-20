@@ -6,6 +6,7 @@ import { createStorageClient } from './storage';
 import { getHermesQueueStats } from './chat';
 import { getConfig } from './env';
 import { query } from './db';
+import { getHermesWorkerHeartbeat } from './hermes-heartbeat';
 import type { RequestEvent } from '@sveltejs/kit';
 
 interface BuildInfo {
@@ -59,6 +60,8 @@ interface FileDeliveryChecks {
   bucketExists: boolean;
   hermesServiceTokenConfigured: boolean;
   queueNotStuck: boolean;
+  workerHeartbeatFresh: boolean;
+  queuedWithoutWorker: boolean;
   recentSenderTraceSeen: boolean;
   recentSenderTraceWithAttachment: boolean;
 }
@@ -489,10 +492,13 @@ function deriveFileDeliveryDiagnosis(params: {
   storage: Awaited<ReturnType<typeof getStorageTelemetry>>;
   deliveryTraces: HermesDeliveryTraceTelemetry;
   queue: Awaited<ReturnType<typeof getHermesQueueStats>> & { error?: string };
+  workerHeartbeat: ReturnType<typeof getHermesWorkerHeartbeat>;
   hermesServiceTokenConfigured: boolean;
 }): FileDeliveryDiagnosis {
-  const { database, storage, deliveryTraces, queue, hermesServiceTokenConfigured } = params;
+  const { database, storage, deliveryTraces, queue, workerHeartbeat, hermesServiceTokenConfigured } = params;
   const queueNotStuck = !queue.error && Number(queue.staleProcessing ?? 0) === 0;
+  const workerHeartbeatFresh = workerHeartbeat.isOnline;
+  const queuedWithoutWorker = Number(queue.queued ?? 0) > 0 && !workerHeartbeatFresh;
   const receiverHealthy = database.ok && storage.ok && storage.bucketExists;
   const recentSenderTraceSeen = deliveryTraces.totalCount > 0;
   const recentSenderTraceWithAttachment = deliveryTraces.withAttachmentsCount > 0;
@@ -502,6 +508,8 @@ function deriveFileDeliveryDiagnosis(params: {
     bucketExists: storage.bucketExists,
     hermesServiceTokenConfigured,
     queueNotStuck,
+    workerHeartbeatFresh,
+    queuedWithoutWorker,
     recentSenderTraceSeen,
     recentSenderTraceWithAttachment
   };
@@ -537,6 +545,20 @@ function deriveFileDeliveryDiagnosis(params: {
       code: 'receiver-queue-stalled',
       verdict: 'Receiver queue appears stuck',
       summary: 'The receiver queue shows stale processing work, so a backend delivery problem may still exist inside the webui receiver path.',
+      receiverHealthy,
+      queueNotStuck,
+      senderConfigVerified: false,
+      verificationScope: 'receiver-only',
+      checks
+    };
+  }
+
+  if (queuedWithoutWorker) {
+    return {
+      code: 'worker-heartbeat-stale',
+      verdict: 'Hermes worker heartbeat is stale',
+      summary:
+        'Queued work exists, but no recent worker heartbeat has been observed. Conversation status may remain stalled until the Hermes webchat poller reconnects.',
       receiverHealthy,
       queueNotStuck,
       senderConfigVerified: false,
@@ -588,6 +610,7 @@ function deriveFileDeliveryDiagnosis(params: {
 export async function collectMaintenanceSnapshot(event: RequestEvent) {
   const config = getConfig();
   const memoryUsage = process.memoryUsage();
+  const workerHeartbeat = getHermesWorkerHeartbeat();
   const [build, database, storage, deliveryTraces, queue] = await Promise.all([
     getBuildInfo(),
     getDatabaseTelemetry(),
@@ -654,11 +677,13 @@ export async function collectMaintenanceSnapshot(event: RequestEvent) {
     storage,
     deliveryTraces,
     queue,
+    workerHeartbeat,
     fileDeliveryDiagnosis: deriveFileDeliveryDiagnosis({
       database,
       storage,
       deliveryTraces,
       queue,
+      workerHeartbeat,
       hermesServiceTokenConfigured:
         config.hermesServiceToken !== 'change-me' && config.hermesServiceToken.length > 0
     })

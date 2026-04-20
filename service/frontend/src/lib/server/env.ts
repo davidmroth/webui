@@ -29,6 +29,7 @@ export function getConfig() {
     sessionCookieName: getEnv('SESSION_COOKIE_NAME', 'hermes_webui_session'),
     hermesServiceToken: getEnv('HERMES_WEBCHAT_SERVICE_TOKEN', 'change-me'),
     hermesEventLeaseSeconds: getNumber('HERMES_EVENT_LEASE_SECONDS', 120),
+    hermesWorkerHeartbeatStaleSeconds: getNumber('HERMES_WORKER_HEARTBEAT_STALE_SECONDS', 45),
     maintenanceToken: getEnv('MAINTENANCE_TOKEN', ''),
     maintenanceCookieName: getEnv('MAINTENANCE_COOKIE_NAME', 'hermes_webui_maintenance'),
     bootstrapUserName: getEnv('BOOTSTRAP_USER_NAME', 'Owner'),

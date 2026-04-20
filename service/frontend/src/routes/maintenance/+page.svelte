@@ -36,7 +36,7 @@
     if (code === 'receiver-ready') {
       return 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300';
     }
-    if (code === 'upstream-likely' || code === 'sender-no-attachments') {
+    if (code === 'upstream-likely' || code === 'sender-no-attachments' || code === 'worker-heartbeat-stale') {
       return 'bg-amber-500/15 text-amber-700 dark:text-amber-300';
     }
     return 'bg-destructive/15 text-destructive';
@@ -144,6 +144,12 @@
             <div>Processing: {snapshot.queue.processing}</div>
             <div>Stale: {snapshot.queue.staleProcessing}</div>
             <div>Acked: {snapshot.queue.acked}</div>
+            <div>
+              Worker heartbeat: {snapshot.workerHeartbeat.isOnline ? 'fresh' : 'stale'}
+              {#if snapshot.workerHeartbeat.lastSeenAt}
+                ({snapshot.workerHeartbeat.ageSeconds}s ago)
+              {/if}
+            </div>
           </div>
         </div>
 
@@ -242,6 +248,8 @@
               <div><span class="font-medium">Bucket exists:</span> {snapshot.fileDeliveryDiagnosis.checks.bucketExists ? 'yes' : 'no'}</div>
               <div><span class="font-medium">Hermes token configured:</span> {snapshot.fileDeliveryDiagnosis.checks.hermesServiceTokenConfigured ? 'yes' : 'no'}</div>
               <div><span class="font-medium">Queue not stuck:</span> {snapshot.fileDeliveryDiagnosis.checks.queueNotStuck ? 'yes' : 'no'}</div>
+              <div><span class="font-medium">Worker heartbeat fresh:</span> {snapshot.fileDeliveryDiagnosis.checks.workerHeartbeatFresh ? 'yes' : 'no'}</div>
+              <div><span class="font-medium">Queued without worker:</span> {snapshot.fileDeliveryDiagnosis.checks.queuedWithoutWorker ? 'yes' : 'no'}</div>
               <div><span class="font-medium">Recent sender trace seen:</span> {snapshot.fileDeliveryDiagnosis.checks.recentSenderTraceSeen ? 'yes' : 'no'}</div>
               <div><span class="font-medium">Recent sender trace with attachment:</span> {snapshot.fileDeliveryDiagnosis.checks.recentSenderTraceWithAttachment ? 'yes' : 'no'}</div>
               <div><span class="font-medium">Sender config verified:</span> {snapshot.fileDeliveryDiagnosis.senderConfigVerified ? 'yes' : 'no'}</div>

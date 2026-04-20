@@ -18,6 +18,7 @@ export interface ConversationSummary {
   title: string;
   updatedAt: string;
   assistantBusy?: boolean;
+  assistantStalled?: boolean;
 }
 
 export interface ChatMessage {

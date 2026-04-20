@@ -22,10 +22,11 @@ Initial implementation of a browser-first Hermes channel using SvelteKit, MySQL,
 1. Copy `.env.example` to `.env` and change at minimum `HERMES_WEBCHAT_SERVICE_TOKEN` and `BOOTSTRAP_USER_KEY`.
 2. `BOOTSTRAP_USER_KEY` is the browser login key for the bootstrap owner account. `HERMES_WEBCHAT_SERVICE_TOKEN` is only for internal service-to-service authentication.
 3. `HERMES_EVENT_LEASE_SECONDS` controls how long an in-flight Hermes event can stay in `processing` before the web UI makes it eligible for retry. This prevents transient Hermes failures from blackholing messages indefinitely.
-4. The bootstrap owner record is kept in sync with `BOOTSTRAP_USER_NAME` and `BOOTSTRAP_USER_KEY`, so changing those values updates the bootstrap login instead of only applying on first database initialization.
-5. Run `docker compose up --build` from this directory.
-6. Open `http://localhost:3000` by default, or use whatever value you set for `WEBUI_PORT` in `.env`. If you access the dev server through a custom hostname such as `ai.local`, add it to `__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS` in `.env`. The exposed MySQL and MinIO ports are also configurable there. `MYSQL_HOST_PORT` only changes the port published to your host machine; the `webui` container still connects to the `mysql` service on internal port `3306` so host-port changes do not break container-to-container traffic. Similarly, `MINIO_API_PORT` is host-facing only; `webui` should connect to MinIO on internal port `9000`.
-7. Sign in with the bootstrap key from `.env`.
+4. `HERMES_WORKER_HEARTBEAT_STALE_SECONDS` controls when webui considers the Hermes webchat worker offline. When queued work exists past this heartbeat threshold, conversations are marked as stalled instead of indefinitely showing working.
+5. The bootstrap owner record is kept in sync with `BOOTSTRAP_USER_NAME` and `BOOTSTRAP_USER_KEY`, so changing those values updates the bootstrap login instead of only applying on first database initialization.
+6. Run `docker compose up --build` from this directory.
+7. Open `http://localhost:3000` by default, or use whatever value you set for `WEBUI_PORT` in `.env`. If you access the dev server through a custom hostname such as `ai.local`, add it to `__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS` in `.env`. The exposed MySQL and MinIO ports are also configurable there. `MYSQL_HOST_PORT` only changes the port published to your host machine; the `webui` container still connects to the `mysql` service on internal port `3306` so host-port changes do not break container-to-container traffic. Similarly, `MINIO_API_PORT` is host-facing only; `webui` should connect to MinIO on internal port `9000`.
+8. Sign in with the bootstrap key from `.env`.
 
 For S3 or other managed object-storage providers, set `OBJECT_STORAGE_REGION` to the bucket region (for example `us-east-2`).
 If your bucket is shared across services, set `OBJECT_STORAGE_PREFIX` (for example `hermes-webui/prod`) so all webui uploads stay in a dedicated namespace folder.
@@ -42,7 +43,7 @@ Optional llama-style display badges can be configured with `PUBLIC_MODEL_DISPLAY
 
 The app runs versioned database migrations and records them in `schema_migrations`. Existing MySQL volumes are upgraded automatically on startup, and you can also run them explicitly during deploys with `docker compose exec webui yarn migrate`. If you run the CLI from the host shell instead, override `DATABASE_HOST` and `DATABASE_PORT` to point at the host-exposed MySQL port, which defaults to `MYSQL_HOST_PORT`.
 
-The authenticated Hermes health endpoint also reports queue counts so you can quickly see whether events are still queued, currently processing, or stuck past the retry lease.
+The authenticated Hermes health endpoint reports queue counts and the latest worker heartbeat so you can quickly see whether events are queued while the Hermes poller is offline.
 
 ## Service contract
 
