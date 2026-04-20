@@ -1034,13 +1034,20 @@
   </div>
 
   {#if settingsOpen}
-    <div class="llama-settings-modal-layer" role="presentation" onclick={() => (settingsOpen = false)}>
-      <section
+    <div
+      class="llama-settings-modal-layer"
+      role="presentation"
+      onclick={(event: MouseEvent) => {
+        if (event.currentTarget === event.target) {
+          settingsOpen = false;
+        }
+      }}
+    >
+      <div
         class="llama-settings-modal"
         role="dialog"
         aria-modal="true"
         aria-label="Settings"
-        onclick={(event) => event.stopPropagation()}
       >
         <header class="llama-settings-modal-header">
           <h2>Settings</h2>
@@ -1067,7 +1074,7 @@
         <footer class="llama-settings-modal-footer">
           <button class="secondary-button" type="button" onclick={() => (settingsOpen = false)}>Done</button>
         </footer>
-      </section>
+      </div>
     </div>
   {/if}
 </div>

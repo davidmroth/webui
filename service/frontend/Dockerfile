@@ -7,7 +7,7 @@ RUN apk add --no-cache git
 
 WORKDIR /git
 
-COPY package.json ./
+COPY ./service/frontend/package.json ./
 
 # Generate version.json in the final stage (fast, no cache invalidation of earlier layers)
 RUN \
@@ -28,9 +28,9 @@ FROM node:22-alpine AS base
 
 WORKDIR /app
 
-COPY package.json yarn.lock ./
+COPY ./service/frontend/package.json yarn.lock ./
 RUN corepack enable && yarn install --frozen-lockfile
-COPY . .
+COPY ./service/frontend .
 RUN yarn build
 
 
@@ -41,7 +41,7 @@ FROM node:22-alpine AS runtime-deps
 
 WORKDIR /app
 
-COPY package.json ./package.json
+COPY ./service/frontend/package.json ./package.json
 RUN corepack enable
 RUN node -e "const fs=require('node:fs'); const pkg=require('./package.json'); const pick=(k)=>pkg.dependencies?.[k]||pkg.devDependencies?.[k]; const deps=['@sveltejs/kit','svelte','clsx','minio','mysql2','unified','remark-parse','remark-gfm','remark-breaks','remark-math','remark-rehype','rehype-katex','rehype-highlight','rehype-stringify']; const runtime={name:(pkg.name||'webui')+'-runtime',private:true,type:pkg.type||'module',dependencies:Object.fromEntries(deps.map((k)=>[k,pick(k)]).filter(([,v])=>Boolean(v)))}; fs.writeFileSync('package.json', JSON.stringify(runtime, null, 2));"
 RUN yarn install --production=true --ignore-optional --ignore-scripts
