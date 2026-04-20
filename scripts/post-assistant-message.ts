@@ -10,7 +10,7 @@ interface CliOptions {
 }
 
 function printHelp() {
-  console.log(`Usage: npm run post-assistant-message -- --conversation <id> [options]
+  console.log(`Usage: yarn post-assistant-message --conversation <id> [options]
 
 Options:
   --conversation, -c   Conversation ID to reply to

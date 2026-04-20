@@ -29,10 +29,10 @@ FROM node:22-alpine AS base
 
 WORKDIR /app
 
-COPY package.json package-lock.json ./
-RUN npm ci
+COPY package.json yarn.lock ./
+RUN corepack enable && yarn install --frozen-lockfile
 COPY . .
-RUN npm run build
+RUN yarn build
 
 
 #
@@ -43,8 +43,9 @@ FROM node:22-alpine AS runtime-deps
 WORKDIR /app
 
 COPY package.json ./package.json
+RUN corepack enable
 RUN node -e "const fs=require('node:fs'); const pkg=require('./package.json'); const pick=(k)=>pkg.dependencies?.[k]||pkg.devDependencies?.[k]; const deps=['@sveltejs/kit','svelte','clsx','minio','mysql2','unified','remark-parse','remark-gfm','remark-breaks','remark-math','remark-rehype','rehype-katex','rehype-highlight','rehype-stringify']; const runtime={name:(pkg.name||'webui')+'-runtime',private:true,type:pkg.type||'module',dependencies:Object.fromEntries(deps.map((k)=>[k,pick(k)]).filter(([,v])=>Boolean(v)))}; fs.writeFileSync('package.json', JSON.stringify(runtime, null, 2));"
-RUN npm install --omit=dev --omit=optional --ignore-scripts --no-audit --no-fund && npm cache clean --force
+RUN yarn install --production=true --ignore-optional --ignore-scripts
 
 #
 # Final image

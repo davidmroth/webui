@@ -3,8 +3,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      target: runtime-deps
     restart: always
-    command: sh -c "npm install && npm run dev"
+    command: yarn dev
     working_dir: /app
     ports:
       - "${WEBUI_PORT:-3000}:3000"

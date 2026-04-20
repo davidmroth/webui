@@ -21,9 +21,34 @@ export async function ensureStorageBucket() {
   }
   const config = getConfig();
   const client = createStorageClient();
-  const exists = await client.bucketExists(config.objectStorageBucket).catch(() => false);
-  if (!exists) {
-    await client.makeBucket(config.objectStorageBucket, 'us-east-1');
+  let exists: boolean | null = null;
+  try {
+    exists = await client.bucketExists(config.objectStorageBucket);
+  } catch {
+    // Some S3-compatible providers deny bucket existence checks unless extra IAM
+    // permissions are granted. Continue and let putObject/getObject decide.
+    exists = null;
+  }
+
+  if (exists === false) {
+    try {
+      await client.makeBucket(config.objectStorageBucket, config.objectStorageRegion);
+    } catch (error) {
+      // In production the bucket is often pre-provisioned and credentials may
+      // intentionally exclude create/list permissions.
+      const code =
+        error && typeof error === 'object' && 'code' in error
+          ? String((error as { code?: unknown }).code ?? '')
+          : '';
+      const alreadyExists =
+        code === 'BucketAlreadyExists' ||
+        code === 'BucketAlreadyOwnedByYou' ||
+        code === 'OperationAborted';
+      const permissionDenied = code === 'AccessDenied' || code === 'AllAccessDisabled';
+      if (!alreadyExists && !permissionDenied) {
+        throw error;
+      }
+    }
   }
   initialized = true;
 }

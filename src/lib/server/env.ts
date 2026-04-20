@@ -24,6 +24,7 @@ export function getConfig() {
     objectStorageAccessKey: getEnv('OBJECT_STORAGE_ACCESS_KEY', 'minioadmin'),
     objectStorageSecretKey: getEnv('OBJECT_STORAGE_SECRET_KEY', 'minioadmin'),
     objectStorageBucket: getEnv('OBJECT_STORAGE_BUCKET', 'hermes-webui'),
+    objectStorageRegion: getEnv('OBJECT_STORAGE_REGION', 'us-east-1'),
     sessionCookieName: getEnv('SESSION_COOKIE_NAME', 'hermes_webui_session'),
     hermesServiceToken: getEnv('HERMES_WEBCHAT_SERVICE_TOKEN', 'change-me'),
     hermesEventLeaseSeconds: getNumber('HERMES_EVENT_LEASE_SECONDS', 120),

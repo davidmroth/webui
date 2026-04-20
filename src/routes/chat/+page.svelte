@@ -882,6 +882,15 @@
 
                 <div class="llama-composer-row">
                   <div class="llama-composer-actions llama-composer-actions-left">
+                    {#if attachmentMenuOpen}
+                      <button
+                        class="attachment-menu-backdrop"
+                        type="button"
+                        aria-label="Close attachments menu"
+                        onclick={() => (attachmentMenuOpen = false)}
+                      ></button>
+                    {/if}
+
                     <details class="attachment-menu" bind:open={attachmentMenuOpen}>
                       <summary class="compose-icon-button" aria-label="Open attachments menu">
                         <Paperclip class="h-4 w-4" />

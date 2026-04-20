@@ -466,7 +466,7 @@ body {
   border-color: var(--border);
 }
 :root.dark .attachment-menu-popover {
-  background: var(--panel-strong);
+  background: var(--popover);
   color: var(--text);
   border-color: var(--border);
 }
@@ -1169,6 +1169,14 @@ a {
   justify-content: flex-start;
 }
 
+.attachment-menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  border: none;
+  background: rgba(12, 12, 12, 0.3);
+}
+
 .llama-composer-actions-right {
   justify-content: flex-end;
 }
@@ -1267,10 +1275,13 @@ a {
 
 .attachment-menu {
   position: relative;
+  z-index: 41;
 }
 
 .attachment-menu summary {
   list-style: none;
+  position: relative;
+  z-index: 43;
 }
 
 .attachment-menu summary::-webkit-details-marker {
@@ -1286,11 +1297,13 @@ a {
   position: absolute;
   left: 0;
   bottom: calc(100% + 0.75rem);
+  z-index: 42;
   width: min(19rem, calc(100vw - 2rem));
   padding: 0.7rem;
   border: 1px solid var(--border);
   border-radius: 1.35rem;
-  background: var(--panel-strong);
+  background: var(--popover);
+  backdrop-filter: none;
   box-shadow: var(--shadow);
 }
 
