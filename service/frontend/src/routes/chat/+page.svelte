@@ -37,8 +37,9 @@
   };
 
   type SlashCommand = {
-    command: '/new' | '/retry' | '/undo';
+    command: string;
     description: string;
+    argsHint?: string;
   };
 
   let { data, form } = $props();
@@ -63,8 +64,21 @@
   let notificationsEnabled = $state(false);
   let notificationPermission = $state<NotificationPermission>('default');
   let seenAssistantMessageIds = $state<Set<string>>(new Set());
+  let slashCommands = $state<SlashCommand[]>([
+    {
+      command: '/new',
+      description: 'Start a new session (fresh session ID + history).'
+    },
+    {
+      command: '/retry',
+      description: 'Retry the last user message in this conversation.'
+    },
+    {
+      command: '/undo',
+      description: 'Remove the last user and assistant exchange.'
+    }
+  ]);
   let selectedSlashCommandIndex = $state(0);
-  let isRunningSlashCommand = $state(false);
   let composerElement = $state<HTMLTextAreaElement | null>(null);
   let messageScrollElement = $state<HTMLDivElement | null>(null);
   let attachmentInput = $state<HTMLInputElement | null>(null);
@@ -96,20 +110,6 @@
   const TIME_FORMAT_24H_LOCALSTORAGE_KEY = 'LlamaCppWebui.timeFormat24Hour';
   const NOTIFICATIONS_ENABLED_LOCALSTORAGE_KEY = 'LlamaCppWebui.notificationsEnabled';
   const NOTIFICATION_BODY_MAX_LENGTH = 180;
-  const SLASH_COMMANDS: SlashCommand[] = [
-    {
-      command: '/new',
-      description: 'Start a new session (fresh session ID + history).'
-    },
-    {
-      command: '/retry',
-      description: 'Retry the last user message in this conversation.'
-    },
-    {
-      command: '/undo',
-      description: 'Remove the last user and assistant exchange.'
-    }
-  ];
   const notificationsSupported = $derived(
     typeof window !== 'undefined' && typeof Notification !== 'undefined'
   );
@@ -364,7 +364,7 @@
     }
 
     const query = slashQuery.slice(1);
-    return SLASH_COMMANDS.filter((entry) => entry.command.slice(1).startsWith(query));
+    return slashCommands.filter((entry) => entry.command.slice(1).startsWith(query));
   });
   const slashMenuVisible = $derived(filteredSlashCommands.length > 0);
 
@@ -859,112 +859,54 @@
     }
   }
 
-  async function retryLastUserMessage() {
-    const previousUserMessage = [...messages]
-      .reverse()
-      .find((message) => message.role === 'user' && !message.id.startsWith('pending-') && message.content.trim());
-
-    if (!previousUserMessage) {
-      throw new Error('There is no previous user message to retry.');
-    }
-
-    draftMessage = previousUserMessage.content;
-    await tick();
-    resetComposerHeight();
-    await sendMessage();
-  }
-
-  async function undoLastExchange() {
-    if (!currentConversationId) {
-      throw new Error('No active conversation to undo.');
-    }
-
-    const stableMessages = messages.filter((message) => !message.id.startsWith('pending-'));
-    let lastUserIndex = -1;
-    for (let index = stableMessages.length - 1; index >= 0; index -= 1) {
-      if (stableMessages[index].role === 'user') {
-        lastUserIndex = index;
-        break;
-      }
-    }
-
-    if (lastUserIndex < 0) {
-      throw new Error('No user exchange found to undo.');
-    }
-
-    const messageIdsToDelete = [stableMessages[lastUserIndex].id];
-    for (let index = lastUserIndex + 1; index < stableMessages.length; index += 1) {
-      const message = stableMessages[index];
-      if (message.role !== 'assistant') {
-        break;
-      }
-      messageIdsToDelete.push(message.id);
-    }
-
-    for (const messageId of messageIdsToDelete.reverse()) {
-      const response = await fetch(
-        `/api/conversations/${currentConversationId}/messages/${messageId}`,
-        { method: 'DELETE' }
-      );
-      if (!response.ok) {
-        const payload = await response.json().catch(() => ({}));
-        throw new Error(payload.error || 'Unable to undo the last exchange.');
-      }
-    }
-
-    await refreshConversations();
-    await loadMessages(currentConversationId, { forceScroll: true });
-    focusComposer();
-  }
-
-  async function handleSlashCommand() {
-    const normalized = draftMessage.trim();
-    if (!normalized.startsWith('/')) {
-      return false;
-    }
-
-    const [command] = normalized.split(/\s+/, 1);
-    if (!command) {
-      return false;
-    }
-
-    isRunningSlashCommand = true;
-    errorMessage = null;
-
-    try {
-      if (command === '/new') {
-        startNewChat();
-      } else if (command === '/retry') {
-        await retryLastUserMessage();
-      } else if (command === '/undo') {
-        await undoLastExchange();
-      } else {
-        return false;
-      }
-
-      draftMessage = '';
-      await tick();
-      resetComposerHeight();
-      focusComposer();
-      return true;
-    } catch (error) {
-      errorMessage = error instanceof Error ? error.message : 'Unable to run slash command.';
-      return true;
-    } finally {
-      isRunningSlashCommand = false;
-    }
-  }
-
   async function submitComposer() {
-    if (isSending || isRunningSlashCommand) {
-      return;
-    }
-
-    if (await handleSlashCommand()) {
+    if (isSending) {
       return;
     }
 
     await sendMessage();
+  }
+
+  async function applySlashCommandSelection(slashCommand: SlashCommand) {
+    const needsArgs = Boolean(slashCommand.argsHint?.trim());
+    draftMessage = needsArgs ? `${slashCommand.command} ` : slashCommand.command;
+    await tick();
+    focusComposer();
+    if (!needsArgs) {
+      void submitComposer();
+    }
+  }
+
+  async function loadSlashCommands() {
+    try {
+      const response = await fetch('/api/slash-commands');
+      if (!response.ok) {
+        return;
+      }
+
+      const payload = await response.json();
+      const commands = Array.isArray(payload?.commands) ? payload.commands : [];
+      const normalized = commands
+        .filter(
+          (entry): entry is { command: string; description?: string; argsHint?: string } =>
+            Boolean(entry) && typeof entry.command === 'string' && entry.command.startsWith('/')
+        )
+        .map((entry) => ({
+          command: entry.command,
+          description: typeof entry.description === 'string' && entry.description.trim()
+            ? entry.description.trim()
+            : 'Hermes command',
+          argsHint: typeof entry.argsHint === 'string' && entry.argsHint.trim()
+            ? entry.argsHint.trim()
+            : undefined
+        }));
+
+      if (normalized.length > 0) {
+        slashCommands = normalized;
+      }
+    } catch {
+      // Keep fallback commands when Hermes command metadata is unavailable.
+    }
   }
 
   function handleSubmit(event: SubmitEvent) {
@@ -993,8 +935,7 @@
         event.preventDefault();
         const selected = filteredSlashCommands[selectedSlashCommandIndex];
         if (selected) {
-          draftMessage = selected.command;
-          void submitComposer();
+          void applySlashCommandSelection(selected);
         }
         return;
       }
@@ -1110,6 +1051,7 @@
     loadTimeFormatPreference();
     loadNotificationsPreference();
     rememberAssistantMessages(messages);
+    void loadSlashCommands();
 
     syncMobileViewport();
     const mediaQuery = window.matchMedia('(max-width: 768px)');
@@ -1451,8 +1393,7 @@
                             aria-selected={index === selectedSlashCommandIndex}
                             onmousedown={(event) => event.preventDefault()}
                             onclick={() => {
-                              draftMessage = slashCommand.command;
-                              void submitComposer();
+                              void applySlashCommandSelection(slashCommand);
                             }}
                           >
                             <div class="llama-slash-command-name">{slashCommand.command}</div>
@@ -1478,9 +1419,9 @@
                       class="send-button"
                       type="submit"
                       aria-label="Send message"
-                      disabled={isSending || isRunningSlashCommand}
+                      disabled={isSending}
                     >
-                      {#if isSending || isRunningSlashCommand}
+                      {#if isSending}
                         <Square class="h-3.5 w-3.5" />
                       {:else}
                         <ArrowUp class="h-3.5 w-3.5" />
