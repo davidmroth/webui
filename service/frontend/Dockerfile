@@ -8,16 +8,15 @@ RUN apk add --no-cache git
 WORKDIR /git
 
 COPY package.json ./
-COPY .git .git
 
 # Generate version.json in the final stage (fast, no cache invalidation of earlier layers)
 RUN \
     BUILD_TIME=$(TZ='America/Chicago' date -Iseconds) && \
     FRONTEND_VERSION=$(node -p "require('/git/package.json').version" 2>/dev/null || echo "0.0.0") && \
     GIT_TAG=$(git describe --abbrev=0 --tags --match="v[0-9]*" 2>/dev/null || echo "no-tag") && \
-    GIT_COMMIT=$(git rev-parse HEAD) && \
-    GIT_COMMIT_SHORT=$(git rev-parse --short HEAD) && \
-    GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD) && \
+    GIT_COMMIT=$(git rev-parse HEAD 2>/dev/null || echo "unknown") && \
+    GIT_COMMIT_SHORT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown") && \
+    GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown") && \
     echo '{ "frontend": "'${FRONTEND_VERSION}'", "gitTag": "'${GIT_TAG}'", "gitCommit": "'${GIT_COMMIT}'", "gitCommitShort": "'${GIT_COMMIT_SHORT}'", "gitBranch": "'${GIT_BRANCH}'", "buildTime": "'${BUILD_TIME}'" }' > .build.json && \
     echo "Generated version.json:" && cat .build.json
 

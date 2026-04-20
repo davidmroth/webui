@@ -2,7 +2,7 @@ services:
   webui:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: service/frontend/Dockerfile
       target: runtime-deps
     restart: always
     command: yarn dev
@@ -18,7 +18,7 @@ services:
       OBJECT_STORAGE_PORT: 9000
       HERMES_WEBCHAT_SERVICE_TOKEN: ${HERMES_WEBCHAT_SERVICE_TOKEN}
     volumes:
-      - ./:/app
+      - ./service/frontend:/app
       - webui_node_modules:/app/node_modules
     depends_on:
       mysql:
@@ -61,7 +61,10 @@ services:
   # phpMyAdmin — database admin UI.
   phpmyadmin:
     image: phpmyadmin:latest
-
+    environment:
+      PMA_HOSTS: mysql,ls-30e5849e96ebc8f59cdcd1a12515d3a0bb5189e6.cdizh6eku0w8.us-east-2.rds.amazonaws.com
+    ports:
+      - "${PHPMYADMIN_PORT:-8888}:80"
     depends_on:
       mysql:
         condition: service_healthy
