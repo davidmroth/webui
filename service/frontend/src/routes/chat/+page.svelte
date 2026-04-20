@@ -865,18 +865,17 @@
       <div class="llama-chat-stage">
         {#if showStalledWarning}
           <div
-            class="card"
+            class="llama-stalled-banner"
             role="status"
-            style="margin: 0 1rem 0.75rem; border-color: color-mix(in srgb, #d97706 45%, var(--border)); background: color-mix(in srgb, #d97706 10%, var(--surface)); color: var(--text-primary);"
           >
-            <strong style="color: #92400e;">Hermes worker appears stalled.</strong>
-            <div style="margin-top: 0.35rem; color: var(--text-muted);">
+            <strong class="llama-stalled-banner-title">Hermes worker appears stalled.</strong>
+            <p class="llama-stalled-banner-body">
               Your message is queued, but the webchat worker heartbeat is stale. Check
-              <span style="font-weight: 600; color: var(--text-primary);">WEBCHAT_URL / WEBCHAT_SERVICE_TOKEN</span>
+              <span class="llama-stalled-banner-emphasis">WEBCHAT_URL / WEBCHAT_SERVICE_TOKEN</span>
               on Hermes and
-              <span style="font-weight: 600; color: var(--text-primary);">HERMES_WEBCHAT_SERVICE_TOKEN</span>
+              <span class="llama-stalled-banner-emphasis">HERMES_WEBCHAT_SERVICE_TOKEN</span>
               on WebUI, then restart the Hermes gateway webchat adapter.
-            </div>
+            </p>
           </div>
         {/if}
 
