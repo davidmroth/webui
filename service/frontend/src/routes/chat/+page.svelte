@@ -71,6 +71,7 @@
   let sidebarCollapsed = $state(initialIsMobile);
   let isMobileViewport = $state(initialIsMobile);
   const appName = $derived(data.appName || 'Hermes WebUI');
+  const userDisplayName = $derived(data.session?.displayName?.trim() || 'You');
   const sidebarBuildLabel = $derived.by(() => {
     const buildInfo = data.buildInfo;
     const version = String(buildInfo?.frontend ?? '0.0.0');
@@ -1095,6 +1096,7 @@
             <MessagePane
               bind:scrollContainer={messageScrollElement}
               messages={displayMessages}
+              userDisplayName={userDisplayName}
               use24HourTime={use24HourTime}
               copiedMessageId={copiedMessageId}
               busyMessageIds={busyMessageIds}

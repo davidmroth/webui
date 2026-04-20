@@ -1110,6 +1110,10 @@ a {
   width: min(100%, 44rem);
 }
 
+.llama-message-row.user > .llama-message-card {
+  padding-bottom: 0.5rem;
+}
+
 .llama-message-row.assistant,
 .llama-message-row.system {
   justify-self: start;

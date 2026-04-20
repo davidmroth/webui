@@ -28,6 +28,7 @@
 
   interface Props {
     messages: ChatMessage[];
+    userDisplayName?: string;
     use24HourTime?: boolean;
     copiedMessageId?: string | null;
     onCopy?: (message: ChatMessage) => void;
@@ -40,6 +41,7 @@
 
   let {
     messages,
+    userDisplayName = 'You',
     use24HourTime = false,
     copiedMessageId = null,
     onCopy,
@@ -58,7 +60,7 @@
   ].filter(Boolean);
 
   function formatRole(role: ChatMessage['role']) {
-    return role === 'assistant' ? 'Assistant' : role === 'system' ? 'System' : 'You';
+    return role === 'assistant' ? 'Assistant' : role === 'system' ? 'System' : userDisplayName;
   }
 
   function hasVisibleContent(message: ChatMessage) {
