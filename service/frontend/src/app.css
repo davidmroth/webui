@@ -1312,6 +1312,11 @@ a {
   gap: 0.55rem;
 }
 
+.llama-composer-input-stack {
+  position: relative;
+  min-width: 0;
+}
+
 .llama-textarea {
   width: 100%;
   min-height: 2.4rem;
@@ -1325,6 +1330,53 @@ a {
   font-size: 0.95rem;
   line-height: 1.4;
   align-self: center;
+}
+
+.llama-slash-menu {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 0.42rem);
+  z-index: 30;
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.45rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 0.95rem;
+  background: var(--panel-strong);
+  box-shadow: var(--shadow-soft);
+  max-height: min(17rem, 40vh);
+  overflow-y: auto;
+}
+
+.llama-slash-command {
+  display: grid;
+  gap: 0.1rem;
+  width: 100%;
+  border: 1px solid transparent;
+  border-radius: 0.72rem;
+  background: transparent;
+  color: var(--text);
+  padding: 0.48rem 0.58rem;
+  text-align: left;
+}
+
+.llama-slash-command:hover,
+.llama-slash-command.active {
+  border-color: var(--border);
+  background: var(--accent-soft);
+}
+
+.llama-slash-command-name {
+  font-weight: 600;
+  font-size: 0.9rem;
+  line-height: 1.2;
+}
+
+.llama-slash-command-description {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  line-height: 1.3;
 }
 
 .field,

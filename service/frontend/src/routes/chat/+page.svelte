@@ -36,6 +36,11 @@
     placeholderId: string;
   };
 
+  type SlashCommand = {
+    command: '/new' | '/retry' | '/undo';
+    description: string;
+  };
+
   let { data, form } = $props();
   let currentConversationId = $state<string | null>(null);
   let messages = $state<ChatMessage[]>([]);
@@ -58,6 +63,8 @@
   let notificationsEnabled = $state(false);
   let notificationPermission = $state<NotificationPermission>('default');
   let seenAssistantMessageIds = $state<Set<string>>(new Set());
+  let selectedSlashCommandIndex = $state(0);
+  let isRunningSlashCommand = $state(false);
   let composerElement = $state<HTMLTextAreaElement | null>(null);
   let messageScrollElement = $state<HTMLDivElement | null>(null);
   let attachmentInput = $state<HTMLInputElement | null>(null);
@@ -89,6 +96,20 @@
   const TIME_FORMAT_24H_LOCALSTORAGE_KEY = 'LlamaCppWebui.timeFormat24Hour';
   const NOTIFICATIONS_ENABLED_LOCALSTORAGE_KEY = 'LlamaCppWebui.notificationsEnabled';
   const NOTIFICATION_BODY_MAX_LENGTH = 180;
+  const SLASH_COMMANDS: SlashCommand[] = [
+    {
+      command: '/new',
+      description: 'Start a new session (fresh session ID + history).'
+    },
+    {
+      command: '/retry',
+      description: 'Retry the last user message in this conversation.'
+    },
+    {
+      command: '/undo',
+      description: 'Remove the last user and assistant exchange.'
+    }
+  ];
   const notificationsSupported = $derived(
     typeof window !== 'undefined' && typeof Notification !== 'undefined'
   );
@@ -163,17 +184,44 @@
     return `${normalized.slice(0, NOTIFICATION_BODY_MAX_LENGTH - 3)}...`;
   }
 
+  async function getServiceWorkerNotificationRegistration() {
+    if (typeof window === 'undefined' || !('serviceWorker' in navigator)) {
+      return null;
+    }
+
+    try {
+      const registration = await navigator.serviceWorker.ready;
+      if (registration && typeof registration.showNotification === 'function') {
+        return registration;
+      }
+    } catch {
+      // Ignore and fall back to the page Notification API.
+    }
+
+    return null;
+  }
+
   async function showAssistantReplyNotification(conversationId: string, message: ChatMessage) {
     if (typeof window === 'undefined' || typeof Notification === 'undefined') {
       return;
     }
 
     const chatUrl = `/chat?conversation=${conversationId}`;
-    const notification = new Notification(`Hermes: ${conversationTitle(conversationId)}`, {
-      body: formatNotificationBody(message),
-      tag: `assistant-${message.id}`
-    });
+    const title = `Hermes: ${conversationTitle(conversationId)}`;
+    const body = formatNotificationBody(message);
+    const tag = `assistant-${message.id}`;
 
+    const registration = await getServiceWorkerNotificationRegistration();
+    if (registration) {
+      await registration.showNotification(title, {
+        body,
+        tag,
+        data: { url: chatUrl }
+      });
+      return;
+    }
+
+    const notification = new Notification(title, { body, tag });
     notification.onclick = () => {
       notification.close();
       window.focus();
@@ -301,6 +349,36 @@
   const showStalledWarning = $derived(
     Boolean(currentConversationSummary?.assistantStalled)
   );
+  const slashQuery = $derived.by(() => {
+    const normalized = draftMessage.trim();
+    if (!normalized.startsWith('/') || normalized.includes('\n')) {
+      return '';
+    }
+
+    const firstToken = normalized.split(/\s+/, 1)[0] ?? '';
+    return firstToken.toLowerCase();
+  });
+  const filteredSlashCommands = $derived.by(() => {
+    if (!slashQuery) {
+      return [] as SlashCommand[];
+    }
+
+    const query = slashQuery.slice(1);
+    return SLASH_COMMANDS.filter((entry) => entry.command.slice(1).startsWith(query));
+  });
+  const slashMenuVisible = $derived(filteredSlashCommands.length > 0);
+
+  $effect(() => {
+    if (!slashMenuVisible) {
+      selectedSlashCommandIndex = 0;
+      return;
+    }
+
+    selectedSlashCommandIndex = Math.max(
+      0,
+      Math.min(selectedSlashCommandIndex, filteredSlashCommands.length - 1)
+    );
+  });
 
   function activeConversationTitle() {
     return conversations.find((conversation) => conversation.id === currentConversationId)?.title ?? 'New chat';
@@ -781,18 +859,159 @@
     }
   }
 
+  async function retryLastUserMessage() {
+    const previousUserMessage = [...messages]
+      .reverse()
+      .find((message) => message.role === 'user' && !message.id.startsWith('pending-') && message.content.trim());
+
+    if (!previousUserMessage) {
+      throw new Error('There is no previous user message to retry.');
+    }
+
+    draftMessage = previousUserMessage.content;
+    await tick();
+    resetComposerHeight();
+    await sendMessage();
+  }
+
+  async function undoLastExchange() {
+    if (!currentConversationId) {
+      throw new Error('No active conversation to undo.');
+    }
+
+    const stableMessages = messages.filter((message) => !message.id.startsWith('pending-'));
+    let lastUserIndex = -1;
+    for (let index = stableMessages.length - 1; index >= 0; index -= 1) {
+      if (stableMessages[index].role === 'user') {
+        lastUserIndex = index;
+        break;
+      }
+    }
+
+    if (lastUserIndex < 0) {
+      throw new Error('No user exchange found to undo.');
+    }
+
+    const messageIdsToDelete = [stableMessages[lastUserIndex].id];
+    for (let index = lastUserIndex + 1; index < stableMessages.length; index += 1) {
+      const message = stableMessages[index];
+      if (message.role !== 'assistant') {
+        break;
+      }
+      messageIdsToDelete.push(message.id);
+    }
+
+    for (const messageId of messageIdsToDelete.reverse()) {
+      const response = await fetch(
+        `/api/conversations/${currentConversationId}/messages/${messageId}`,
+        { method: 'DELETE' }
+      );
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.error || 'Unable to undo the last exchange.');
+      }
+    }
+
+    await refreshConversations();
+    await loadMessages(currentConversationId, { forceScroll: true });
+    focusComposer();
+  }
+
+  async function handleSlashCommand() {
+    const normalized = draftMessage.trim();
+    if (!normalized.startsWith('/')) {
+      return false;
+    }
+
+    const [command] = normalized.split(/\s+/, 1);
+    if (!command) {
+      return false;
+    }
+
+    isRunningSlashCommand = true;
+    errorMessage = null;
+
+    try {
+      if (command === '/new') {
+        startNewChat();
+      } else if (command === '/retry') {
+        await retryLastUserMessage();
+      } else if (command === '/undo') {
+        await undoLastExchange();
+      } else {
+        return false;
+      }
+
+      draftMessage = '';
+      await tick();
+      resetComposerHeight();
+      focusComposer();
+      return true;
+    } catch (error) {
+      errorMessage = error instanceof Error ? error.message : 'Unable to run slash command.';
+      return true;
+    } finally {
+      isRunningSlashCommand = false;
+    }
+  }
+
+  async function submitComposer() {
+    if (isSending || isRunningSlashCommand) {
+      return;
+    }
+
+    if (await handleSlashCommand()) {
+      return;
+    }
+
+    await sendMessage();
+  }
+
   function handleSubmit(event: SubmitEvent) {
     event.preventDefault();
-    void sendMessage();
+    void submitComposer();
   }
 
   function handleComposerKeydown(event: KeyboardEvent) {
+    if (slashMenuVisible) {
+      if (event.key === 'ArrowDown') {
+        event.preventDefault();
+        selectedSlashCommandIndex =
+          (selectedSlashCommandIndex + 1) % filteredSlashCommands.length;
+        return;
+      }
+
+      if (event.key === 'ArrowUp') {
+        event.preventDefault();
+        selectedSlashCommandIndex =
+          (selectedSlashCommandIndex - 1 + filteredSlashCommands.length) %
+          filteredSlashCommands.length;
+        return;
+      }
+
+      if ((event.key === 'Enter' || event.key === 'Tab') && !event.shiftKey) {
+        event.preventDefault();
+        const selected = filteredSlashCommands[selectedSlashCommandIndex];
+        if (selected) {
+          draftMessage = selected.command;
+          void submitComposer();
+        }
+        return;
+      }
+
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        draftMessage = '';
+        return;
+      }
+    }
+
     // On mobile, Enter inserts a newline; users send via the button.
     if (isMobileViewport) return;
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault();
       if (!isSending) {
-        sendMessage();
+        void submitComposer();
       }
     }
   }
@@ -1220,19 +1439,48 @@
                     />
                   </div>
 
-                  <textarea
-                    bind:this={composerElement}
-                    class="llama-textarea"
-                    bind:value={draftMessage}
-                    placeholder="Type a message..."
-                    oninput={handleComposerInput}
-                    onkeydown={handleComposerKeydown}
-                    onpaste={handleComposerPaste}
-                  ></textarea>
+                  <div class="llama-composer-input-stack">
+                    {#if slashMenuVisible}
+                      <div class="llama-slash-menu" role="listbox" aria-label="Slash commands">
+                        {#each filteredSlashCommands as slashCommand, index (slashCommand.command)}
+                          <button
+                            type="button"
+                            class="llama-slash-command"
+                            class:active={index === selectedSlashCommandIndex}
+                            role="option"
+                            aria-selected={index === selectedSlashCommandIndex}
+                            onmousedown={(event) => event.preventDefault()}
+                            onclick={() => {
+                              draftMessage = slashCommand.command;
+                              void submitComposer();
+                            }}
+                          >
+                            <div class="llama-slash-command-name">{slashCommand.command}</div>
+                            <div class="llama-slash-command-description">{slashCommand.description}</div>
+                          </button>
+                        {/each}
+                      </div>
+                    {/if}
+
+                    <textarea
+                      bind:this={composerElement}
+                      class="llama-textarea"
+                      bind:value={draftMessage}
+                      placeholder="Type a message..."
+                      oninput={handleComposerInput}
+                      onkeydown={handleComposerKeydown}
+                      onpaste={handleComposerPaste}
+                    ></textarea>
+                  </div>
 
                   <div class="llama-composer-actions llama-composer-actions-right">
-                    <button class="send-button" type="submit" aria-label="Send message" disabled={isSending}>
-                      {#if isSending}
+                    <button
+                      class="send-button"
+                      type="submit"
+                      aria-label="Send message"
+                      disabled={isSending || isRunningSlashCommand}
+                    >
+                      {#if isSending || isRunningSlashCommand}
                         <Square class="h-3.5 w-3.5" />
                       {:else}
                         <ArrowUp class="h-3.5 w-3.5" />
