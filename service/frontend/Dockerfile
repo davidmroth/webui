@@ -28,7 +28,7 @@ FROM node:22-alpine AS base
 
 WORKDIR /app
 
-COPY ./service/frontend/package.json yarn.lock ./
+COPY ./service/frontend/package.json ./service/frontend/yarn.lock ./
 RUN corepack enable && yarn install --frozen-lockfile
 COPY ./service/frontend .
 RUN yarn build
@@ -58,7 +58,6 @@ WORKDIR /app
 COPY --from=base /app/build /app
 COPY --from=runtime-deps /app/node_modules ./node_modules
 COPY --from=version /git/.build.json ./version.json
-
 
 EXPOSE 3000
 CMD ["node", "index.js"]
