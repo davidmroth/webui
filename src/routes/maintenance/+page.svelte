@@ -319,6 +319,7 @@
             <div><span class="font-medium">App name:</span> {snapshot.config.publicAppName}</div>
             <div><span class="font-medium">DB target:</span> {snapshot.config.database.host}:{snapshot.config.database.port}/{snapshot.config.database.name}</div>
             <div><span class="font-medium">Storage target:</span> {snapshot.config.objectStorage.endpoint}:{snapshot.config.objectStorage.port}/{snapshot.config.objectStorage.bucket}</div>
+            <div><span class="font-medium">Storage prefix:</span> {snapshot.config.objectStorage.prefix || '(none)'}</div>
             <div><span class="font-medium">Hermes token configured:</span> {snapshot.config.hermesServiceTokenConfigured ? 'yes' : 'no'}</div>
             <div><span class="font-medium">Maintenance token configured:</span> {snapshot.config.maintenanceTokenConfigured ? 'yes' : 'no'}</div>
           </dl>

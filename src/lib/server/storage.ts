@@ -64,6 +64,20 @@ function streamToBuffer(stream: NodeJS.ReadableStream): Promise<Buffer> {
   });
 }
 
+function normalizeObjectStoragePrefix(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return '';
+  }
+  return trimmed
+    .replace(/\\/g, '/')
+    .replace(/^\/+/, '')
+    .replace(/\/+$/, '')
+    .split('/')
+    .filter((segment) => segment.length > 0)
+    .join('/');
+}
+
 export async function uploadObject(params: {
   conversationId: string;
   messageId: string;
@@ -74,7 +88,9 @@ export async function uploadObject(params: {
   await ensureStorageBucket();
   const config = getConfig();
   const client = createStorageClient();
-  const objectKey = `${params.conversationId}/${params.messageId}/${randomUUID()}-${params.fileName}`;
+  const keyBase = `${params.conversationId}/${params.messageId}/${randomUUID()}-${params.fileName}`;
+  const prefix = normalizeObjectStoragePrefix(config.objectStoragePrefix);
+  const objectKey = prefix ? `${prefix}/${keyBase}` : keyBase;
   await client.putObject(config.objectStorageBucket, objectKey, params.buffer, params.buffer.length, {
     'Content-Type': params.contentType
   });

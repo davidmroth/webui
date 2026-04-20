@@ -642,7 +642,8 @@ export async function collectMaintenanceSnapshot(event: RequestEvent) {
         endpoint: config.objectStorageEndpoint,
         port: config.objectStoragePort,
         useSsl: config.objectStorageUseSsl,
-        bucket: config.objectStorageBucket
+        bucket: config.objectStorageBucket,
+        prefix: config.objectStoragePrefix
       },
       sessionCookieName: config.sessionCookieName,
       maintenanceCookieName: config.maintenanceCookieName,

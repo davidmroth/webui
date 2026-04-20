@@ -28,6 +28,7 @@ Initial implementation of a browser-first Hermes channel using SvelteKit, MySQL,
 7. Sign in with the bootstrap key from `.env`.
 
 For S3 or other managed object-storage providers, set `OBJECT_STORAGE_REGION` to the bucket region (for example `us-east-2`).
+If your bucket is shared across services, set `OBJECT_STORAGE_PREFIX` (for example `hermes-webui/prod`) so all webui uploads stay in a dedicated namespace folder.
 
 ### Maintenance page
 
