@@ -217,12 +217,13 @@
           </p>
 
           <div class="mt-4 rounded-lg border border-border bg-muted/40 p-4">
-            <div class="flex items-start justify-between gap-3">
-              <div>
-                <div class="font-medium">{snapshot.fileDeliveryDiagnosis.verdict}</div>
-                <p class="mt-1 text-sm text-muted-foreground">{snapshot.fileDeliveryDiagnosis.summary}</p>
-              </div>
-              <span class={`rounded-full px-2 py-1 text-xs font-medium ${verdictClasses(snapshot.fileDeliveryDiagnosis.code)}`}>
+            <div>
+              <div class="font-medium">{snapshot.fileDeliveryDiagnosis.verdict}</div>
+              <p class="mt-1 text-sm text-muted-foreground">{snapshot.fileDeliveryDiagnosis.summary}</p>
+            </div>
+
+            <div class="mt-3">
+              <span class={`inline-flex rounded-full px-2 py-1 text-xs font-medium ${verdictClasses(snapshot.fileDeliveryDiagnosis.code)}`}>
                 {snapshot.fileDeliveryDiagnosis.code}
               </span>
             </div>
