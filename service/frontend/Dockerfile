@@ -7,6 +7,7 @@ RUN apk add --no-cache git
 
 WORKDIR /git
 
+COPY .git .git
 COPY ./service/frontend/package.json ./
 
 # Generate version.json in the final stage (fast, no cache invalidation of earlier layers)
