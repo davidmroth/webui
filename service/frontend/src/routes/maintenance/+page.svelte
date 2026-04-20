@@ -166,7 +166,7 @@
       </section>
 
       <section class="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
-        <div class="rounded-xl border border-border bg-card p-5 shadow-sm">
+        <div class="rounded-xl border border-border bg-card p-5 shadow-sm xl:col-span-2">
           <h2 class="text-lg font-semibold">System checks</h2>
           <div class="mt-4 grid gap-4 md:grid-cols-2">
             <div class="rounded-lg border border-border bg-muted/40 p-4">
