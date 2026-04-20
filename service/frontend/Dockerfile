@@ -53,6 +53,7 @@ RUN yarn install --production=true --ignore-optional --ignore-scripts
 FROM node:22-alpine AS final
 
 ENV NODE_ENV=production
+ENV BODY_SIZE_LIMIT=10M
 
 WORKDIR /app
 

@@ -2,6 +2,13 @@ import { json } from '@sveltejs/kit';
 import { enqueueUserMessage, isConversationBusy, listMessages } from '$server/chat';
 import { requireSession } from '$server/auth';
 
+function isRequestBodyTooLarge(reason: string): boolean {
+  const normalized = reason.toLowerCase();
+  return (
+    normalized.includes('content-length') && normalized.includes('exceeds limit')
+  ) || normalized.includes('request body size exceeded');
+}
+
 export async function GET(event) {
   const session = await requireSession(event);
   const [messages, assistantBusy] = await Promise.all([
@@ -59,6 +66,16 @@ export async function POST(event) {
       userId: session.userId,
       reason
     });
+
+    if (isRequestBodyTooLarge(reason)) {
+      return json(
+        {
+          error:
+            'Upload is too large for this server. Reduce attachment size or increase BODY_SIZE_LIMIT.'
+        },
+        { status: 413 }
+      );
+    }
 
     return json(
       {
