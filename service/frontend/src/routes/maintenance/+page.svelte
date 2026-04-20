@@ -61,11 +61,11 @@
 
       {#if data.authorized}
         <div class="flex items-center gap-3">
-          <a class="inline-flex items-center rounded-md border border-border px-3 py-2 text-sm font-medium hover:bg-accent" href="/maintenance">
+          <a class="inline-flex items-center rounded-md border border-border px-3 py-2 text-sm font-medium text-foreground hover:bg-accent hover:text-primary-foreground" href="/maintenance">
             Refresh
           </a>
           <form method="POST" action="?/logout">
-            <button class="inline-flex items-center rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground" type="submit">
+            <button class="inline-flex items-center rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90" type="submit">
               Lock page
             </button>
           </form>

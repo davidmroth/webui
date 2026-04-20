@@ -976,6 +976,35 @@ a {
   font-weight: 650;
 }
 
+.llama-stalled-banner-actions {
+  margin-top: 0.2rem;
+}
+
+.llama-stalled-banner-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, #d97706 28%, var(--border));
+  background: color-mix(in srgb, #f59e0b 14%, var(--panel-strong));
+  color: color-mix(in srgb, #92400e 86%, var(--text));
+  padding: 0.42rem 0.72rem;
+  font-size: 0.82rem;
+  font-weight: 650;
+  line-height: 1;
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+
+.llama-stalled-banner-action:hover:not(:disabled) {
+  background: color-mix(in srgb, #f59e0b 20%, var(--panel-strong));
+  border-color: color-mix(in srgb, #d97706 40%, var(--border));
+}
+
+.llama-stalled-banner-action:disabled {
+  opacity: 0.7;
+  cursor: progress;
+}
+
 :root.dark .llama-stalled-banner {
   border-color: color-mix(in srgb, #f59e0b 46%, var(--border));
   background:
@@ -989,6 +1018,16 @@ a {
 
 :root.dark .llama-stalled-banner-title {
   color: color-mix(in srgb, #f59e0b 82%, var(--text));
+}
+
+:root.dark .llama-stalled-banner-action {
+  border-color: color-mix(in srgb, #f59e0b 46%, var(--border));
+  background: color-mix(in srgb, #f59e0b 18%, var(--panel-strong));
+  color: color-mix(in srgb, #fcd34d 86%, var(--text));
+}
+
+:root.dark .llama-stalled-banner-action:hover:not(:disabled) {
+  background: color-mix(in srgb, #f59e0b 24%, var(--panel-strong));
 }
 
 .llama-stage-scroll {

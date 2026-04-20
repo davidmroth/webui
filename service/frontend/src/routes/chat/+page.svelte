@@ -47,6 +47,7 @@
   let searchQuery = $state('');
   let draftMessage = $state('');
   let isSending = $state(false);
+  let isClearingStalled = $state(false);
   let isRefreshing = $state(false);
   let copiedMessageId = $state<string | null>(null);
   let errorMessage = $state<string | null>(null);
@@ -606,6 +607,34 @@
     }
   }
 
+  async function clearStalledAssistantTurn() {
+    if (!currentConversationId || isClearingStalled) {
+      return;
+    }
+
+    isClearingStalled = true;
+    errorMessage = null;
+    try {
+      const response = await fetch(`/api/conversations/${currentConversationId}/messages/active`, {
+        method: 'DELETE'
+      });
+
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.error || 'Unable to clear stalled assistant turn.');
+      }
+
+      clearPendingAssistant(currentConversationId);
+      await refreshConversations();
+      await loadMessages(currentConversationId);
+      focusComposer();
+    } catch (error) {
+      errorMessage = error instanceof Error ? error.message : 'Unable to clear stalled assistant turn.';
+    } finally {
+      isClearingStalled = false;
+    }
+  }
+
   function handleSubmit(event: SubmitEvent) {
     event.preventDefault();
     void sendMessage();
@@ -876,6 +905,16 @@
               <span class="llama-stalled-banner-emphasis">HERMES_WEBCHAT_SERVICE_TOKEN</span>
               on WebUI, then restart the Hermes gateway webchat adapter.
             </p>
+            <div class="llama-stalled-banner-actions">
+              <button
+                class="llama-stalled-banner-action"
+                type="button"
+                onclick={clearStalledAssistantTurn}
+                disabled={isClearingStalled}
+              >
+                {isClearingStalled ? 'Clearing queued turn...' : 'Clear queued turn'}
+              </button>
+            </div>
           </div>
         {/if}
 
