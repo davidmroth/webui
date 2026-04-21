@@ -37,6 +37,7 @@ export default defineConfig({
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,webp,woff2}'],
         importScripts: ['sw-notifications.js'],
+        navigateFallback: null,
         navigateFallbackDenylist: [/^\/api\//]
       },
       devOptions: {
