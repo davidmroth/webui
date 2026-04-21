@@ -153,7 +153,7 @@
     });
   }
 
-  function showRoleLabel(role: ChatMessage['role']) {
+  function showMessageHeader(role: ChatMessage['role']) {
     return role !== 'user';
   }
 </script>
@@ -169,17 +169,17 @@
     {#each messages as message, index}
       <div class={`llama-message-row ${message.role}`}>
         <div class="llama-message-card">
-          <div class="llama-message-header">
-            {#if showRoleLabel(message.role)}
+          {#if showMessageHeader(message.role)}
+            <div class="llama-message-header">
               <div class="llama-message-role">
                 <span class="message-role-dot"></span>
                 {formatRole(message.role)}
               </div>
-            {/if}
-            <div class="message-meta">
-              {formatMessageTime(message.createdAt)}
+              <div class="message-meta">
+                {formatMessageTime(message.createdAt)}
+              </div>
             </div>
-          </div>
+          {/if}
           {#if isStreamingAssistant(message) && !hasVisibleContent(message)}
             <div class="assistant-typing-indicator" role="status" aria-live="polite" aria-label="Assistant is typing">
               <span class="assistant-typing-bubble" aria-hidden="true">
