@@ -454,8 +454,12 @@ body {
 }
 :root.dark .send-button {
   background: var(--accent);
-  color: var(--accent-foreground, #16161a);
+  color: #151518;
   border-color: var(--accent);
+}
+
+:root.dark .send-button svg {
+  color: #151518;
 }
 :root.dark .llama-composer-wrap {
   background: linear-gradient(180deg, transparent 0%, rgba(15, 15, 16, 0.92) 18%, rgba(15, 15, 16, 0.98) 100%);
