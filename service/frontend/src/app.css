@@ -1151,6 +1151,7 @@ a {
 /* Grok-style: assistant + system messages render as plain text, not bubbles. */
 .llama-message-row.assistant > .llama-message-card,
 .llama-message-row.system > .llama-message-card {
+  gap: 0.35rem;
   padding: 0;
   border: none;
   background: transparent;
