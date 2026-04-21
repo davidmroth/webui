@@ -294,45 +294,75 @@
           {/if}
 
           {#if !(isStreamingAssistant(message) && !hasVisibleContent(message))}
+            {@const isBusy = busyMessageIds?.has(message.id) ?? false}
+            {#if message.role !== 'user'}
+              <div class="llama-message-actions assistant-actions" aria-label="Message actions">
+                <button
+                  class={`message-action-icon ${copiedMessageId === message.id ? 'is-active' : ''}`}
+                  type="button"
+                  title={copiedMessageId === message.id ? 'Copied' : 'Copy'}
+                  onclick={() => onCopy?.(message)}
+                >
+                  <Copy class="h-3 w-3" />
+                </button>
+                <button class="message-action-icon disabled" type="button" title="Edit unavailable" disabled>
+                  <Edit class="h-3 w-3" />
+                </button>
+                <button
+                  class="message-action-icon"
+                  type="button"
+                  title={isBusy ? 'Regenerating…' : 'Regenerate'}
+                  disabled={isBusy || !onRegenerate}
+                  onclick={() => onRegenerate?.(message)}
+                >
+                  <RefreshCw class="h-3 w-3" />
+                </button>
+                <button class="message-action-icon disabled" type="button" title="Branch unavailable" disabled>
+                  <GitBranch class="h-3 w-3" />
+                </button>
+                <button
+                  class="message-action-icon"
+                  type="button"
+                  title={isBusy ? 'Working…' : 'Delete'}
+                  disabled={isBusy || !onDelete}
+                  onclick={() => onDelete?.(message)}
+                >
+                  <Trash2 class="h-3 w-3" />
+                </button>
+              </div>
+            {/if}
+          {/if}
+        </div>
+        {#if !(isStreamingAssistant(message) && !hasVisibleContent(message))}
           {@const isBusy = busyMessageIds?.has(message.id) ?? false}
-          <div class={`llama-message-actions ${message.role === 'user' ? 'user-actions' : 'assistant-actions'}`} aria-label="Message actions">
-            <button
-              class={`message-action-icon ${copiedMessageId === message.id ? 'is-active' : ''}`}
-              type="button"
-              title={copiedMessageId === message.id ? 'Copied' : 'Copy'}
-              onclick={() => onCopy?.(message)}
-            >
-              <Copy class="h-3 w-3" />
-            </button>
-            <button class="message-action-icon disabled" type="button" title="Edit unavailable" disabled>
-              <Edit class="h-3 w-3" />
-            </button>
-            {#if message.role === 'assistant'}
+          {#if message.role === 'user'}
+            <div class="llama-message-actions user-actions user-actions-outside" aria-label="Message actions">
+              <button
+                class={`message-action-icon ${copiedMessageId === message.id ? 'is-active' : ''}`}
+                type="button"
+                title={copiedMessageId === message.id ? 'Copied' : 'Copy'}
+                onclick={() => onCopy?.(message)}
+              >
+                <Copy class="h-3 w-3" />
+              </button>
+              <button class="message-action-icon disabled" type="button" title="Edit unavailable" disabled>
+                <Edit class="h-3 w-3" />
+              </button>
+              <button class="message-action-icon disabled" type="button" title="Branch unavailable" disabled>
+                <GitBranch class="h-3 w-3" />
+              </button>
               <button
                 class="message-action-icon"
                 type="button"
-                title={isBusy ? 'Regenerating…' : 'Regenerate'}
-                disabled={isBusy || !onRegenerate}
-                onclick={() => onRegenerate?.(message)}
+                title={isBusy ? 'Working…' : 'Delete'}
+                disabled={isBusy || !onDelete}
+                onclick={() => onDelete?.(message)}
               >
-                <RefreshCw class="h-3 w-3" />
+                <Trash2 class="h-3 w-3" />
               </button>
-            {/if}
-            <button class="message-action-icon disabled" type="button" title="Branch unavailable" disabled>
-              <GitBranch class="h-3 w-3" />
-            </button>
-            <button
-              class="message-action-icon"
-              type="button"
-              title={isBusy ? 'Working…' : 'Delete'}
-              disabled={isBusy || !onDelete}
-              onclick={() => onDelete?.(message)}
-            >
-              <Trash2 class="h-3 w-3" />
-            </button>
-          </div>
+            </div>
           {/if}
-        </div>
+        {/if}
       </div>
     {/each}
   </div>
