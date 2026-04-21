@@ -498,11 +498,6 @@ body {
   color: rgba(236, 236, 236, 0.35);
 }
 
-:root.dark .user-actions-outside .user-edit-action {
-  border-color: rgba(255, 255, 255, 0.2);
-  background: rgba(255, 255, 255, 0.08);
-}
-
 :root.dark .attachment-menu-popover {
   background: var(--popover);
   color: var(--text);
@@ -1876,15 +1871,6 @@ a {
 .message-action-icon svg {
   width: 15px;
   height: 15px;
-}
-
-.user-actions-outside .user-edit-action {
-  border: 1px solid rgba(29, 29, 24, 0.12);
-  background: rgba(255, 255, 255, 0.92);
-}
-
-.user-actions-outside .user-edit-action:hover {
-  border-color: rgba(29, 29, 24, 0.18);
 }
 
 .message-action-icon:hover {
