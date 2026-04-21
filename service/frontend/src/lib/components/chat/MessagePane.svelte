@@ -5,7 +5,6 @@
     Copy,
     Edit,
     Gauge,
-    GitBranch,
     RefreshCw,
     Sparkles,
     Trash2,
@@ -305,9 +304,6 @@
                 >
                   <Copy class="h-3 w-3" />
                 </button>
-                <button class="message-action-icon disabled" type="button" title="Edit unavailable" disabled>
-                  <Edit class="h-3 w-3" />
-                </button>
                 <button
                   class="message-action-icon"
                   type="button"
@@ -316,9 +312,6 @@
                   onclick={() => onRegenerate?.(message)}
                 >
                   <RefreshCw class="h-3 w-3" />
-                </button>
-                <button class="message-action-icon disabled" type="button" title="Branch unavailable" disabled>
-                  <GitBranch class="h-3 w-3" />
                 </button>
                 <button
                   class="message-action-icon"
@@ -334,7 +327,6 @@
           {/if}
         </div>
         {#if !(isStreamingAssistant(message) && !hasVisibleContent(message))}
-          {@const isBusy = busyMessageIds?.has(message.id) ?? false}
           {#if message.role === 'user'}
             <div class="llama-message-actions user-actions user-actions-outside" aria-label="Message actions">
               <button
@@ -345,20 +337,8 @@
               >
                 <Copy class="h-3 w-3" />
               </button>
-              <button class="message-action-icon disabled" type="button" title="Edit unavailable" disabled>
+              <button class="message-action-icon user-edit-action disabled" type="button" title="Edit unavailable" disabled>
                 <Edit class="h-3 w-3" />
-              </button>
-              <button class="message-action-icon disabled" type="button" title="Branch unavailable" disabled>
-                <GitBranch class="h-3 w-3" />
-              </button>
-              <button
-                class="message-action-icon"
-                type="button"
-                title={isBusy ? 'Working…' : 'Delete'}
-                disabled={isBusy || !onDelete}
-                onclick={() => onDelete?.(message)}
-              >
-                <Trash2 class="h-3 w-3" />
               </button>
             </div>
           {/if}

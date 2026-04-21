@@ -498,6 +498,11 @@ body {
   color: rgba(236, 236, 236, 0.35);
 }
 
+:root.dark .user-actions-outside .user-edit-action {
+  border-color: rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.08);
+}
+
 :root.dark .attachment-menu-popover {
   background: var(--popover);
   color: var(--text);
@@ -1839,12 +1844,12 @@ a {
   transform: translateY(2px);
   pointer-events: none;
   transition: opacity 120ms ease, transform 120ms ease;
-  margin-top: 0.2rem;
+  margin-top: 0.1rem;
   padding-right: 0.1rem;
 }
 
 .user-actions-outside {
-  margin-top: 0.45rem;
+  margin-top: 0.18rem;
 }
 
 .llama-message-row.user:hover .user-actions,
@@ -1858,30 +1863,28 @@ a {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 34px;
+  height: 34px;
   border: none;
-  border-radius: 0.5rem;
+  border-radius: 0.75rem;
   background: transparent;
   color: rgba(28, 28, 25, 0.62);
   padding: 0;
-  transition: background-color 120ms ease, color 120ms ease;
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
 }
 
 .message-action-icon svg {
-  width: 12px;
-  height: 12px;
-}
-
-.user-actions-outside .message-action-icon {
-  width: 34px;
-  height: 34px;
-  border-radius: 0.6rem;
-}
-
-.user-actions-outside .message-action-icon svg {
   width: 15px;
   height: 15px;
+}
+
+.user-actions-outside .user-edit-action {
+  border: 1px solid rgba(29, 29, 24, 0.12);
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.user-actions-outside .user-edit-action:hover {
+  border-color: rgba(29, 29, 24, 0.18);
 }
 
 .message-action-icon:hover {
