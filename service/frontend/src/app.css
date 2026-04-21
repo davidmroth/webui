@@ -466,6 +466,34 @@ body {
   background: var(--panel-strong);
   border-color: var(--border);
 }
+
+:root.dark .llama-message-row.user > .llama-message-card {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.16);
+}
+
+:root.dark .llama-message-row.user .llama-message-body {
+  color: var(--text);
+}
+
+:root.dark .message-action-icon {
+  color: rgba(236, 236, 236, 0.82);
+}
+
+:root.dark .message-action-icon:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+:root.dark .message-action-icon.is-active {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.16);
+}
+
+:root.dark .message-action-icon.disabled {
+  color: rgba(236, 236, 236, 0.35);
+}
+
 :root.dark .attachment-menu-popover {
   background: var(--popover);
   color: var(--text);
