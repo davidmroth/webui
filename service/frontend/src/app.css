@@ -42,6 +42,7 @@
   --code-background: oklch(0.985 0 0);
   --code-foreground: oklch(0.145 0 0);
   --layer-popover: 1000000;
+  --chat-viewport-height: 100dvh;
   --chat-form-area-height: 8rem;
   --chat-form-area-offset: 2rem;
   --max-message-height: max(24rem, min(80dvh, calc(100dvh - var(--chat-form-area-height) - 12rem)));
@@ -490,8 +491,8 @@ a {
 }
 
 .shell {
-  height: 100dvh;
-  min-height: 100dvh;
+  height: var(--chat-viewport-height, 100dvh);
+  min-height: var(--chat-viewport-height, 100dvh);
   padding: 0.75rem;
   overflow: hidden;
 }
@@ -503,7 +504,7 @@ a {
 .llama-frame {
   display: grid;
   grid-template-columns: 250px minmax(0, 1fr);
-  height: calc(100dvh - 1.5rem);
+  height: calc(var(--chat-viewport-height, 100dvh) - 1.5rem);
   min-height: 0;
   overflow: hidden;
   border: 1px solid var(--border);
@@ -1037,6 +1038,27 @@ a {
   min-height: 0;
   flex-direction: column;
   overflow: hidden;
+}
+
+.llama-chat-loading-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.7rem;
+  background: color-mix(in srgb, var(--panel) 78%, transparent);
+  backdrop-filter: blur(1.5px);
+  -webkit-backdrop-filter: blur(1.5px);
+  pointer-events: none;
+}
+
+.llama-chat-loading-label {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  letter-spacing: 0.01em;
 }
 
 .llama-empty-state {
@@ -1864,13 +1886,32 @@ a {
 }
 
 @media (max-width: 768px) {
+  html.chat-route,
+  body.chat-route {
+    height: 100%;
+    overflow: hidden;
+    overscroll-behavior-y: none;
+  }
+
+  body.chat-route .shell {
+    position: fixed;
+    inset: 0;
+    height: var(--chat-viewport-height, 100dvh);
+    min-height: var(--chat-viewport-height, 100dvh);
+  }
+
+  body.chat-route .llama-frame {
+    height: var(--chat-viewport-height, 100dvh);
+  }
+
   .shell {
-    height: 100dvh;
+    height: var(--chat-viewport-height, 100dvh);
+    min-height: var(--chat-viewport-height, 100dvh);
     padding: 0;
   }
 
   .llama-frame {
-    height: 100dvh;
+    height: var(--chat-viewport-height, 100dvh);
     border-radius: 0;
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: minmax(0, 1fr);

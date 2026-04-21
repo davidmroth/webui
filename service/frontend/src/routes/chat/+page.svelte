@@ -55,6 +55,7 @@
   let isSending = $state(false);
   let isClearingStalled = $state(false);
   let isRefreshing = $state(false);
+  let isConversationLoading = $state(false);
   let copiedMessageId = $state<string | null>(null);
   let errorMessage = $state<string | null>(null);
   let busyMessageIds = $state<Set<string>>(new Set());
@@ -584,36 +585,50 @@
     conversations = payload.conversations;
   }
 
-  async function loadMessages(conversationId: string | null, options: { forceScroll?: boolean } = {}) {
+  async function loadMessages(
+    conversationId: string | null,
+    options: { forceScroll?: boolean; showLoading?: boolean } = {}
+  ) {
     const previousScrollTop = messageScrollElement?.scrollTop ?? 0;
     const shouldStickToBottom = options.forceScroll ?? (shouldAutoScroll || isNearBottom());
+    const showLoading = Boolean(options.showLoading);
 
-    if (!conversationId) {
-      messages = [];
-      return;
+    if (showLoading) {
+      isConversationLoading = true;
     }
 
-    const response = await fetch(`/api/conversations/${conversationId}/messages`);
-    if (!response.ok) {
-      return;
-    }
+    try {
+      if (!conversationId) {
+        messages = [];
+        return;
+      }
 
-    const payload = await response.json();
-    syncPendingAssistant(conversationId, payload.messages);
-    messages = payload.messages;
-    await maybeNotifyAssistantReply(conversationId, payload.messages);
-    serverAssistantBusyByConversation = {
-      ...serverAssistantBusyByConversation,
-      [conversationId]: Boolean(payload.assistantBusy)
-    };
-    await tick();
-    if (messageScrollElement) {
-      if (shouldStickToBottom) {
-        messageScrollElement.scrollTop = messageScrollElement.scrollHeight;
-        shouldAutoScroll = true;
-      } else {
-        messageScrollElement.scrollTop = previousScrollTop;
-        shouldAutoScroll = false;
+      const response = await fetch(`/api/conversations/${conversationId}/messages`);
+      if (!response.ok) {
+        return;
+      }
+
+      const payload = await response.json();
+      syncPendingAssistant(conversationId, payload.messages);
+      messages = payload.messages;
+      await maybeNotifyAssistantReply(conversationId, payload.messages);
+      serverAssistantBusyByConversation = {
+        ...serverAssistantBusyByConversation,
+        [conversationId]: Boolean(payload.assistantBusy)
+      };
+      await tick();
+      if (messageScrollElement) {
+        if (shouldStickToBottom) {
+          messageScrollElement.scrollTop = messageScrollElement.scrollHeight;
+          shouldAutoScroll = true;
+        } else {
+          messageScrollElement.scrollTop = previousScrollTop;
+          shouldAutoScroll = false;
+        }
+      }
+    } finally {
+      if (showLoading) {
+        isConversationLoading = false;
       }
     }
   }
@@ -628,7 +643,7 @@
     errorMessage = null;
     setChatUrl(conversationId);
     if (isMobileViewport) sidebarCollapsed = true;
-    await loadMessages(conversationId, { forceScroll: true });
+    await loadMessages(conversationId, { forceScroll: true, showLoading: true });
     focusComposer();
   }
 
@@ -1015,6 +1030,24 @@
   }
 
   onMount(() => {
+    const rootElement = document.documentElement;
+    const bodyElement = document.body;
+    const syncChatViewportHeight = () => {
+      const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
+      rootElement.style.setProperty('--chat-viewport-height', `${Math.round(viewportHeight)}px`);
+    };
+
+    rootElement.classList.add('chat-route');
+    bodyElement.classList.add('chat-route');
+    syncChatViewportHeight();
+
+    const visualViewport = window.visualViewport;
+    if (visualViewport) {
+      visualViewport.addEventListener('resize', syncChatViewportHeight);
+      visualViewport.addEventListener('scroll', syncChatViewportHeight);
+    }
+    window.addEventListener('resize', syncChatViewportHeight);
+
     const refresh = async () => {
       if (isRefreshing) {
         return;
@@ -1035,7 +1068,7 @@
     const handlePopState = async () => {
       const url = new URL(window.location.href);
       currentConversationId = url.searchParams.get('conversation');
-      await loadMessages(currentConversationId, { forceScroll: true });
+      await loadMessages(currentConversationId, { forceScroll: true, showLoading: true });
     };
 
     tick().then(() => {
@@ -1096,6 +1129,14 @@
       window.removeEventListener('popstate', handlePopState);
       window.removeEventListener('keydown', onKeydown);
       document.removeEventListener('visibilitychange', onVisibilityChange);
+      window.removeEventListener('resize', syncChatViewportHeight);
+      if (visualViewport) {
+        visualViewport.removeEventListener('resize', syncChatViewportHeight);
+        visualViewport.removeEventListener('scroll', syncChatViewportHeight);
+      }
+      rootElement.classList.remove('chat-route');
+      bodyElement.classList.remove('chat-route');
+      rootElement.style.removeProperty('--chat-viewport-height');
       if (mediaQuery.removeEventListener) {
         mediaQuery.removeEventListener('change', onMediaChange);
       } else {
@@ -1266,6 +1307,13 @@
               onDelete={deleteMessage}
               onScroll={handleMessageScroll}
             />
+          {/if}
+
+          {#if isConversationLoading}
+            <div class="llama-chat-loading-overlay" role="status" aria-live="polite" aria-label="Loading conversation">
+              <div class="app-loading-spinner" aria-hidden="true"></div>
+              <span class="llama-chat-loading-label">Loading chat...</span>
+            </div>
           {/if}
 
           {#if isDragActive}
