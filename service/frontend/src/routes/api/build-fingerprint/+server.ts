@@ -3,15 +3,12 @@ import { getBuildInfo } from '$server/maintenance';
 
 export async function GET() {
   const build = await getBuildInfo();
-  const fingerprint = [
-    build.frontend,
-    build.gitCommitShort ?? build.gitCommit ?? 'unknown',
-    build.buildTime ?? 'unknown'
-  ].join(':');
+  const version = String(build.frontend ?? '0.0.0');
 
   return json(
     {
-      fingerprint,
+      version,
+      fingerprint: version,
       build
     },
     {

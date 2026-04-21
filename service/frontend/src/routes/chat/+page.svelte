@@ -40,6 +40,7 @@
     command: string;
     description: string;
     argsHint?: string;
+    aliases?: string[];
   };
 
   type StreamMessageEvent = {
@@ -1152,11 +1153,21 @@
       }
 
       const payload = await response.json();
-      const commands: Array<{ command: string; description?: string; argsHint?: string }> =
+      const commands: Array<{
+        command: string;
+        description?: string;
+        argsHint?: string;
+        aliases?: string[];
+      }> =
         Array.isArray(payload?.commands) ? payload.commands : [];
       const normalized = commands
         .filter(
-          (entry): entry is { command: string; description?: string; argsHint?: string } =>
+          (entry): entry is {
+            command: string;
+            description?: string;
+            argsHint?: string;
+            aliases?: string[];
+          } =>
             Boolean(entry) && typeof entry.command === 'string' && entry.command.startsWith('/')
         )
         .map((entry) => ({
@@ -1166,11 +1177,36 @@
             : 'Hermes command',
           argsHint: typeof entry.argsHint === 'string' && entry.argsHint.trim()
             ? entry.argsHint.trim()
+            : undefined,
+          aliases: Array.isArray(entry.aliases)
+            ? entry.aliases.filter((alias): alias is string => typeof alias === 'string' && alias.startsWith('/'))
             : undefined
         }));
 
-      if (normalized.length > 0) {
-        slashCommands = normalized;
+      const expanded: SlashCommand[] = [];
+      for (const command of normalized) {
+        expanded.push(command);
+        for (const alias of command.aliases ?? []) {
+          expanded.push({
+            command: alias,
+            description: `${command.description} (alias for ${command.command})`,
+            argsHint: command.argsHint
+          });
+        }
+      }
+
+      const deduped: SlashCommand[] = [];
+      const seen = new Set<string>();
+      for (const command of expanded) {
+        if (seen.has(command.command)) {
+          continue;
+        }
+        seen.add(command.command);
+        deduped.push(command);
+      }
+
+      if (deduped.length > 0) {
+        slashCommands = deduped;
       }
     } catch {
       // Keep fallback commands when Hermes command metadata is unavailable.
@@ -1338,6 +1374,9 @@
     loadNotificationsPreference();
     rememberAssistantMessages(messages);
     void loadSlashCommands();
+    const slashCommandsRefreshInterval = window.setInterval(() => {
+      void loadSlashCommands();
+    }, 15000);
 
     syncMobileViewport();
     const mediaQuery = window.matchMedia('(max-width: 768px)');
@@ -1383,6 +1422,7 @@
       window.removeEventListener('popstate', handlePopState);
       window.removeEventListener('keydown', onKeydown);
       document.removeEventListener('visibilitychange', onVisibilityChange);
+      window.clearInterval(slashCommandsRefreshInterval);
       window.removeEventListener('resize', syncChatViewportHeight);
       if (visualViewport) {
         visualViewport.removeEventListener('resize', syncChatViewportHeight);

@@ -20,7 +20,14 @@
     let updateToastVisible = false;
     let updateServiceWorker: ((reloadPage?: boolean) => Promise<void>) | undefined;
     let refreshInterval: ReturnType<typeof setInterval> | undefined;
-    let buildFingerprint: string | undefined;
+    const buildVersionStorageKey = 'hermes_webui_last_seen_build_version';
+    let buildVersion: string | undefined;
+
+    try {
+      buildVersion = localStorage.getItem(buildVersionStorageKey) ?? undefined;
+    } catch {
+      buildVersion = undefined;
+    }
 
     const showUpdateToast = () => {
       if (updateToastVisible) return;
@@ -81,17 +88,27 @@
 
         if (!response.ok) return;
 
-        const payload = (await response.json()) as { fingerprint?: string };
-        const nextFingerprint = payload.fingerprint;
-        if (!nextFingerprint) return;
+        const payload = (await response.json()) as { version?: string; fingerprint?: string };
+        const nextVersion = payload.version ?? payload.fingerprint;
+        if (!nextVersion) return;
 
-        if (!buildFingerprint) {
-          buildFingerprint = nextFingerprint;
+        if (!buildVersion) {
+          buildVersion = nextVersion;
+          try {
+            localStorage.setItem(buildVersionStorageKey, nextVersion);
+          } catch {
+            // Ignore storage write failures (private mode, quota, etc.).
+          }
           return;
         }
 
-        if (nextFingerprint !== buildFingerprint) {
-          buildFingerprint = nextFingerprint;
+        if (nextVersion !== buildVersion) {
+          buildVersion = nextVersion;
+          try {
+            localStorage.setItem(buildVersionStorageKey, nextVersion);
+          } catch {
+            // Ignore storage write failures (private mode, quota, etc.).
+          }
           showUpdateToast();
         }
       } catch (error) {
