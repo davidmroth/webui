@@ -284,6 +284,11 @@ export async function POST({ params, request }: { params: { conversationId: stri
     attachmentNames: rawAttachmentNames,
     contentLength: rawContent.length
   });
+  const normalizedTimings = normalizeTimingsInput(body.timings);
+  const traceWithTimingSignal =
+    senderTrace && normalizedTimings
+      ? { ...senderTrace, route: `${senderTrace.route}+timings` }
+      : senderTrace;
 
   // ----- Chunked streaming path -----------------------------------------
   // Hermes can post incremental token deltas instead of (or before) a final
@@ -307,17 +312,16 @@ export async function POST({ params, request }: { params: { conversationId: stri
     if (done) {
       const finalContent =
         typeof body.content === 'string' ? body.content : '';
-      const timings = normalizeTimingsInput(body.timings);
       // If the producer didn't pass an explicit final content payload, the
       // chunk log itself is the source of truth — finalizeStreamingAssistantMessage
       // assumes the caller passes the assembled content. Fall back to assembling.
       if (finalContent) {
-        await finalizeStreamingAssistantMessage(messageId, finalContent, { timings });
+        await finalizeStreamingAssistantMessage(messageId, finalContent, { timings: normalizedTimings });
       } else {
         const { listAssistantChunks } = await import('$server/chat');
         const chunks = await listAssistantChunks(messageId, -1);
         const assembled = chunks.map((row) => row.delta).join('');
-        await finalizeStreamingAssistantMessage(messageId, assembled, { timings });
+        await finalizeStreamingAssistantMessage(messageId, assembled, { timings: normalizedTimings });
       }
     }
 
@@ -330,7 +334,7 @@ export async function POST({ params, request }: { params: { conversationId: stri
   try {
     attachments = parseJsonAttachments(body.attachments);
   } catch (error) {
-    await persistSenderTrace(params.conversationId, senderTrace, {
+    await persistSenderTrace(params.conversationId, traceWithTimingSignal, {
       receiverStatus: 'rejected',
       errorText: error instanceof Error ? error.message : 'Invalid assistant attachments.'
     });
@@ -341,7 +345,7 @@ export async function POST({ params, request }: { params: { conversationId: stri
   }
 
   if (!content && attachments.length === 0) {
-    await persistSenderTrace(params.conversationId, senderTrace, {
+    await persistSenderTrace(params.conversationId, traceWithTimingSignal, {
       receiverStatus: 'rejected',
       errorText: 'Assistant content or attachment is required.'
     });
@@ -354,22 +358,22 @@ export async function POST({ params, request }: { params: { conversationId: stri
           params.conversationId,
           content,
           attachments,
-          { timings: normalizeTimingsInput(body.timings) }
+          { timings: normalizedTimings }
         )
       : await storeAssistantMessage(
           params.conversationId,
           content,
-          { timings: normalizeTimingsInput(body.timings) }
+          { timings: normalizedTimings }
         );
 
-    await persistSenderTrace(params.conversationId, senderTrace, {
+    await persistSenderTrace(params.conversationId, traceWithTimingSignal, {
       receiverMessageId: messageId,
       receiverStatus: 'accepted'
     });
 
     return json({ ok: true, messageId }, { status: 201 });
   } catch (error) {
-    await persistSenderTrace(params.conversationId, senderTrace, {
+    await persistSenderTrace(params.conversationId, traceWithTimingSignal, {
       receiverStatus: 'rejected',
       errorText: error instanceof Error ? error.message : 'Failed to store assistant message.'
     });

@@ -264,6 +264,9 @@
           <p class="mt-2 text-sm text-muted-foreground">
             Sender-declared webchat delivery attempts that actually reached this deployment. Use this to compare what Hermes said it posted against what the receiver stored.
           </p>
+          <p class="mt-2 text-sm text-muted-foreground">
+            When the receiver sees a top-level assistant <code>timings</code> payload, the trace route is tagged as <code>webchat_adapter+timings</code>.
+          </p>
 
           <div class="mt-4 grid gap-3 md:grid-cols-2 text-sm">
             <div class="rounded-md bg-muted/40 p-4">
@@ -316,6 +319,60 @@
                 </div>
               {/each}
             </div>
+          {/if}
+        </div>
+
+        <div class="rounded-xl border border-border bg-card p-5 shadow-sm">
+          <h2 class="text-lg font-semibold">Recent assistant timings</h2>
+          <p class="mt-2 text-sm text-muted-foreground">
+            llama.cpp-style inference timings as stored on the most-recent assistant messages. Used to verify that the upstream sender is forwarding <code>timings</code> and that they are being persisted into the <code>messages.timings</code> JSON column. Older messages predating the timings work will show <em>none</em>.
+          </p>
+
+          <div class="mt-4 grid gap-3 md:grid-cols-2 text-sm">
+            <div class="rounded-md bg-muted/40 p-4">
+              <div><span class="font-medium">Total assistant messages:</span> {snapshot.recentAssistantTimings.totalAssistantCount}</div>
+              <div><span class="font-medium">With timings:</span> {snapshot.recentAssistantTimings.withTimingsCount}</div>
+              <div><span class="font-medium">Without timings:</span> {snapshot.recentAssistantTimings.withoutTimingsCount}</div>
+              <div><span class="font-medium">Last with timings:</span> {snapshot.recentAssistantTimings.lastWithTimingsAt ?? 'never'}</div>
+            </div>
+            <div class="rounded-md bg-muted/40 p-4">
+              <div><span class="font-medium">Query OK:</span> {snapshot.recentAssistantTimings.ok ? 'yes' : 'no'}</div>
+              {#if snapshot.recentAssistantTimings.error}
+                <div class="text-destructive">{snapshot.recentAssistantTimings.error}</div>
+              {/if}
+              {#if snapshot.recentAssistantTimings.totalAssistantCount > 0 && snapshot.recentAssistantTimings.withTimingsCount === 0}
+                <div class="mt-2 text-muted-foreground">
+                  No assistant message has stored timings yet. Either the upstream provider is not llama.cpp (no <code>timings</code> emitted), or the sender/receiver pipeline is not forwarding them. Send a fresh message via webchat to test.
+                </div>
+              {/if}
+            </div>
+          </div>
+
+          {#if snapshot.recentAssistantTimings.recent.length > 0}
+            <div class="mt-4 space-y-3">
+              {#each snapshot.recentAssistantTimings.recent as msg}
+                <div class="rounded-lg border border-border bg-muted/30 p-4 text-sm">
+                  <div class="flex items-start justify-between gap-3">
+                    <div>
+                      <div class="font-medium">{msg.createdAt ?? 'unknown time'}</div>
+                      <div class="mt-1 text-muted-foreground break-all">id: {msg.id}</div>
+                      <div class="text-muted-foreground break-all">conversation: {msg.conversationId}</div>
+                    </div>
+                    <span class={`rounded-full px-2 py-1 text-xs font-medium ${msg.timings ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300' : 'bg-muted text-muted-foreground'}`}>
+                      {msg.timings ? 'has timings' : 'no timings'}
+                    </span>
+                  </div>
+                  <div class="mt-2 text-muted-foreground">
+                    Content ({msg.contentLength} chars): <span class="text-foreground">{msg.contentSnippet || '(empty)'}{msg.contentLength > msg.contentSnippet.length ? '\u2026' : ''}</span>
+                  </div>
+                  {#if msg.timingsRaw}
+                    <pre class="mt-3 overflow-x-auto rounded-md bg-background/60 p-3 text-xs">{msg.timingsRaw}</pre>
+                  {/if}
+                </div>
+              {/each}
+            </div>
+          {:else}
+            <div class="mt-4 text-sm text-muted-foreground">No assistant messages found.</div>
           {/if}
         </div>
 

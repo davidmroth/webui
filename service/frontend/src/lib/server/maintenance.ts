@@ -104,6 +104,34 @@ interface HermesDeliveryTraceStatsRow {
   last_received_at: Date | string | null;
 }
 
+interface RecentAssistantMessageRow {
+  id: string;
+  conversation_id: string;
+  created_at: Date | string;
+  content: string | null;
+  timings: string | object | null;
+}
+
+interface RecentAssistantMessage {
+  id: string;
+  conversationId: string;
+  createdAt: string | null;
+  contentSnippet: string;
+  contentLength: number;
+  timings: Record<string, unknown> | null;
+  timingsRaw: string | null;
+}
+
+interface RecentAssistantTimingsTelemetry {
+  ok: boolean;
+  totalAssistantCount: number;
+  withTimingsCount: number;
+  withoutTimingsCount: number;
+  lastWithTimingsAt: string | null;
+  recent: RecentAssistantMessage[];
+  error: string | null;
+}
+
 interface HermesDeliveryTraceSample {
   createdAt: string;
   senderTraceId: string | null;
@@ -415,6 +443,91 @@ async function getStorageTelemetry() {
   }
 }
 
+function parseTimingsValue(raw: string | object | null | undefined): {
+  parsed: Record<string, unknown> | null;
+  rawText: string | null;
+} {
+  if (raw === null || raw === undefined) {
+    return { parsed: null, rawText: null };
+  }
+  if (typeof raw === 'string') {
+    const text = raw;
+    try {
+      const parsed = JSON.parse(text);
+      return {
+        parsed: parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : null,
+        rawText: text
+      };
+    } catch {
+      return { parsed: null, rawText: text };
+    }
+  }
+  if (typeof raw === 'object') {
+    return {
+      parsed: raw as Record<string, unknown>,
+      rawText: JSON.stringify(raw)
+    };
+  }
+  return { parsed: null, rawText: null };
+}
+
+async function getRecentAssistantTimingsTelemetry(): Promise<RecentAssistantTimingsTelemetry> {
+  try {
+    const [statsRow] = await query<{
+      total_count: number | string | null;
+      with_timings_count: number | string | null;
+      last_with_timings_at: Date | string | null;
+    }>(
+      `SELECT
+         COUNT(*) AS total_count,
+         SUM(CASE WHEN timings IS NOT NULL THEN 1 ELSE 0 END) AS with_timings_count,
+         MAX(CASE WHEN timings IS NOT NULL THEN created_at END) AS last_with_timings_at
+       FROM messages
+       WHERE role = 'assistant'`
+    );
+    const rows = await query<RecentAssistantMessageRow>(
+      `SELECT id, conversation_id, created_at, content, timings
+       FROM messages
+       WHERE role = 'assistant'
+       ORDER BY created_at DESC
+       LIMIT 10`
+    );
+    const total = Number(statsRow?.total_count ?? 0);
+    const withTimings = Number(statsRow?.with_timings_count ?? 0);
+    return {
+      ok: true,
+      totalAssistantCount: total,
+      withTimingsCount: withTimings,
+      withoutTimingsCount: Math.max(total - withTimings, 0),
+      lastWithTimingsAt: toIsoString(statsRow?.last_with_timings_at),
+      recent: rows.map((row) => {
+        const { parsed, rawText } = parseTimingsValue(row.timings);
+        const content = row.content ?? '';
+        return {
+          id: row.id,
+          conversationId: row.conversation_id,
+          createdAt: toIsoString(row.created_at),
+          contentSnippet: content.slice(0, 80),
+          contentLength: content.length,
+          timings: parsed,
+          timingsRaw: rawText
+        };
+      }),
+      error: null
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      totalAssistantCount: 0,
+      withTimingsCount: 0,
+      withoutTimingsCount: 0,
+      lastWithTimingsAt: null,
+      recent: [],
+      error: error instanceof Error ? error.message : 'Recent assistant timings query failed.'
+    };
+  }
+}
+
 async function getHermesDeliveryTraceTelemetry(): Promise<HermesDeliveryTraceTelemetry> {
   try {
     const [statsRow] = await query<HermesDeliveryTraceStatsRow>(
@@ -631,7 +744,7 @@ export async function collectMaintenanceSnapshot(event: RequestEvent) {
   const config = getConfig();
   const memoryUsage = process.memoryUsage();
   const workerHeartbeat = getHermesWorkerHeartbeat();
-  const [build, database, storage, deliveryTraces, queue] = await Promise.all([
+  const [build, database, storage, deliveryTraces, queue, recentAssistantTimings] = await Promise.all([
     getBuildInfo(),
     getDatabaseTelemetry(),
     getStorageTelemetry(),
@@ -643,7 +756,8 @@ export async function collectMaintenanceSnapshot(event: RequestEvent) {
       staleProcessing: 0,
       leaseSeconds: config.hermesEventLeaseSeconds,
       error: error instanceof Error ? error.message : 'Queue query failed.'
-    }))
+    })),
+    getRecentAssistantTimingsTelemetry()
   ]);
 
   return {
@@ -698,6 +812,7 @@ export async function collectMaintenanceSnapshot(event: RequestEvent) {
     deliveryTraces,
     queue,
     workerHeartbeat,
+    recentAssistantTimings,
     fileDeliveryDiagnosis: deriveFileDeliveryDiagnosis({
       database,
       storage,
