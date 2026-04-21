@@ -2,14 +2,8 @@ import { sveltekit } from '@sveltejs/kit/vite';
 import tailwindcss from '@tailwindcss/vite';
 import { VitePWA } from 'vite-plugin-pwa';
 import { defineConfig } from 'vite';
-import packageJson from './package.json';
-
-const appVersion = String(packageJson.version ?? '0.0.0');
 
 export default defineConfig({
-  define: {
-    __APP_VERSION__: JSON.stringify(appVersion)
-  },
   plugins: [
     tailwindcss(),
     sveltekit(),
@@ -41,14 +35,12 @@ export default defineConfig({
         ]
       },
       workbox: {
-        globPatterns: ['**/*.{js,css,ico,png,svg,webp,woff2}'],
-        globIgnores: ['**/index.html'],
+        globPatterns: ['**/*.{js,css,html,ico,png,svg,webp,woff2}'],
         importScripts: ['sw-notifications.js'],
-        navigateFallback: null,
         navigateFallbackDenylist: [/^\/api\//]
       },
       devOptions: {
-        enabled: false
+        enabled: true
       }
     })
   ],
