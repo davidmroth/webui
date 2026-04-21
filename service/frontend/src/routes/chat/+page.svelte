@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
+  import { fade } from 'svelte/transition';
   import {
     ArrowDown,
     ArrowUp,
@@ -685,6 +686,19 @@
     resetComposerHeight();
   }
 
+  function resetComposerState() {
+    draftMessage = '';
+    clearPendingFiles();
+    attachmentMenuOpen = false;
+
+    if (!composerElement) {
+      return;
+    }
+
+    composerElement.value = '';
+    resetComposerHeight();
+  }
+
   function handleComposerInput(event: Event) {
     const inputEvent = event as InputEvent;
     // Fallback path for environments where onpaste is not fired consistently.
@@ -891,6 +905,7 @@
       return;
     }
 
+    resetComposerState();
     currentConversationId = conversationId;
     errorMessage = null;
     setChatUrl(conversationId);
@@ -903,8 +918,7 @@
     currentConversationId = null;
     loadedConversationId = null;
     messages = [];
-    draftMessage = '';
-    clearPendingFiles();
+    resetComposerState();
     errorMessage = null;
     setChatUrl(null);
     if (isMobileViewport) sidebarCollapsed = true;
@@ -1356,7 +1370,11 @@
 
     const handlePopState = async () => {
       const url = new URL(window.location.href);
-      currentConversationId = url.searchParams.get('conversation');
+      const nextConversationId = url.searchParams.get('conversation');
+      if (nextConversationId !== currentConversationId) {
+        resetComposerState();
+      }
+      currentConversationId = nextConversationId;
       await loadMessages(currentConversationId, { forceScroll: true, showLoading: true });
     };
 
@@ -1604,9 +1622,17 @@
           {/if}
 
           {#if isConversationLoading}
-            <div class="llama-chat-loading-overlay" role="status" aria-live="polite" aria-label="Loading conversation">
-              <div class="app-loading-spinner" aria-hidden="true"></div>
-              <span class="llama-chat-loading-label">Loading chat...</span>
+            <div
+              class="llama-chat-loading-overlay"
+              role="status"
+              aria-live="polite"
+              aria-label="Loading conversation"
+              transition:fade={{ duration: 180 }}
+            >
+              <div class="llama-chat-loading-indicator">
+                <div class="app-loading-spinner" aria-hidden="true"></div>
+                <span class="llama-chat-loading-label">Loading chat...</span>
+              </div>
             </div>
           {/if}
 
