@@ -42,8 +42,24 @@
     argsHint?: string;
   };
 
+  type StreamMessageEvent = {
+    messageId?: string;
+  };
+
+  type StreamDeltaEvent = {
+    messageId?: string;
+    seq?: number;
+    delta?: string;
+  };
+
+  type StreamDoneEvent = {
+    messageId?: string;
+    status?: ChatMessage['status'];
+  };
+
   let { data, form } = $props();
   let currentConversationId = $state<string | null>(null);
+  let loadedConversationId = $state<string | null>(null);
   let messages = $state<ChatMessage[]>([]);
   let conversations = $state<ConversationSummary[]>([]);
   let pendingFiles = $state<PendingAttachment[]>([]);
@@ -84,6 +100,11 @@
   let messageScrollElement = $state<HTMLDivElement | null>(null);
   let attachmentInput = $state<HTMLInputElement | null>(null);
   let shouldAutoScroll = $state(true);
+  let streamSource: EventSource | null = null;
+  let streamReconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  let activeStreamConversationId: string | null = null;
+  let activeStreamMessageId: string | null = null;
+  let lastStreamSeqByMessageId: Record<string, number> = {};
   // Initial sidebar / mobile state is seeded from the boot-time class set by
   // app.html so hydration matches the final layout (no visible "ghost"
   // sidebar collapse on mobile load).
@@ -250,6 +271,216 @@
     rememberAssistantMessages(nextMessages);
   }
 
+  function parseStreamEvent<T>(event: MessageEvent<string>): T | null {
+    try {
+      return JSON.parse(event.data) as T;
+    } catch {
+      return null;
+    }
+  }
+
+  function clearStreamReconnect() {
+    if (streamReconnectTimer) {
+      clearTimeout(streamReconnectTimer);
+      streamReconnectTimer = null;
+    }
+  }
+
+  function closeConversationStream(options: { preserveSequences?: boolean } = {}) {
+    clearStreamReconnect();
+    if (streamSource) {
+      streamSource.close();
+      streamSource = null;
+    }
+    activeStreamConversationId = null;
+    activeStreamMessageId = null;
+    if (!options.preserveSequences) {
+      lastStreamSeqByMessageId = {};
+    }
+  }
+
+  function shouldStreamConversation(conversationId: string | null) {
+    if (!conversationId) {
+      return false;
+    }
+
+    if (pendingAssistantByConversation[conversationId]) {
+      return true;
+    }
+
+    if (
+      loadedConversationId === conversationId &&
+      messages.some((message) => message.role === 'assistant' && message.status === 'streaming')
+    ) {
+      return true;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(serverAssistantBusyByConversation, conversationId)) {
+      return Boolean(serverAssistantBusyByConversation[conversationId]);
+    }
+
+    const summary = conversations.find((conversation) => conversation.id === conversationId);
+    if (summary?.assistantBusy) {
+      return true;
+    }
+
+    return conversationId === data.currentConversationId ? Boolean(data.assistantBusy) : false;
+  }
+
+  function syncStreamingAssistantMessage(conversationId: string, messageId: string) {
+    activeStreamMessageId = messageId;
+
+    const existingIndex = messages.findIndex((message) => message.id === messageId);
+    if (existingIndex !== -1) {
+      messages = messages.map((message, index) =>
+        index === existingIndex ? { ...message, status: 'streaming' } : message
+      );
+      clearPendingAssistant(conversationId);
+      return;
+    }
+
+    const pendingAssistant = pendingAssistantByConversation[conversationId];
+    if (pendingAssistant) {
+      const placeholderIndex = messages.findIndex(
+        (message) => message.id === pendingAssistant.placeholderId
+      );
+      if (placeholderIndex !== -1) {
+        messages = messages.map((message, index) =>
+          index === placeholderIndex ? { ...message, id: messageId, status: 'streaming' } : message
+        );
+        clearPendingAssistant(conversationId);
+        return;
+      }
+
+      clearPendingAssistant(conversationId);
+    }
+
+    messages = [...messages, createPendingAssistantMessage(messageId)];
+  }
+
+  function appendStreamingDelta(messageId: string, seq: number, delta: string) {
+    const lastSeq = lastStreamSeqByMessageId[messageId] ?? -1;
+    if (seq <= lastSeq) {
+      return;
+    }
+
+    lastStreamSeqByMessageId = {
+      ...lastStreamSeqByMessageId,
+      [messageId]: seq
+    };
+
+    const existingIndex = messages.findIndex((message) => message.id === messageId);
+    if (existingIndex === -1) {
+      if (!currentConversationId) {
+        return;
+      }
+      syncStreamingAssistantMessage(currentConversationId, messageId);
+    }
+
+    messages = messages.map((message) =>
+      message.id === messageId
+        ? {
+            ...message,
+            content: `${message.content}${delta}`,
+            status: 'streaming'
+          }
+        : message
+    );
+
+    if (shouldAutoScroll) {
+      void scrollMessagesToBottom();
+    }
+  }
+
+  function markStreamingMessageComplete(messageId: string, status: ChatMessage['status']) {
+    messages = messages.map((message) =>
+      message.id === messageId
+        ? {
+            ...message,
+            status
+          }
+        : message
+    );
+  }
+
+  async function refreshConversationState(
+    conversationId: string,
+    options: { forceScroll?: boolean; showLoading?: boolean } = {}
+  ) {
+    await Promise.all([refreshConversations(), loadMessages(conversationId, options)]);
+  }
+
+  function scheduleConversationStreamReconnect(conversationId: string) {
+    clearStreamReconnect();
+    streamReconnectTimer = setTimeout(() => {
+      streamReconnectTimer = null;
+      if (currentConversationId !== conversationId) {
+        return;
+      }
+      void refreshConversationState(conversationId);
+    }, 1000);
+  }
+
+  function openConversationStream(conversationId: string) {
+    closeConversationStream({ preserveSequences: false });
+    activeStreamConversationId = conversationId;
+
+    const source = new EventSource(`/api/conversations/${conversationId}/messages/stream`);
+    streamSource = source;
+
+    source.addEventListener('message', (event) => {
+      if (streamSource !== source || currentConversationId !== conversationId) {
+        return;
+      }
+
+      const payload = parseStreamEvent<StreamMessageEvent>(event as MessageEvent<string>);
+      if (!payload?.messageId) {
+        return;
+      }
+
+      syncStreamingAssistantMessage(conversationId, payload.messageId);
+    });
+
+    source.addEventListener('delta', (event) => {
+      if (streamSource !== source || currentConversationId !== conversationId) {
+        return;
+      }
+
+      const payload = parseStreamEvent<StreamDeltaEvent>(event as MessageEvent<string>);
+      if (!payload?.messageId || typeof payload.seq !== 'number' || typeof payload.delta !== 'string') {
+        return;
+      }
+
+      syncStreamingAssistantMessage(conversationId, payload.messageId);
+      appendStreamingDelta(payload.messageId, payload.seq, payload.delta);
+    });
+
+    source.addEventListener('done', (event) => {
+      if (streamSource !== source || currentConversationId !== conversationId) {
+        return;
+      }
+
+      const payload = parseStreamEvent<StreamDoneEvent>(event as MessageEvent<string>);
+      const messageId = payload?.messageId ?? activeStreamMessageId;
+      if (messageId) {
+        markStreamingMessageComplete(messageId, payload?.status === 'error' ? 'error' : 'complete');
+      }
+      closeConversationStream({ preserveSequences: false });
+      void refreshConversationState(conversationId, { forceScroll: shouldAutoScroll });
+    });
+
+    source.onerror = () => {
+      if (streamSource !== source) {
+        return;
+      }
+
+      closeConversationStream({ preserveSequences: true });
+      if (currentConversationId === conversationId && shouldStreamConversation(conversationId)) {
+        scheduleConversationStreamReconnect(conversationId);
+      }
+    };
+  }
+
   async function handleNotificationsToggle(event: Event) {
     const checkbox = event.currentTarget as HTMLInputElement;
     const nextValue = checkbox.checked;
@@ -309,6 +540,7 @@
 
   $effect(() => {
     currentConversationId = data.currentConversationId;
+    loadedConversationId = data.currentConversationId;
     messages = data.messages;
     conversations = data.conversations;
   });
@@ -379,6 +611,23 @@
       0,
       Math.min(selectedSlashCommandIndex, filteredSlashCommands.length - 1)
     );
+  });
+
+  $effect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    if (!currentConversationId || !shouldStreamConversation(currentConversationId)) {
+      closeConversationStream({ preserveSequences: false });
+      return;
+    }
+
+    if (activeStreamConversationId === currentConversationId && streamSource) {
+      return;
+    }
+
+    openConversationStream(currentConversationId);
   });
 
   function activeConversationTitle() {
@@ -599,6 +848,7 @@
 
     try {
       if (!conversationId) {
+        loadedConversationId = null;
         messages = [];
         return;
       }
@@ -610,6 +860,7 @@
 
       const payload = await response.json();
       syncPendingAssistant(conversationId, payload.messages);
+        loadedConversationId = conversationId;
       messages = payload.messages;
       await maybeNotifyAssistantReply(conversationId, payload.messages);
       serverAssistantBusyByConversation = {
@@ -649,6 +900,7 @@
 
   function startNewChat() {
     currentConversationId = null;
+    loadedConversationId = null;
     messages = [];
     draftMessage = '';
     clearPendingFiles();
@@ -900,7 +1152,8 @@
       }
 
       const payload = await response.json();
-      const commands = Array.isArray(payload?.commands) ? payload.commands : [];
+      const commands: Array<{ command: string; description?: string; argsHint?: string }> =
+        Array.isArray(payload?.commands) ? payload.commands : [];
       const normalized = commands
         .filter(
           (entry): entry is { command: string; description?: string; argsHint?: string } =>
@@ -1110,22 +1363,23 @@
     window.addEventListener('keydown', onKeydown);
 
     const onVisibilityChange = () => {
-      if (typeof Notification === 'undefined') {
-        return;
+      if (typeof Notification !== 'undefined') {
+        notificationPermission = Notification.permission;
+        if (notificationPermission !== 'granted' && notificationsEnabled) {
+          setNotificationsPreference(false);
+        }
       }
 
-      notificationPermission = Notification.permission;
-      if (notificationPermission !== 'granted' && notificationsEnabled) {
-        setNotificationsPreference(false);
+      if (document.visibilityState === 'visible') {
+        void refresh();
       }
     };
     document.addEventListener('visibilitychange', onVisibilityChange);
 
-    const interval = window.setInterval(refresh, 2000);
     window.addEventListener('popstate', handlePopState);
 
     return () => {
-      window.clearInterval(interval);
+      closeConversationStream({ preserveSequences: false });
       window.removeEventListener('popstate', handlePopState);
       window.removeEventListener('keydown', onKeydown);
       document.removeEventListener('visibilitychange', onVisibilityChange);

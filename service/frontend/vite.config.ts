@@ -35,13 +35,14 @@ export default defineConfig({
         ]
       },
       workbox: {
-        globPatterns: ['**/*.{js,css,html,ico,png,svg,webp,woff2}'],
+        globPatterns: ['**/*.{js,css,ico,png,svg,webp,woff2}'],
+        globIgnores: ['**/index.html'],
         importScripts: ['sw-notifications.js'],
         navigateFallback: null,
         navigateFallbackDenylist: [/^\/api\//]
       },
       devOptions: {
-        enabled: true
+        enabled: false
       }
     })
   ],
