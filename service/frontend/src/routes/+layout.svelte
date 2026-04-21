@@ -2,7 +2,7 @@
   import '../app.css';
   import { onMount } from 'svelte';
   import { ModeWatcher } from 'mode-watcher';
-  import { Toaster } from 'svelte-sonner';
+  import { Toaster, toast } from 'svelte-sonner';
   import * as Tooltip from '$lib/components/ui/tooltip';
 
   let { children } = $props();
@@ -16,6 +16,70 @@
         document.documentElement.classList.remove('app-init');
       });
     });
+
+    let updateToastVisible = false;
+    let updateServiceWorker: ((reloadPage?: boolean) => Promise<void>) | undefined;
+    let refreshInterval: ReturnType<typeof setInterval> | undefined;
+
+    const showUpdateToast = () => {
+      if (updateToastVisible) return;
+      updateToastVisible = true;
+
+      toast('A new version is ready', {
+        description: 'Tap Update to reload with the latest code.',
+        duration: Infinity,
+        action: {
+          label: 'Update',
+          onClick: () => {
+            void updateServiceWorker?.(true);
+          }
+        },
+        onDismiss: () => {
+          updateToastVisible = false;
+        },
+        onAutoClose: () => {
+          updateToastVisible = false;
+        }
+      });
+    };
+
+    const installPwaUpdateFlow = async () => {
+      try {
+        const { registerSW } = await import('virtual:pwa-register');
+
+        updateServiceWorker = registerSW({
+          immediate: true,
+          onNeedRefresh() {
+            showUpdateToast();
+          },
+          onRegisteredSW(_swUrl: string, registration: ServiceWorkerRegistration | undefined) {
+            if (!registration) return;
+            refreshInterval = setInterval(() => {
+              void registration.update();
+            }, 60_000);
+          }
+        });
+      } catch (error) {
+        console.warn('PWA updater could not be initialized', error);
+      }
+    };
+
+    void installPwaUpdateFlow();
+
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') {
+        void navigator.serviceWorker?.getRegistration()?.then((registration) => registration?.update());
+      }
+    };
+
+    document.addEventListener('visibilitychange', onVisible);
+
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible);
+      if (refreshInterval) {
+        clearInterval(refreshInterval);
+      }
+    };
   });
 </script>
 
