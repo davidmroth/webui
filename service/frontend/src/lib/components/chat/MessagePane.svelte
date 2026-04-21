@@ -152,6 +152,10 @@
       hour12: !use24HourTime
     });
   }
+
+  function showRoleLabel(role: ChatMessage['role']) {
+    return role !== 'user';
+  }
 </script>
 
 <div bind:this={scrollContainer} class="llama-message-scroll" onscroll={onScroll}>
@@ -166,10 +170,12 @@
       <div class={`llama-message-row ${message.role}`}>
         <div class="llama-message-card">
           <div class="llama-message-header">
-            <div class="llama-message-role">
-              <span class="message-role-dot"></span>
-              {formatRole(message.role)}
-            </div>
+            {#if showRoleLabel(message.role)}
+              <div class="llama-message-role">
+                <span class="message-role-dot"></span>
+                {formatRole(message.role)}
+              </div>
+            {/if}
             <div class="message-meta">
               {formatMessageTime(message.createdAt)}
             </div>
