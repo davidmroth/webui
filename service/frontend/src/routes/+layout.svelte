@@ -20,6 +20,7 @@
     let updateToastVisible = false;
     let updateServiceWorker: ((reloadPage?: boolean) => Promise<void>) | undefined;
     let refreshInterval: ReturnType<typeof setInterval> | undefined;
+    let buildFingerprint: string | undefined;
 
     const showUpdateToast = () => {
       if (updateToastVisible) return;
@@ -31,7 +32,11 @@
         action: {
           label: 'Update',
           onClick: () => {
-            void updateServiceWorker?.(true);
+            if (updateServiceWorker) {
+              void updateServiceWorker(true);
+              return;
+            }
+            window.location.reload();
           }
         },
         onDismiss: () => {
@@ -64,18 +69,55 @@
       }
     };
 
+    const checkBuildFingerprint = async () => {
+      try {
+        const response = await fetch(`/api/build-fingerprint?t=${Date.now()}`, {
+          cache: 'no-store',
+          headers: {
+            pragma: 'no-cache',
+            'cache-control': 'no-cache'
+          }
+        });
+
+        if (!response.ok) return;
+
+        const payload = (await response.json()) as { fingerprint?: string };
+        const nextFingerprint = payload.fingerprint;
+        if (!nextFingerprint) return;
+
+        if (!buildFingerprint) {
+          buildFingerprint = nextFingerprint;
+          return;
+        }
+
+        if (nextFingerprint !== buildFingerprint) {
+          buildFingerprint = nextFingerprint;
+          showUpdateToast();
+        }
+      } catch (error) {
+        console.warn('Build fingerprint check failed', error);
+      }
+    };
+
     void installPwaUpdateFlow();
+    void checkBuildFingerprint();
 
     const onVisible = () => {
       if (document.visibilityState === 'visible') {
         void navigator.serviceWorker?.getRegistration()?.then((registration) => registration?.update());
+        void checkBuildFingerprint();
       }
     };
+
+    const fingerprintInterval = setInterval(() => {
+      void checkBuildFingerprint();
+    }, 60_000);
 
     document.addEventListener('visibilitychange', onVisible);
 
     return () => {
       document.removeEventListener('visibilitychange', onVisible);
+      clearInterval(fingerprintInterval);
       if (refreshInterval) {
         clearInterval(refreshInterval);
       }
