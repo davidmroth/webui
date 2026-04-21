@@ -1,6 +1,7 @@
 import { error } from '@sveltejs/kit';
 import { requireSession } from '$server/auth';
 import {
+  findLatestAssistantMessage,
   findActiveAssistantMessage,
   getMessageStatus,
   listAssistantChunks
@@ -42,6 +43,7 @@ export async function GET(event) {
       const startedAt = Date.now();
       let lastSeq = -1;
       let activeMessageId: string | null = null;
+      let latestAssistantId = (await findLatestAssistantMessage(session.userId, conversationId))?.id ?? null;
 
       // Wait briefly for an active streaming message to appear.
       while (!cancelled && Date.now() - startedAt < MAX_STREAM_DURATION_MS) {
@@ -62,6 +64,12 @@ export async function GET(event) {
           const status = await getMessageStatus(activeMessageId);
           if (!status || status.status !== 'streaming') {
             send(sse('done', { messageId: activeMessageId, status: status?.status ?? 'complete' }));
+            break;
+          }
+        } else {
+          const latestAssistant = await findLatestAssistantMessage(session.userId, conversationId);
+          if (latestAssistant && latestAssistant.id !== latestAssistantId) {
+            send(sse('done', { messageId: latestAssistant.id, status: latestAssistant.status }));
             break;
           }
         }

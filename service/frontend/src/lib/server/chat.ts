@@ -403,6 +403,24 @@ export async function findActiveAssistantMessage(
   return rows[0]?.id ?? null;
 }
 
+export async function findLatestAssistantMessage(
+  userId: string,
+  conversationId: string
+): Promise<{ id: string; status: 'complete' | 'streaming' | 'error' } | null> {
+  const rows = await query<{ id: string; status: 'complete' | 'streaming' | 'error' }>(
+    `SELECT messages.id, messages.status
+     FROM messages
+     INNER JOIN conversations ON conversations.id = messages.conversation_id
+     WHERE messages.conversation_id = :conversation_id
+       AND conversations.user_id = :user_id
+       AND messages.role = 'assistant'
+     ORDER BY messages.created_at DESC
+     LIMIT 1`,
+    { conversation_id: conversationId, user_id: userId }
+  );
+  return rows[0] ?? null;
+}
+
 /**
  * Get the message status + accumulated content for streaming. Used to decide
  * when to close the SSE stream.

@@ -16,7 +16,7 @@ export async function load(event) {
     getBuildInfo()
   ]);
   const requestedConversation = event.url.searchParams.get('conversation');
-  const currentConversationId = requestedConversation || conversations[0]?.id || null;
+  const currentConversationId = requestedConversation || null;
   const [messages, assistantBusy] = currentConversationId
     ? await Promise.all([
         listMessages(session.userId, currentConversationId),

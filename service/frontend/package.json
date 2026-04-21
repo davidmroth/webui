@@ -1,7 +1,7 @@
 {
   "name": "hermes-webui",
   "private": true,
-  "version": "0.1.9.4",
+  "version": "0.1.9.5",
   "packageManager": "yarn@1.22.22",
   "type": "module",
   "scripts": {
