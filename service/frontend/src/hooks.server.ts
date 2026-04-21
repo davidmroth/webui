@@ -16,5 +16,22 @@ export const handle: Handle = async ({ event, resolve }) => {
     storageReady = true;
   }
   await resolveSession(event);
-  return resolve(event);
+
+  const response = await resolve(event);
+
+  // Keep service-worker update files revalidating on every navigation.
+  // Without this, intermediary/proxy caches can delay PWA upgrades.
+  if (
+    event.request.method === 'GET' &&
+    (event.url.pathname === '/sw.js' ||
+      event.url.pathname === '/registerSW.js' ||
+      event.url.pathname === '/manifest.webmanifest' ||
+      event.url.pathname === '/sw-notifications.js')
+  ) {
+    response.headers.set('cache-control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    response.headers.set('pragma', 'no-cache');
+    response.headers.set('expires', '0');
+  }
+
+  return response;
 };
