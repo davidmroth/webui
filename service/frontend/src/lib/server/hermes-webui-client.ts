@@ -22,6 +22,7 @@ export interface HermesWebUIClientConfig {
 export interface PostAssistantMessageInput {
   conversationId: string;
   userMessageId?: string | null;
+  role?: 'assistant' | 'system';
   content?: string;
   attachments?: HermesAssistantAttachment[];
   /**
@@ -147,6 +148,7 @@ export async function postAssistantMessage(
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
+        ...(input.role ? { role: input.role } : {}),
         content,
         attachments,
         ...(input.userMessageId ? { userMessageId: input.userMessageId } : {}),

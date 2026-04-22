@@ -9,6 +9,7 @@ import {
 } from '$server/chat';
 import { getConfig } from '$server/env';
 import { noteHermesWorkerAuthFailure, noteHermesWorkerHeartbeat } from '$server/hermes-heartbeat';
+import { isHermesSystemStatusContent } from '$lib/utils/hermes-system-status';
 
 interface AssistantJsonAttachment {
   fileName?: unknown;
@@ -98,8 +99,12 @@ function normalizeNonNegativeInteger(value: unknown, fallback: number): number {
   return Math.max(0, Math.floor(normalized));
 }
 
-function normalizeInboundRole(value: unknown): HermesInboundRole {
-  return value === 'system' ? 'system' : 'assistant';
+function normalizeInboundRole(value: unknown, content = ''): HermesInboundRole {
+  if (value === 'system' || value === 'assistant') {
+    return value;
+  }
+
+  return isHermesSystemStatusContent(content) ? 'system' : 'assistant';
 }
 
 function decodeBase64ToBytes(base64: string): Uint8Array {
@@ -248,7 +253,7 @@ export async function POST({ params, request }: { params: { conversationId: stri
   if (contentType.includes('multipart/form-data')) {
     const formData = await request.formData();
     const content = String(formData.get('content') || '').trim();
-    const role = normalizeInboundRole(formData.get('role'));
+    const role = normalizeInboundRole(formData.get('role'), content);
     const userMessageId = normalizeOptionalString(formData.get('userMessageId'));
     const files = formData
       .getAll('attachments')
@@ -278,9 +283,6 @@ export async function POST({ params, request }: { params: { conversationId: stri
   }
 
   const body: Record<string, unknown> = await request.json().catch(() => ({}));
-  const role = normalizeInboundRole(body.role);
-  const userMessageId = normalizeOptionalString(body.userMessageId);
-
   const rawAttachmentNames = Array.isArray(body.attachments)
     ? body.attachments
         .map((attachment: unknown) => {
@@ -294,6 +296,8 @@ export async function POST({ params, request }: { params: { conversationId: stri
         .filter((fileName: string | null): fileName is string => Boolean(fileName))
     : [];
   const rawContent = typeof body.content === 'string' ? body.content.trim() : '';
+  const role = normalizeInboundRole(body.role, rawContent);
+  const userMessageId = normalizeOptionalString(body.userMessageId);
   const senderTrace = normalizeSenderTraceInput(body.senderTrace, {
     attachmentCount: rawAttachmentNames.length,
     attachmentNames: rawAttachmentNames,

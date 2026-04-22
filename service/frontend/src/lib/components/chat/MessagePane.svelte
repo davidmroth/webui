@@ -15,6 +15,7 @@
   } from '@lucide/svelte';
   import { env as publicEnv } from '$env/dynamic/public';
   import type { ChatMessage, MessageAttachment } from '$lib/types-legacy';
+  import { isHermesSystemStatusContent } from '$lib/utils/hermes-system-status';
   import { renderMarkdown } from '$lib/utils/markdown';
 
   type StatsView = 'reading' | 'generation';
@@ -92,15 +93,6 @@
     };
   }
 
-  const systemStatusPatterns = [
-    /^⚡ Interrupting current task\b/i,
-    /^⏳ Gateway\b/i,
-    /^⏳ Still working\.\.\./i,
-    /^Operation interrupted:/i,
-    /^Your current task will be interrupted\b/i,
-    /^\[System note:/i
-  ];
-
   function formatRole(role: ChatMessage['role']) {
     return role === 'assistant' ? 'Assistant' : role === 'system' ? 'System' : userDisplayName;
   }
@@ -110,8 +102,7 @@
       return false;
     }
 
-    const content = message.content.trim();
-    return content.length > 0 && systemStatusPatterns.some((pattern) => pattern.test(content));
+    return isHermesSystemStatusContent(message.content);
   }
 
   function effectiveRole(message: ChatMessage): ChatMessage['role'] {
