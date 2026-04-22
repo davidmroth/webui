@@ -59,8 +59,30 @@
     publicEnv.PUBLIC_MODEL_FILE_LABEL
   ].filter(Boolean);
 
+  const systemStatusPatterns = [
+    /^⚡ Interrupting current task\b/i,
+    /^⏳ Gateway\b/i,
+    /^⏳ Still working\.\.\./i,
+    /^Operation interrupted:/i,
+    /^Your current task will be interrupted\b/i,
+    /^\[System note:/i
+  ];
+
   function formatRole(role: ChatMessage['role']) {
     return role === 'assistant' ? 'Assistant' : role === 'system' ? 'System' : userDisplayName;
+  }
+
+  function isSystemStatusMessage(message: ChatMessage) {
+    if (message.role !== 'assistant') {
+      return false;
+    }
+
+    const content = message.content.trim();
+    return content.length > 0 && systemStatusPatterns.some((pattern) => pattern.test(content));
+  }
+
+  function effectiveRole(message: ChatMessage): ChatMessage['role'] {
+    return isSystemStatusMessage(message) ? 'system' : message.role;
   }
 
   function hasVisibleContent(message: ChatMessage) {
@@ -167,13 +189,14 @@
     {/if}
 
     {#each messages as message, index}
-      <div class={`llama-message-row ${message.role}`}>
+      {@const displayRole = effectiveRole(message)}
+      <div class={`llama-message-row ${displayRole}`}>
         <div class="llama-message-card">
-          {#if showMessageHeader(message.role)}
+          {#if showMessageHeader(displayRole)}
             <div class="llama-message-header">
               <div class="llama-message-role">
                 <span class="message-role-dot"></span>
-                {formatRole(message.role)}
+                {formatRole(displayRole)}
               </div>
               <div class="message-meta">
                 {formatMessageTime(message.createdAt)}
@@ -189,7 +212,7 @@
               </span>
             </div>
           {:else if message.content}
-            {#if message.role === 'assistant'}
+            {#if displayRole === 'assistant'}
               <div class="llama-message-body markdown-content">{@html renderMarkdown(message.content)}</div>
             {:else}
               <div class="llama-message-body">{message.content}</div>
@@ -231,7 +254,7 @@
             <div class="message-meta">Status: {message.status}</div>
           {/if}
 
-          {#if message.role === 'assistant' && !(isStreamingAssistant(message) && !hasVisibleContent(message))}
+          {#if displayRole === 'assistant' && !(isStreamingAssistant(message) && !hasVisibleContent(message))}
             {@const stats = buildMessageStats(message, index)}
             <div class="assistant-meta-row">
               <div class="assistant-meta-cluster assistant-model-badges">
@@ -298,7 +321,7 @@
 
           {#if !(isStreamingAssistant(message) && !hasVisibleContent(message))}
             {@const isBusy = busyMessageIds?.has(message.id) ?? false}
-            {#if message.role === 'assistant'}
+            {#if displayRole === 'assistant'}
               <div class="llama-message-actions assistant-actions" aria-label="Message actions">
                 <button
                   class={`message-action-icon ${copiedMessageId === message.id ? 'is-active' : ''}`}
@@ -331,7 +354,7 @@
           {/if}
         </div>
         {#if !(isStreamingAssistant(message) && !hasVisibleContent(message))}
-          {#if message.role === 'user'}
+          {#if displayRole === 'user'}
             <div class="llama-message-actions user-actions user-actions-outside" aria-label="Message actions">
               <button
                 class={`message-action-icon ${copiedMessageId === message.id ? 'is-active' : ''}`}
