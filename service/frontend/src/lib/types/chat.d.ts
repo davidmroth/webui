@@ -59,11 +59,18 @@ export interface ChatMessagePromptProgress {
 }
 
 export interface ChatMessageTimings {
+	[key: string]: unknown;
 	cache_n?: number;
 	predicted_ms?: number;
 	predicted_n?: number;
+	predicted_per_second?: number;
 	prompt_ms?: number;
 	prompt_n?: number;
+	prompt_per_second?: number;
+	prompt_eval_count?: number;
+	prompt_eval_duration?: number;
+	eval_count?: number;
+	eval_duration?: number;
 	agentic?: ChatMessageAgenticTimings;
 }
 
