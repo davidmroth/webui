@@ -156,14 +156,22 @@ function mapHermesDeliveryTrace(row: HermesDeliveryTraceRow): HermesDeliveryTrac
 }
 
 function mapAttachment(row: AttachmentRow): MessageAttachment {
+  const isHtml = isHtmlContentType(row.content_type);
+
   return {
     id: row.id,
     fileName: row.file_name,
     contentType: row.content_type,
     sizeBytes: row.size_bytes,
     downloadUrl: `/api/attachments/${row.id}/download`,
-    isImage: row.content_type.startsWith('image/')
+    previewUrl: isHtml ? `/api/attachments/${row.id}/preview` : undefined,
+    isImage: row.content_type.startsWith('image/'),
+    isHtml
   };
+}
+
+function isHtmlContentType(contentType: string): boolean {
+  return contentType.split(';', 1)[0]?.trim().toLowerCase() === 'text/html';
 }
 
 async function listAttachmentsByMessageIds(messageIds: string[]) {
@@ -226,6 +234,7 @@ async function saveAttachmentsForMessage(
       buffer
     });
     const attachmentId = randomUUID();
+    const isHtml = isHtmlContentType(contentType);
     await execute(
       `INSERT INTO attachments (
          id, user_id, conversation_id, message_id, storage_bucket, storage_key, file_name, content_type, size_bytes
@@ -250,7 +259,9 @@ async function saveAttachmentsForMessage(
       contentType,
       sizeBytes: uploaded.sizeBytes,
       downloadUrl: `/api/attachments/${attachmentId}/download`,
-      isImage: contentType.startsWith('image/')
+      previewUrl: isHtml ? `/api/attachments/${attachmentId}/preview` : undefined,
+      isImage: contentType.startsWith('image/'),
+      isHtml
     });
   }
 
@@ -505,6 +516,18 @@ export async function finalizeStreamingAssistantMessage(
       { id: messageId, content: finalContent, timings: timingsJson }
     );
   }
+  // Bump the parent conversation's updated_at so polling clients can detect
+  // assistant-reply completion (e.g. for background notifications). Without
+  // this, updated_at would remain stuck at the moment the streaming row was
+  // first inserted, and cross-conversation notification gating would miss
+  // the completion event entirely.
+  await execute(
+    `UPDATE conversations c
+     JOIN messages m ON m.conversation_id = c.id
+     SET c.updated_at = UTC_TIMESTAMP()
+     WHERE m.id = :id`,
+    { id: messageId }
+  );
 }
 
 /**

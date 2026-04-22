@@ -1,6 +1,197 @@
 <script lang="ts">
   let { data, form } = $props();
 
+  type NotificationDiagnostic = {
+    timestamp: string;
+    label: string;
+    value: string;
+  };
+
+  let notificationLog = $state<NotificationDiagnostic[]>([]);
+  let isFiringNotification = $state(false);
+
+  function logNotificationDiagnostic(label: string, value: unknown) {
+    const entry: NotificationDiagnostic = {
+      timestamp: new Date().toLocaleTimeString([], { hour12: false }),
+      label,
+      value: typeof value === 'string' ? value : JSON.stringify(value)
+    };
+    notificationLog = [entry, ...notificationLog].slice(0, 50);
+  }
+
+  function readNotificationEnvironment() {
+    if (typeof window === 'undefined') {
+      return {
+        userAgent: 'n/a (SSR)',
+        secureContext: false,
+        notificationApiPresent: false,
+        notificationPermission: 'unsupported',
+        serviceWorkerSupported: false,
+        documentVisibility: 'n/a',
+        documentHasFocus: false,
+        notificationsEnabledPref: '0'
+      };
+    }
+    return {
+      userAgent: window.navigator.userAgent,
+      secureContext: window.isSecureContext,
+      notificationApiPresent: typeof Notification !== 'undefined',
+      notificationPermission:
+        typeof Notification === 'undefined' ? 'unsupported' : Notification.permission,
+      serviceWorkerSupported: 'serviceWorker' in navigator,
+      documentVisibility: document.visibilityState,
+      documentHasFocus: document.hasFocus(),
+      notificationsEnabledPref:
+        window.localStorage.getItem('LlamaCppWebui.notificationsEnabled') ?? '(unset)'
+    };
+  }
+
+  async function describeServiceWorker() {
+    if (typeof window === 'undefined' || !('serviceWorker' in navigator)) {
+      return { supported: false };
+    }
+    try {
+      const existing = await navigator.serviceWorker.getRegistration();
+      const ready = await Promise.race([
+        navigator.serviceWorker.ready,
+        new Promise<null>((resolve) => window.setTimeout(() => resolve(null), 1500))
+      ]);
+      return {
+        supported: true,
+        existingScope: existing?.scope ?? null,
+        existingActive: existing?.active?.scriptURL ?? null,
+        existingState: existing?.active?.state ?? null,
+        readyResolved: Boolean(ready),
+        readyScope: ready?.scope ?? null,
+        readyActive: ready?.active?.scriptURL ?? null,
+        readyState: ready?.active?.state ?? null,
+        showNotificationAvailable:
+          typeof (existing ?? ready)?.showNotification === 'function'
+      };
+    } catch (error) {
+      return {
+        supported: true,
+        error: error instanceof Error ? error.message : String(error)
+      };
+    }
+  }
+
+  async function inspectNotificationEnvironment() {
+    logNotificationDiagnostic('environment', readNotificationEnvironment());
+    const sw = await describeServiceWorker();
+    logNotificationDiagnostic('serviceWorker', sw);
+  }
+
+  async function requestNotificationPermissionFromMaintenance() {
+    if (typeof Notification === 'undefined') {
+      logNotificationDiagnostic('permission.requestPermission', 'Notification API unavailable');
+      return;
+    }
+    try {
+      const result = await Notification.requestPermission();
+      logNotificationDiagnostic('permission.requestPermission', result);
+    } catch (error) {
+      logNotificationDiagnostic(
+        'permission.requestPermission.error',
+        error instanceof Error ? error.message : String(error)
+      );
+    }
+  }
+
+  async function fireTestNotification() {
+    if (isFiringNotification) {
+      return;
+    }
+    isFiringNotification = true;
+
+    try {
+      logNotificationDiagnostic('test.start', readNotificationEnvironment());
+
+      if (typeof Notification === 'undefined') {
+        logNotificationDiagnostic('test.error', 'Notification API not available in this browser.');
+        return;
+      }
+
+      if (Notification.permission !== 'granted') {
+        logNotificationDiagnostic(
+          'test.permission',
+          `permission is "${Notification.permission}"; click "Request permission" first.`
+        );
+        return;
+      }
+
+      const title = 'Hermes notification test';
+      const body = `Fired at ${new Date().toLocaleTimeString()} from /maintenance.`;
+      const tag = `maintenance-test-${Date.now()}`;
+      const data = { url: '/maintenance' };
+
+      // Try service-worker delivery first (Android-friendly).
+      let serviceWorkerDelivered = false;
+      if ('serviceWorker' in navigator) {
+        try {
+          const existing = await navigator.serviceWorker.getRegistration();
+          const registration =
+            existing ??
+            (await Promise.race([
+              navigator.serviceWorker.ready,
+              new Promise<null>((resolve) => window.setTimeout(() => resolve(null), 1500))
+            ]));
+          if (registration && typeof registration.showNotification === 'function') {
+            await registration.showNotification(title, {
+              body,
+              tag,
+              data
+            });
+            logNotificationDiagnostic('test.sw.showNotification', 'resolved OK');
+            serviceWorkerDelivered = true;
+          } else {
+            logNotificationDiagnostic(
+              'test.sw.showNotification',
+              'no usable service worker registration; falling back to page Notification API'
+            );
+          }
+        } catch (error) {
+          logNotificationDiagnostic(
+            'test.sw.error',
+            error instanceof Error ? error.message : String(error)
+          );
+        }
+      } else {
+        logNotificationDiagnostic('test.sw', 'serviceWorker not supported; using page Notification API');
+      }
+
+      // Always fire the page-level Notification too — useful for desktop diagnosis.
+      try {
+        const notification = new Notification(title + ' (page)', { body, tag: `${tag}-page` });
+        notification.onclick = () => {
+          notification.close();
+          window.focus();
+        };
+        logNotificationDiagnostic(
+          'test.page.Notification',
+          serviceWorkerDelivered ? 'fired (alongside SW notification)' : 'fired (SW unavailable)'
+        );
+      } catch (error) {
+        logNotificationDiagnostic(
+          'test.page.error',
+          error instanceof Error ? error.message : String(error)
+        );
+      }
+    } finally {
+      isFiringNotification = false;
+    }
+  }
+
+  async function fireDelayedNotification(delaySeconds: number) {
+    logNotificationDiagnostic(
+      'test.delayed.scheduled',
+      `Will fire in ${delaySeconds}s — switch tabs / minimize the window now.`
+    );
+    window.setTimeout(() => {
+      void fireTestNotification();
+    }, delaySeconds * 1000);
+  }
+
   function formatBytes(bytes: number | null | undefined) {
     if (!bytes || !Number.isFinite(bytes)) {
       return '0 B';
@@ -111,6 +302,84 @@
       </section>
     {:else if data.snapshot}
       {@const snapshot = data.snapshot!}
+
+      <section class="rounded-xl border border-border bg-card p-5 shadow-sm">
+        <div class="flex items-center justify-between gap-3">
+          <div>
+            <h2 class="text-lg font-semibold">Notification plumbing test</h2>
+            <p class="mt-1 text-sm text-muted-foreground">
+              Fires real browser notifications using the same code paths as the chat page (service-worker
+              <code>showNotification</code> + page <code>Notification</code> fallback). Use the delayed buttons
+              to test background/minimized delivery on Android and desktop.
+            </p>
+          </div>
+        </div>
+
+        <div class="mt-4 flex flex-wrap gap-2">
+          <button
+            type="button"
+            class="inline-flex items-center rounded-md border border-border bg-background px-3 py-2 text-sm font-medium hover:bg-accent"
+            onclick={requestNotificationPermissionFromMaintenance}
+          >
+            Request permission
+          </button>
+          <button
+            type="button"
+            class="inline-flex items-center rounded-md border border-border bg-background px-3 py-2 text-sm font-medium hover:bg-accent"
+            onclick={inspectNotificationEnvironment}
+          >
+            Inspect environment
+          </button>
+          <button
+            type="button"
+            class="inline-flex items-center rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
+            disabled={isFiringNotification}
+            onclick={fireTestNotification}
+          >
+            Fire test notification now
+          </button>
+          <button
+            type="button"
+            class="inline-flex items-center rounded-md border border-border bg-background px-3 py-2 text-sm font-medium hover:bg-accent"
+            onclick={() => fireDelayedNotification(5)}
+          >
+            Fire in 5s (switch away)
+          </button>
+          <button
+            type="button"
+            class="inline-flex items-center rounded-md border border-border bg-background px-3 py-2 text-sm font-medium hover:bg-accent"
+            onclick={() => fireDelayedNotification(15)}
+          >
+            Fire in 15s
+          </button>
+          <button
+            type="button"
+            class="inline-flex items-center rounded-md border border-border bg-background px-3 py-2 text-sm font-medium hover:bg-accent"
+            onclick={() => (notificationLog = [])}
+          >
+            Clear log
+          </button>
+        </div>
+
+        <div class="mt-4 rounded-lg border border-border bg-muted/40 p-4 text-sm">
+          {#if notificationLog.length === 0}
+            <p class="text-muted-foreground">
+              No diagnostics yet. Click <em>Inspect environment</em> to see permission state, service-worker
+              status, focus, and visibility — then <em>Fire test notification now</em>.
+            </p>
+          {:else}
+            <ol class="space-y-2 font-mono text-xs">
+              {#each notificationLog as entry}
+                <li class="rounded-md bg-background p-2">
+                  <div class="text-muted-foreground">[{entry.timestamp}] {entry.label}</div>
+                  <pre class="mt-1 overflow-x-auto whitespace-pre-wrap break-words">{entry.value}</pre>
+                </li>
+              {/each}
+            </ol>
+          {/if}
+        </div>
+      </section>
+
       <section class="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <div class="rounded-xl border border-border bg-card p-5 shadow-sm">
           <div class="text-xs font-medium uppercase tracking-[0.22em] text-muted-foreground">Build</div>

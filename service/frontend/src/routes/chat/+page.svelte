@@ -64,6 +64,7 @@
   let notificationPermission = $state<NotificationPermission>('default');
   let seenAssistantMessageIds = $state<Set<string>>(new Set());
   let lastKnownConversationUpdatedAtById = $state<Record<string, string>>({});
+  let lastKnownAssistantBusyById = $state<Record<string, boolean>>({});
   let selectedSlashCommandIndex = $state(0);
   let isRunningSlashCommand = $state(false);
   let composerElement = $state<HTMLTextAreaElement | null>(null);
@@ -161,7 +162,11 @@
   function rememberAssistantMessages(nextMessages: ChatMessage[]) {
     const nextSeen = new Set(seenAssistantMessageIds);
     for (const message of nextMessages) {
-      if (message.role === 'assistant' && !message.id.startsWith('pending-')) {
+      if (
+        message.role === 'assistant' &&
+        message.status === 'complete' &&
+        !message.id.startsWith('pending-')
+      ) {
         nextSeen.add(message.id);
       }
     }
@@ -170,6 +175,12 @@
 
   function indexConversationUpdatedAt(nextConversations: ConversationSummary[]) {
     return Object.fromEntries(nextConversations.map((conversation) => [conversation.id, conversation.updatedAt]));
+  }
+
+  function indexConversationAssistantBusy(nextConversations: ConversationSummary[]) {
+    return Object.fromEntries(
+      nextConversations.map((conversation) => [conversation.id, Boolean(conversation.assistantBusy)])
+    );
   }
 
   function conversationTitle(conversationId: string) {
@@ -195,7 +206,15 @@
     }
 
     try {
-      const registration = await navigator.serviceWorker.ready;
+      const existing = await navigator.serviceWorker.getRegistration();
+      if (existing && typeof existing.showNotification === 'function') {
+        return existing;
+      }
+
+      const registration = await Promise.race([
+        navigator.serviceWorker.ready,
+        new Promise<null>((resolve) => window.setTimeout(() => resolve(null), 1200))
+      ]);
       if (registration && typeof registration.showNotification === 'function') {
         return registration;
       }
@@ -236,15 +255,21 @@
 
   async function maybeNotifyAssistantReply(conversationId: string, nextMessages: ChatMessage[]) {
     const assistantMessages = nextMessages.filter(
-      (message) => message.role === 'assistant' && !message.id.startsWith('pending-')
+      (message) =>
+        message.role === 'assistant' &&
+        message.status === 'complete' &&
+        !message.id.startsWith('pending-')
     );
     const unseen = assistantMessages.filter((message) => !seenAssistantMessageIds.has(message.id));
+
+    const isInBackgroundOrUnfocused =
+      typeof document !== 'undefined' &&
+      (document.visibilityState !== 'visible' || !document.hasFocus());
 
     const shouldNotify =
       notificationsEnabled &&
       notificationPermission === 'granted' &&
-      typeof document !== 'undefined' &&
-      (document.visibilityState !== 'visible' || conversationId !== currentConversationId);
+      (isInBackgroundOrUnfocused || conversationId !== currentConversationId);
 
     if (shouldNotify && unseen.length > 0) {
       const latest = unseen[unseen.length - 1];
@@ -256,6 +281,7 @@
 
   async function maybeNotifyOtherConversationReplies(nextConversations: ConversationSummary[]) {
     const previousUpdatedAtById = lastKnownConversationUpdatedAtById;
+    const previousBusyById = lastKnownAssistantBusyById;
 
     const changedConversationIds = nextConversations
       .filter((conversation) => {
@@ -264,7 +290,20 @@
         }
 
         const previousUpdatedAt = previousUpdatedAtById[conversation.id];
-        return Boolean(previousUpdatedAt && previousUpdatedAt !== conversation.updatedAt);
+        const updatedAtChanged = Boolean(
+          previousUpdatedAt && previousUpdatedAt !== conversation.updatedAt
+        );
+
+        // Fallback signal: if the assistant was previously busy on this
+        // conversation and is no longer busy, treat that as a completion
+        // event even if updated_at didn't change. Protects against any
+        // server-side path that finalizes a streaming message without
+        // bumping the parent conversation's updated_at.
+        const wasBusy = previousBusyById[conversation.id] === true;
+        const isBusy = Boolean(conversation.assistantBusy);
+        const becameIdle = wasBusy && !isBusy;
+
+        return updatedAtChanged || becameIdle;
       })
       .map((conversation) => conversation.id);
 
@@ -283,6 +322,7 @@
     }
 
     lastKnownConversationUpdatedAtById = indexConversationUpdatedAt(nextConversations);
+    lastKnownAssistantBusyById = indexConversationAssistantBusy(nextConversations);
   }
 
   async function handleNotificationsToggle(event: Event) {
@@ -347,6 +387,7 @@
     messages = data.messages;
     conversations = data.conversations;
     lastKnownConversationUpdatedAtById = indexConversationUpdatedAt(data.conversations);
+    lastKnownAssistantBusyById = indexConversationAssistantBusy(data.conversations);
   });
 
   const filteredConversations = $derived.by(() => {

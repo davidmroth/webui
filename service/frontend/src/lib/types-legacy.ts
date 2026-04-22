@@ -10,7 +10,9 @@ export interface MessageAttachment {
   contentType: string;
   sizeBytes: number;
   downloadUrl: string;
+  previewUrl?: string;
   isImage: boolean;
+  isHtml: boolean;
 }
 
 export interface ConversationSummary {
