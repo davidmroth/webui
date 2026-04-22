@@ -354,6 +354,7 @@
   --text-muted: #7c7a74;
   --text-faint: #a6a29a;
   --accent: #1f1f1c;
+  --accent-foreground: #ffffff;
   --accent-soft: rgba(31, 31, 28, 0.08);
   --accent-strong: #0d0d0c;
   --disabled-bg: rgba(33, 33, 28, 0.05);
@@ -376,6 +377,7 @@
   --text-muted: #9a9a9a;
   --text-faint: #6f6f6f;
   --accent: #f1f1ef;
+  --accent-foreground: #0d0d0c;
   --accent-soft: rgba(255, 255, 255, 0.08);
   --accent-strong: #ffffff;
   --disabled-bg: rgba(255, 255, 255, 0.05);

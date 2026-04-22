@@ -376,9 +376,13 @@
 
       {#if data.authorized}
         <div class="flex items-center gap-3">
-          <a class="inline-flex items-center rounded-md border border-border px-3 py-2 text-sm font-medium text-foreground hover:bg-accent hover:text-primary-foreground" href="/maintenance">
+          <button
+            type="button"
+            class="inline-flex items-center rounded-md border border-border px-3 py-2 text-sm font-medium text-foreground hover:bg-accent hover:text-accent-foreground"
+            onclick={() => window.location.reload()}
+          >
             Refresh
-          </a>
+          </button>
           <form method="POST" action="?/logout">
             <button class="inline-flex items-center rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90" type="submit">
               Lock page
@@ -445,28 +449,28 @@
         <div class="mt-4 flex flex-wrap gap-2">
           <button
             type="button"
-            class="inline-flex items-center rounded-md border border-border bg-background px-3 py-2 text-sm font-medium hover:bg-accent"
+            class="inline-flex items-center rounded-md border border-border bg-background px-3 py-2 text-sm font-medium hover:bg-accent hover:text-accent-foreground"
             onclick={requestNotificationPermissionFromMaintenance}
           >
             Request permission
           </button>
           <button
             type="button"
-            class="inline-flex items-center rounded-md border border-border bg-background px-3 py-2 text-sm font-medium hover:bg-accent"
+            class="inline-flex items-center rounded-md border border-border bg-background px-3 py-2 text-sm font-medium hover:bg-accent hover:text-accent-foreground"
             onclick={inspectNotificationEnvironment}
           >
             Inspect environment
           </button>
           <button
             type="button"
-            class="inline-flex items-center rounded-md border border-border bg-background px-3 py-2 text-sm font-medium hover:bg-accent"
+            class="inline-flex items-center rounded-md border border-border bg-background px-3 py-2 text-sm font-medium hover:bg-accent hover:text-accent-foreground"
             onclick={registerServiceWorkerManually}
           >
             Register service worker
           </button>
           <button
             type="button"
-            class="inline-flex items-center rounded-md border border-border bg-background px-3 py-2 text-sm font-medium hover:bg-accent"
+            class="inline-flex items-center rounded-md border border-border bg-background px-3 py-2 text-sm font-medium hover:bg-accent hover:text-accent-foreground"
             onclick={unregisterAllServiceWorkers}
           >
             Unregister SW
@@ -481,21 +485,21 @@
           </button>
           <button
             type="button"
-            class="inline-flex items-center rounded-md border border-border bg-background px-3 py-2 text-sm font-medium hover:bg-accent"
+            class="inline-flex items-center rounded-md border border-border bg-background px-3 py-2 text-sm font-medium hover:bg-accent hover:text-accent-foreground"
             onclick={() => fireDelayedNotification(5)}
           >
             Fire in 5s (switch away)
           </button>
           <button
             type="button"
-            class="inline-flex items-center rounded-md border border-border bg-background px-3 py-2 text-sm font-medium hover:bg-accent"
+            class="inline-flex items-center rounded-md border border-border bg-background px-3 py-2 text-sm font-medium hover:bg-accent hover:text-accent-foreground"
             onclick={() => fireDelayedNotification(15)}
           >
             Fire in 15s
           </button>
           <button
             type="button"
-            class="inline-flex items-center rounded-md border border-border bg-background px-3 py-2 text-sm font-medium hover:bg-accent"
+            class="inline-flex items-center rounded-md border border-border bg-background px-3 py-2 text-sm font-medium hover:bg-accent hover:text-accent-foreground"
             onclick={() => (notificationLog = [])}
           >
             Clear log
