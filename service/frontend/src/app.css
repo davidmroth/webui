@@ -1300,6 +1300,8 @@ a {
 .llama-message-row.user .llama-message-body {
   font-size: 0.93rem;
   line-height: 1.5;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .llama-message-row.system .llama-message-body {
@@ -2122,6 +2124,14 @@ a {
   margin-top: 0.0rem;
 }
 
+.user-controls-outside {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.35rem;
+  margin-top: 0.25rem;
+}
+
 .llama-message-row.user:hover .user-actions,
 .llama-message-row.user:focus-within .user-actions {
   opacity: 1;
@@ -2175,6 +2185,129 @@ a {
 .message-action-button.disabled {
   color: var(--disabled-text);
   background: var(--disabled-bg);
+}
+
+.message-edit-shell {
+  display: grid;
+  gap: 0.6rem;
+  width: 100%;
+  min-width: min(28rem, calc(100vw - 8rem));
+}
+
+.message-edit-textarea {
+  width: 100%;
+  min-height: 1.5rem;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text);
+  padding: 0;
+  resize: none;
+  overflow: hidden;
+  font: inherit;
+  line-height: 1.45;
+}
+
+.message-edit-textarea:focus {
+  outline: none;
+  box-shadow: none;
+}
+
+.message-edit-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
+.message-edit-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 999px;
+  font: inherit;
+  line-height: 1;
+  transition: background-color 120ms ease, color 120ms ease, opacity 120ms ease;
+}
+
+.message-edit-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.message-edit-button--secondary {
+  background: transparent;
+  color: var(--text);
+  padding: 0.4rem 0.6rem;
+  font-size: 0.95rem;
+}
+
+.message-edit-button--secondary:hover:not(:disabled) {
+  color: color-mix(in srgb, var(--text) 84%, black);
+}
+
+.message-edit-button--primary {
+  background: #111;
+  color: white;
+  padding: 0.45rem 1rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.message-edit-button--primary:hover:not(:disabled) {
+  background: #000;
+}
+
+.message-revision-switcher {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.5rem;
+  margin-top: 0.1rem;
+  color: var(--text-muted);
+  font-size: 0.92rem;
+}
+
+.message-revision-switcher--assistant {
+  justify-content: flex-start;
+}
+
+.message-revision-switcher--user {
+  justify-content: flex-end;
+  width: 100%;
+}
+
+.message-revision-switcher--inline {
+  margin-top: 0;
+  margin-left: 0.35rem;
+  font-size: 0.85rem;
+  gap: 0.2rem;
+}
+
+.message-revision-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.9rem;
+  height: 1.9rem;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: rgba(28, 28, 25, 0.62);
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.message-revision-button:hover:not(:disabled) {
+  color: rgba(28, 28, 25, 0.86);
+  background: rgba(31, 31, 28, 0.06);
+}
+
+.message-revision-button:disabled {
+  color: var(--disabled-text);
+  cursor: not-allowed;
 }
 
 .error-banner {

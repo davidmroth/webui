@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer';
 import { randomUUID } from 'node:crypto';
 import { execute, pool, query } from './db';
 import { getConfig } from './env';
@@ -13,13 +14,40 @@ interface ConversationRow {
   queued_count?: number | string;
 }
 
+interface ConversationStateRow {
+  id: string;
+  created_at: Date | string;
+  curr_node: string | null;
+  title: string;
+}
+
 interface MessageRow {
   id: string;
+  parent_id?: string | null;
   role: 'user' | 'assistant' | 'system';
   content: string;
   created_at: Date | string;
   status: 'complete' | 'streaming' | 'error';
+  extra?: string | object | null;
   timings?: string | object | null;
+  type?: 'text' | 'root';
+  msg_timestamp?: number | string;
+}
+
+interface AttachmentCloneRow {
+  id: string;
+  user_id: string;
+  conversation_id: string | null;
+  storage_bucket: string;
+  storage_key: string;
+  file_name: string;
+  content_type: string;
+  size_bytes: number;
+}
+
+interface MessageNode {
+  row: MessageRow;
+  children: string[];
 }
 
 interface AttachmentRow {
@@ -113,6 +141,461 @@ export interface RecordHermesDeliveryTraceInput {
 
 function toIsoString(value: Date | string): string {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
+}
+
+function toUnixMilliseconds(value: Date | string): number {
+  return value instanceof Date ? value.getTime() : new Date(value).getTime();
+}
+
+function normalizeMessageTimestamp(row: Pick<MessageRow, 'msg_timestamp' | 'created_at'>): number {
+  const explicit = Number(row.msg_timestamp ?? 0);
+  if (Number.isFinite(explicit) && explicit > 0) {
+    return explicit;
+  }
+  return toUnixMilliseconds(row.created_at);
+}
+
+function compareMessageRows(a: MessageRow, b: MessageRow): number {
+  const timestampDiff = normalizeMessageTimestamp(a) - normalizeMessageTimestamp(b);
+  if (timestampDiff !== 0) {
+    return timestampDiff;
+  }
+
+  const createdDiff = toUnixMilliseconds(a.created_at) - toUnixMilliseconds(b.created_at);
+  if (createdDiff !== 0) {
+    return createdDiff;
+  }
+
+  return a.id.localeCompare(b.id);
+}
+
+function deriveConversationTitle(content: string): string {
+  const firstNonEmptyLine = content
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find((line) => line.length > 0);
+
+  const normalized = (firstNonEmptyLine ?? content.trim().replace(/\s+/g, ' ') ?? '').trim();
+  return (normalized || 'New conversation').slice(0, 200);
+}
+
+function parseMessageExtra(raw: string | object | null | undefined): Record<string, unknown> | null {
+  if (raw == null) {
+    return null;
+  }
+
+  if (typeof raw === 'object' && !Array.isArray(raw)) {
+    return raw as Record<string, unknown>;
+  }
+
+  if (typeof raw !== 'string' || !raw.trim()) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function getRevisionGroupId(row: Pick<MessageRow, 'extra'>): string | null {
+  const extra = parseMessageExtra(row.extra);
+  const revisionGroupId = extra?.revisionGroupId;
+  return typeof revisionGroupId === 'string' && revisionGroupId.trim().length > 0
+    ? revisionGroupId.trim()
+    : null;
+}
+
+function serializeMessageExtra(input: Record<string, unknown> | null | undefined): string | null {
+  if (!input || Object.keys(input).length === 0) {
+    return null;
+  }
+
+  try {
+    return JSON.stringify(input);
+  } catch {
+    return null;
+  }
+}
+
+function buildMessageTree(rows: MessageRow[]) {
+  const nodes = new Map<string, MessageNode>();
+
+  for (const row of rows) {
+    nodes.set(row.id, { row, children: [] });
+  }
+
+  for (const row of rows) {
+    if (!row.parent_id) {
+      continue;
+    }
+    const parent = nodes.get(row.parent_id);
+    if (!parent) {
+      continue;
+    }
+    parent.children.push(row.id);
+  }
+
+  for (const node of nodes.values()) {
+    node.children.sort((leftId, rightId) => {
+      const left = nodes.get(leftId)?.row;
+      const right = nodes.get(rightId)?.row;
+      if (!left || !right) {
+        return 0;
+      }
+      return compareMessageRows(left, right);
+    });
+  }
+
+  return nodes;
+}
+
+function findLatestMessageId(nodes: Map<string, MessageNode>): string | null {
+  const visibleNodes = Array.from(nodes.values())
+    .map((node) => node.row)
+    .filter((row) => row.type !== 'root')
+    .sort(compareMessageRows);
+
+  return visibleNodes.at(-1)?.id ?? null;
+}
+
+function resolveConversationLeafId(nodes: Map<string, MessageNode>, currNode: string | null): string | null {
+  if (currNode && nodes.has(currNode)) {
+    return currNode;
+  }
+
+  return findLatestMessageId(nodes) ?? Array.from(nodes.values()).find((node) => node.row.type === 'root')?.row.id ?? null;
+}
+
+function collectBranchRows(nodes: Map<string, MessageNode>, leafId: string | null): MessageRow[] {
+  if (!leafId) {
+    return [];
+  }
+
+  const path: MessageRow[] = [];
+  let currentId: string | null = leafId;
+
+  while (currentId) {
+    const current: MessageRow | undefined = nodes.get(currentId)?.row;
+    if (!current) {
+      break;
+    }
+    path.push(current);
+    currentId = current.parent_id ?? null;
+  }
+
+  path.reverse();
+  return path;
+}
+
+function findDeepestDescendant(nodes: Map<string, MessageNode>, startId: string): string {
+  let currentId = startId;
+
+  while (true) {
+    const current = nodes.get(currentId);
+    if (!current) {
+      return currentId;
+    }
+
+    const visibleChildren = current.children.filter((childId) => nodes.get(childId)?.row.type !== 'root');
+    if (visibleChildren.length === 0) {
+      return currentId;
+    }
+
+    currentId = visibleChildren[visibleChildren.length - 1];
+  }
+}
+
+function collectDescendantIds(nodes: Map<string, MessageNode>, startId: string): string[] {
+  const descendants: string[] = [];
+  const queue = [...(nodes.get(startId)?.children ?? [])];
+
+  while (queue.length > 0) {
+    const currentId = queue.shift();
+    if (!currentId) {
+      continue;
+    }
+    descendants.push(currentId);
+    queue.push(...(nodes.get(currentId)?.children ?? []));
+  }
+
+  return descendants;
+}
+
+function firstUserMessageInBranch(path: MessageRow[]): MessageRow | null {
+  return path.find((row) => row.role === 'user' && row.type !== 'root') ?? null;
+}
+
+async function getConversationState(conversationId: string): Promise<ConversationStateRow | null> {
+  const rows = await query<ConversationStateRow>(
+    `SELECT id, created_at, curr_node, title
+     FROM conversations
+     WHERE id = :id
+     LIMIT 1`,
+    { id: conversationId }
+  );
+
+  return rows[0] ?? null;
+}
+
+async function ensureConversationRootMessage(conversationId: string): Promise<string> {
+  const existingRootRows = await query<{ id: string }>(
+    `SELECT id
+     FROM messages
+     WHERE conversation_id = :conversation_id
+       AND type = 'root'
+     ORDER BY created_at ASC
+     LIMIT 1`,
+    { conversation_id: conversationId }
+  );
+
+  if (existingRootRows[0]?.id) {
+    return existingRootRows[0].id;
+  }
+
+  const conversation = await getConversationState(conversationId);
+  if (!conversation) {
+    throw new Error(`Conversation not found: ${conversationId}`);
+  }
+
+  const rootId = randomUUID();
+  const timestamp = toUnixMilliseconds(conversation.created_at);
+  await execute(
+    `INSERT INTO messages (
+       id,
+       conversation_id,
+       parent_id,
+       role,
+       content,
+       source,
+       status,
+       created_at,
+       type,
+       msg_timestamp
+     ) VALUES (
+       :id,
+       :conversation_id,
+       NULL,
+       'system',
+       '',
+       'hermes',
+       'complete',
+       :created_at,
+       'root',
+       :msg_timestamp
+     )`,
+    {
+      id: rootId,
+      conversation_id: conversationId,
+      created_at: conversation.created_at,
+      msg_timestamp: timestamp
+    }
+  );
+
+  await execute(
+    `UPDATE messages
+     SET parent_id = :root_id
+     WHERE conversation_id = :conversation_id
+       AND id <> :root_id
+       AND parent_id IS NULL`,
+    { root_id: rootId, conversation_id: conversationId }
+  );
+
+  if (!conversation.curr_node) {
+    await execute(
+      `UPDATE conversations
+       SET curr_node = :curr_node,
+           last_modified = :last_modified,
+           updated_at = UTC_TIMESTAMP()
+       WHERE id = :id`,
+      { curr_node: rootId, last_modified: Date.now(), id: conversationId }
+    );
+  }
+
+  return rootId;
+}
+
+async function resolveConversationParentMessageId(
+  conversationId: string,
+  requestedParentId?: string | null
+): Promise<string> {
+  const rootId = await ensureConversationRootMessage(conversationId);
+
+  if (requestedParentId) {
+    const rows = await query<{ id: string }>(
+      `SELECT id
+       FROM messages
+       WHERE id = :id AND conversation_id = :conversation_id
+       LIMIT 1`,
+      { id: requestedParentId, conversation_id: conversationId }
+    );
+    if (rows[0]?.id) {
+      return rows[0].id;
+    }
+  }
+
+  const conversation = await getConversationState(conversationId);
+  if (conversation?.curr_node) {
+    return conversation.curr_node;
+  }
+
+  return rootId;
+}
+
+async function resolveAssistantParentMessageId(
+  conversationId: string,
+  preferredUserMessageId?: string | null
+): Promise<string> {
+  if (preferredUserMessageId) {
+    const rows = await query<{ id: string }>(
+      `SELECT id
+       FROM messages
+       WHERE id = :id
+         AND conversation_id = :conversation_id
+         AND role = 'user'
+       LIMIT 1`,
+      { id: preferredUserMessageId, conversation_id: conversationId }
+    );
+    if (rows[0]?.id) {
+      return rows[0].id;
+    }
+  }
+
+  const processingRows = await query<{ message_id: string }>(
+    `SELECT hermes_events.message_id
+     FROM hermes_events
+     INNER JOIN messages ON messages.id = hermes_events.message_id
+     WHERE hermes_events.conversation_id = :conversation_id
+       AND hermes_events.status = 'processing'
+       AND messages.role = 'user'
+     ORDER BY hermes_events.claimed_at DESC, hermes_events.created_at DESC
+     LIMIT 1`,
+    { conversation_id: conversationId }
+  );
+  if (processingRows[0]?.message_id) {
+    return processingRows[0].message_id;
+  }
+
+  const latestUserRows = await query<{ id: string }>(
+    `SELECT id
+     FROM messages
+     WHERE conversation_id = :conversation_id
+       AND role = 'user'
+     ORDER BY msg_timestamp DESC, created_at DESC
+     LIMIT 1`,
+    { conversation_id: conversationId }
+  );
+  if (latestUserRows[0]?.id) {
+    return latestUserRows[0].id;
+  }
+
+  return ensureConversationRootMessage(conversationId);
+}
+
+async function updateConversationState(
+  conversationId: string,
+  options: { currNode?: string | null; title?: string } = {}
+) {
+  const assignments = ['updated_at = UTC_TIMESTAMP()', 'last_modified = :last_modified'];
+  const params: Record<string, unknown> = {
+    id: conversationId,
+    last_modified: Date.now()
+  };
+
+  if ('currNode' in options) {
+    assignments.push('curr_node = :curr_node');
+    params.curr_node = options.currNode ?? null;
+  }
+
+  if (typeof options.title === 'string') {
+    assignments.push('title = :title');
+    params.title = options.title;
+  }
+
+  await execute(
+    `UPDATE conversations
+     SET ${assignments.join(', ')}
+     WHERE id = :id`,
+    params
+  );
+}
+
+async function cloneAttachmentsForMessage(sourceMessageId: string, destinationMessageId: string) {
+  const rows = await query<AttachmentCloneRow>(
+    `SELECT id, user_id, conversation_id, storage_bucket, storage_key, file_name, content_type, size_bytes
+     FROM attachments
+     WHERE message_id = :message_id
+     ORDER BY created_at ASC`,
+    { message_id: sourceMessageId }
+  );
+
+  for (const row of rows) {
+    await execute(
+      `INSERT INTO attachments (
+         id,
+         user_id,
+         conversation_id,
+         message_id,
+         storage_bucket,
+         storage_key,
+         file_name,
+         content_type,
+         size_bytes
+       ) VALUES (
+         :id,
+         :user_id,
+         :conversation_id,
+         :message_id,
+         :storage_bucket,
+         :storage_key,
+         :file_name,
+         :content_type,
+         :size_bytes
+       )`,
+      {
+        id: randomUUID(),
+        user_id: row.user_id,
+        conversation_id: row.conversation_id,
+        message_id: destinationMessageId,
+        storage_bucket: row.storage_bucket,
+        storage_key: row.storage_key,
+        file_name: row.file_name,
+        content_type: row.content_type,
+        size_bytes: row.size_bytes
+      }
+    );
+  }
+}
+
+async function markMessageRevisionGroup(messageId: string, revisionGroupId: string) {
+  await execute(
+    `UPDATE messages
+     SET extra = JSON_SET(COALESCE(extra, JSON_OBJECT()), '$.revisionGroupId', :revision_group_id)
+     WHERE id = :id`,
+    { id: messageId, revision_group_id: revisionGroupId }
+  );
+}
+
+async function getProcessingEventRevisionGroupId(conversationId: string): Promise<string | null> {
+  const rows = await query<{ payload: string | object | null }>(
+    `SELECT payload
+     FROM hermes_events
+     WHERE conversation_id = :conversation_id
+       AND status = 'processing'
+     ORDER BY claimed_at DESC, created_at DESC
+     LIMIT 1`,
+    { conversation_id: conversationId }
+  );
+
+  const payload = parseMessageExtra(rows[0]?.payload ?? null);
+  const revisionGroupId = payload?.assistant_revision_group_id;
+  return typeof revisionGroupId === 'string' && revisionGroupId.trim().length > 0
+    ? revisionGroupId.trim()
+    : null;
 }
 
 function parseAttachmentNames(value: string | string[] | null | undefined): string[] {
@@ -298,34 +781,106 @@ export async function listConversations(userId: string): Promise<ConversationSum
 
 export async function createConversation(userId: string, title = 'New conversation') {
   const id = randomUUID();
+  const rootId = randomUUID();
+  const now = Date.now();
+
   await execute(
-    'INSERT INTO conversations (id, user_id, title) VALUES (:id, :user_id, :title)',
-    { id, user_id: userId, title }
+    `INSERT INTO conversations (id, user_id, title, curr_node, last_modified)
+     VALUES (:id, :user_id, :title, :curr_node, :last_modified)`,
+    { id, user_id: userId, title, curr_node: rootId, last_modified: now }
+  );
+  await execute(
+    `INSERT INTO messages (
+       id,
+       conversation_id,
+       parent_id,
+       role,
+       content,
+       source,
+       status,
+       type,
+       msg_timestamp
+     ) VALUES (
+       :id,
+       :conversation_id,
+       NULL,
+       'system',
+       '',
+       'hermes',
+       'complete',
+       'root',
+       :msg_timestamp
+     )`,
+    { id: rootId, conversation_id: id, msg_timestamp: now }
   );
   return id;
 }
 
 export async function listMessages(userId: string, conversationId: string): Promise<ChatMessage[]> {
-  const rows = await query<MessageRow>(
-    `SELECT messages.id, messages.role, messages.content, messages.created_at, messages.status, messages.timings
-     FROM messages
-     INNER JOIN conversations ON conversations.id = messages.conversation_id
-     WHERE messages.conversation_id = :conversation_id AND conversations.user_id = :user_id
-     ORDER BY messages.created_at ASC`,
+  const conversationRows = await query<ConversationStateRow>(
+    `SELECT conversations.id, conversations.created_at, conversations.curr_node, conversations.title
+     FROM conversations
+     WHERE conversations.id = :conversation_id
+       AND conversations.user_id = :user_id
+     LIMIT 1`,
     { conversation_id: conversationId, user_id: userId }
   );
 
-  const attachmentsByMessageId = await listAttachmentsByMessageIds(rows.map((row) => row.id));
+  const conversation = conversationRows[0];
+  if (!conversation) {
+    return [];
+  }
 
-  return rows.map((row) => ({
+  const rows = await query<MessageRow>(
+    `SELECT messages.id,
+            messages.parent_id,
+            messages.role,
+            messages.content,
+            messages.created_at,
+            messages.status,
+            messages.extra,
+            messages.timings,
+            messages.type,
+            messages.msg_timestamp
+     FROM messages
+     INNER JOIN conversations ON conversations.id = messages.conversation_id
+     WHERE messages.conversation_id = :conversation_id AND conversations.user_id = :user_id
+     ORDER BY messages.msg_timestamp ASC, messages.created_at ASC, messages.id ASC`,
+    { conversation_id: conversationId, user_id: userId }
+  );
+
+  const messageTree = buildMessageTree(rows);
+  const activeLeafId = resolveConversationLeafId(messageTree, conversation.curr_node);
+  const activeRows = collectBranchRows(messageTree, activeLeafId).filter((row) => row.type !== 'root');
+  const attachmentsByMessageId = await listAttachmentsByMessageIds(activeRows.map((row) => row.id));
+
+  return activeRows.map((row) => {
+    const revisionGroupId = getRevisionGroupId(row);
+    const siblingIds = row.parent_id && revisionGroupId
+      ? (messageTree.get(row.parent_id)?.children ?? []).filter((childId) => {
+          const siblingRow = messageTree.get(childId)?.row;
+          return Boolean(
+            siblingRow &&
+              siblingRow.type !== 'root' &&
+              siblingRow.role === row.role &&
+              getRevisionGroupId(siblingRow) === revisionGroupId
+          );
+        })
+      : [row.id];
+
+    return {
     id: row.id,
     role: row.role,
     content: row.content,
     createdAt: toIsoString(row.created_at),
     status: row.status,
     attachments: attachmentsByMessageId.get(row.id) ?? [],
-    timings: parseTimings(row.timings)
-  }));
+    timings: parseTimings(row.timings),
+    revisionSiblingIds: siblingIds,
+    revisionIndex: Math.max(0, siblingIds.indexOf(row.id)),
+    revisionTotal: siblingIds.length
+  };
+  });
 }
 
 /**
@@ -418,18 +973,48 @@ export async function findLatestAssistantMessage(
   userId: string,
   conversationId: string
 ): Promise<{ id: string; status: 'complete' | 'streaming' | 'error' } | null> {
-  const rows = await query<{ id: string; status: 'complete' | 'streaming' | 'error' }>(
-    `SELECT messages.id, messages.status
+  const conversationRows = await query<ConversationStateRow>(
+    `SELECT conversations.id, conversations.created_at, conversations.curr_node, conversations.title
+     FROM conversations
+     WHERE conversations.id = :conversation_id
+       AND conversations.user_id = :user_id
+     LIMIT 1`,
+    { conversation_id: conversationId, user_id: userId }
+  );
+
+  const conversation = conversationRows[0];
+  if (!conversation) {
+    return null;
+  }
+
+  const rows = await query<MessageRow>(
+    `SELECT messages.id,
+            messages.parent_id,
+            messages.role,
+            messages.content,
+            messages.created_at,
+            messages.status,
+            messages.type,
+            messages.msg_timestamp
      FROM messages
      INNER JOIN conversations ON conversations.id = messages.conversation_id
      WHERE messages.conversation_id = :conversation_id
        AND conversations.user_id = :user_id
-       AND messages.role = 'assistant'
-     ORDER BY messages.created_at DESC
-     LIMIT 1`,
+     ORDER BY messages.msg_timestamp ASC, messages.created_at ASC, messages.id ASC`,
     { conversation_id: conversationId, user_id: userId }
   );
-  return rows[0] ?? null;
+
+  const messageTree = buildMessageTree(rows);
+  const activeRows = collectBranchRows(
+    messageTree,
+    resolveConversationLeafId(messageTree, conversation.curr_node)
+  );
+  const assistantRows = activeRows.filter(
+    (row): row is MessageRow & { status: 'complete' | 'streaming' | 'error' } => row.role === 'assistant'
+  );
+
+  const latest = assistantRows.at(-1);
+  return latest ? { id: latest.id, status: latest.status } : null;
 }
 
 /**
@@ -473,21 +1058,36 @@ export async function listAssistantChunks(messageId: string, afterSeq: number) {
  * Open a new streaming assistant message. Seeds an empty row that chunks will
  * be appended to. Returns the message id.
  */
-export async function openStreamingAssistantMessage(conversationId: string): Promise<string> {
+export async function openStreamingAssistantMessage(
+  conversationId: string,
+  options: { userMessageId?: string | null } = {}
+): Promise<string> {
   const ownerId = await getConversationOwnerId(conversationId);
   if (!ownerId) {
     throw new Error(`Conversation not found: ${conversationId}`);
   }
+
+  const parentMessageId = await resolveAssistantParentMessageId(
+    conversationId,
+    options.userMessageId
+  );
+  const assistantRevisionGroupId = await getProcessingEventRevisionGroupId(conversationId);
   const messageId = randomUUID();
+  const messageTimestamp = Date.now();
   await execute(
-    `INSERT INTO messages (id, conversation_id, role, content, source, status)
-     VALUES (:id, :conversation_id, 'assistant', '', 'hermes', 'streaming')`,
-    { id: messageId, conversation_id: conversationId }
+    `INSERT INTO messages (id, conversation_id, parent_id, role, content, source, status, extra, type, msg_timestamp)
+     VALUES (:id, :conversation_id, :parent_id, 'assistant', '', 'hermes', 'streaming', :extra, 'text', :msg_timestamp)`,
+    {
+      id: messageId,
+      conversation_id: conversationId,
+      parent_id: parentMessageId,
+      extra: serializeMessageExtra(
+        assistantRevisionGroupId ? { revisionGroupId: assistantRevisionGroupId } : null
+      ),
+      msg_timestamp: messageTimestamp
+    }
   );
-  await execute(
-    'UPDATE conversations SET updated_at = UTC_TIMESTAMP() WHERE id = :id',
-    { id: conversationId }
-  );
+  await updateConversationState(conversationId, { currNode: messageId });
   return messageId;
 }
 
@@ -516,17 +1116,14 @@ export async function finalizeStreamingAssistantMessage(
       { id: messageId, content: finalContent, timings: timingsJson }
     );
   }
-  // Bump the parent conversation's updated_at so polling clients can detect
-  // assistant-reply completion (e.g. for background notifications). Without
-  // this, updated_at would remain stuck at the moment the streaming row was
-  // first inserted, and cross-conversation notification gating would miss
-  // the completion event entirely.
   await execute(
     `UPDATE conversations c
      JOIN messages m ON m.conversation_id = c.id
-     SET c.updated_at = UTC_TIMESTAMP()
+     SET c.updated_at = UTC_TIMESTAMP(),
+         c.last_modified = :last_modified,
+         c.curr_node = :curr_node
      WHERE m.id = :id`,
-    { id: messageId }
+    { id: messageId, last_modified: Date.now(), curr_node: messageId }
   );
 }
 
@@ -568,13 +1165,32 @@ export async function cancelActiveAssistantTurn(
   return affected > 0 || streamingId !== null;
 }
 
-export async function enqueueUserMessage(userId: string, conversationId: string, content: string, files: File[] = []) {
+export async function enqueueUserMessage(
+  userId: string,
+  conversationId: string,
+  content: string,
+  files: File[] = [],
+  options: { parentMessageId?: string | null } = {}
+) {
   const messageId = randomUUID();
   const eventId = randomUUID();
+  const parentMessageId = await resolveConversationParentMessageId(
+    conversationId,
+    options.parentMessageId
+  );
+  const rootId = await ensureConversationRootMessage(conversationId);
+  const nextTitle = parentMessageId === rootId ? deriveConversationTitle(content) : undefined;
+  const messageTimestamp = Date.now();
   await execute(
-    `INSERT INTO messages (id, conversation_id, role, content, source, status)
-     VALUES (:id, :conversation_id, 'user', :content, 'browser', 'complete')`,
-    { id: messageId, conversation_id: conversationId, content }
+    `INSERT INTO messages (id, conversation_id, parent_id, role, content, source, status, type, msg_timestamp)
+     VALUES (:id, :conversation_id, :parent_id, 'user', :content, 'browser', 'complete', 'text', :msg_timestamp)`,
+    {
+      id: messageId,
+      conversation_id: conversationId,
+      parent_id: parentMessageId,
+      content,
+      msg_timestamp: messageTimestamp
+    }
   );
   await saveAttachmentsForMessage(userId, conversationId, messageId, files);
   await execute(
@@ -588,17 +1204,17 @@ export async function enqueueUserMessage(userId: string, conversationId: string,
       payload: JSON.stringify({ text: content })
     }
   );
-  await execute(
-    'UPDATE conversations SET updated_at = UTC_TIMESTAMP() WHERE id = :id AND user_id = :user_id',
-    { id: conversationId, user_id: userId }
-  );
+  await updateConversationState(conversationId, {
+    currNode: messageId,
+    ...(nextTitle ? { title: nextTitle } : {})
+  });
 
   return { messageId, eventId };
 }
 
 export async function dequeueHermesEvent() {
   const leaseSeconds = Math.max(30, getConfig().hermesEventLeaseSeconds);
-  const connection = await pool.getConnection();
+  const connection = (await pool.getConnection()) as any;
   try {
     await connection.beginTransaction();
     const [rows] = await connection.query(
@@ -801,7 +1417,11 @@ export async function listRecentHermesDeliveryTraces(limit = 10): Promise<Hermes
 export async function storeAssistantMessage(
   conversationId: string,
   content: string,
-  options: { timings?: unknown; role?: 'assistant' | 'system' } = {}
+  options: {
+    timings?: unknown;
+    role?: 'assistant' | 'system';
+    userMessageId?: string | null;
+  } = {}
 ) {
   const ownerId = await getConversationOwnerId(conversationId);
   if (!ownerId) {
@@ -809,17 +1429,31 @@ export async function storeAssistantMessage(
   }
 
   const messageId = randomUUID();
+  const parentMessageId = await resolveAssistantParentMessageId(
+    conversationId,
+    options.userMessageId
+  );
+  const assistantRevisionGroupId = await getProcessingEventRevisionGroupId(conversationId);
+  const messageTimestamp = Date.now();
   const timingsJson = serializeTimingsForStorage(options.timings);
   const role = options.role === 'system' ? 'system' : 'assistant';
   await execute(
-    `INSERT INTO messages (id, conversation_id, role, content, source, status, timings)
-     VALUES (:id, :conversation_id, :role, :content, 'hermes', 'complete', :timings)`,
-    { id: messageId, conversation_id: conversationId, role, content, timings: timingsJson }
+    `INSERT INTO messages (id, conversation_id, parent_id, role, content, source, status, extra, timings, type, msg_timestamp)
+     VALUES (:id, :conversation_id, :parent_id, :role, :content, 'hermes', 'complete', :extra, :timings, 'text', :msg_timestamp)`,
+    {
+      id: messageId,
+      conversation_id: conversationId,
+      parent_id: parentMessageId,
+      role,
+      content,
+      extra: serializeMessageExtra(
+        assistantRevisionGroupId ? { revisionGroupId: assistantRevisionGroupId } : null
+      ),
+      timings: timingsJson,
+      msg_timestamp: messageTimestamp
+    }
   );
-  await execute(
-    'UPDATE conversations SET updated_at = UTC_TIMESTAMP() WHERE id = :id',
-    { id: conversationId }
-  );
+  await updateConversationState(conversationId, { currNode: messageId });
 
   return messageId;
 }
@@ -853,7 +1487,11 @@ export async function storeAssistantMessageWithAttachments(
   conversationId: string,
   content: string,
   files: AttachmentUpload[] = [],
-  options: { timings?: unknown; role?: 'assistant' | 'system' } = {}
+  options: {
+    timings?: unknown;
+    role?: 'assistant' | 'system';
+    userMessageId?: string | null;
+  } = {}
 ) {
   const ownerId = await getConversationOwnerId(conversationId);
   if (!ownerId) {
@@ -901,37 +1539,79 @@ export async function deleteMessageForUser(
   conversationId: string,
   messageId: string
 ): Promise<boolean> {
-  const rows = await query<{ id: string }>(
-    `SELECT messages.id
-     FROM messages
-     INNER JOIN conversations ON conversations.id = messages.conversation_id
-     WHERE messages.id = :message_id
-       AND messages.conversation_id = :conversation_id
+  const conversationRows = await query<ConversationStateRow>(
+    `SELECT conversations.id, conversations.created_at, conversations.curr_node, conversations.title
+     FROM conversations
+     WHERE conversations.id = :conversation_id
        AND conversations.user_id = :user_id
      LIMIT 1`,
-    { message_id: messageId, conversation_id: conversationId, user_id: userId }
+    { conversation_id: conversationId, user_id: userId }
   );
-  if (rows.length === 0) {
+  const conversation = conversationRows[0];
+  if (!conversation) {
     return false;
   }
 
-  // Cascade-delete in correct order: events → attachments → message.
+  const rows = await query<MessageRow>(
+    `SELECT messages.id,
+            messages.parent_id,
+            messages.role,
+            messages.content,
+            messages.created_at,
+            messages.status,
+            messages.type,
+            messages.msg_timestamp
+     FROM messages
+     INNER JOIN conversations ON conversations.id = messages.conversation_id
+     WHERE messages.conversation_id = :conversation_id
+       AND conversations.user_id = :user_id
+     ORDER BY messages.msg_timestamp ASC, messages.created_at ASC, messages.id ASC`,
+    { conversation_id: conversationId, user_id: userId }
+  );
+
+  const messageTree = buildMessageTree(rows);
+  const target = messageTree.get(messageId)?.row;
+  if (!target || target.type === 'root') {
+    return false;
+  }
+
+  const deleteIds = [messageId, ...collectDescendantIds(messageTree, messageId)];
+  const deleteIdSet = new Set(deleteIds);
+  const remainingRows = rows.filter((row) => !deleteIdSet.has(row.id));
+  const remainingTree = buildMessageTree(remainingRows);
+  let nextCurrNode = conversation.curr_node;
+
+  if (!nextCurrNode || deleteIdSet.has(nextCurrNode) || !remainingTree.has(nextCurrNode)) {
+    if (target.parent_id && remainingTree.has(target.parent_id)) {
+      nextCurrNode = findDeepestDescendant(remainingTree, target.parent_id);
+    } else {
+      nextCurrNode = resolveConversationLeafId(remainingTree, null);
+    }
+  }
+
+  const nextFirstUser = firstUserMessageInBranch(collectBranchRows(remainingTree, nextCurrNode));
+  const placeholders = deleteIds.map((_, index) => `:message_id_${index}`).join(', ');
+  const params = Object.fromEntries(deleteIds.map((id, index) => [`message_id_${index}`, id]));
+
   await execute(
-    'DELETE FROM hermes_events WHERE message_id = :message_id',
-    { message_id: messageId }
+    `DELETE FROM hermes_events
+     WHERE message_id IN (${placeholders})`,
+    params
   );
   await execute(
-    'DELETE FROM attachments WHERE message_id = :message_id',
-    { message_id: messageId }
+    `DELETE FROM attachments
+     WHERE message_id IN (${placeholders})`,
+    params
   );
   await execute(
-    'DELETE FROM messages WHERE id = :message_id',
-    { message_id: messageId }
+    `DELETE FROM messages
+     WHERE id IN (${placeholders})`,
+    params
   );
-  await execute(
-    'UPDATE conversations SET updated_at = UTC_TIMESTAMP() WHERE id = :id AND user_id = :user_id',
-    { id: conversationId, user_id: userId }
-  );
+  await updateConversationState(conversationId, {
+    currNode: nextCurrNode,
+    title: nextFirstUser ? deriveConversationTitle(nextFirstUser.content) : 'New conversation'
+  });
 
   return true;
 }
@@ -946,9 +1626,8 @@ export async function regenerateAssistantMessage(
   conversationId: string,
   assistantMessageId: string
 ): Promise<{ eventId: string; userMessageId: string } | null> {
-  // Verify ownership and that the message is an assistant message.
-  const target = await query<{ id: string; created_at: Date | string }>(
-    `SELECT messages.id, messages.created_at
+  const target = await query<{ id: string; parent_id: string | null; extra?: string | object | null }>(
+    `SELECT messages.id, messages.parent_id, messages.extra
      FROM messages
      INNER JOIN conversations ON conversations.id = messages.conversation_id
      WHERE messages.id = :message_id
@@ -962,38 +1641,24 @@ export async function regenerateAssistantMessage(
     return null;
   }
 
-  // Find the most recent user message before the assistant message.
   const userRows = await query<{ id: string; content: string }>(
     `SELECT id, content
      FROM messages
-     WHERE conversation_id = :conversation_id
+     WHERE id = :message_id
+       AND conversation_id = :conversation_id
        AND role = 'user'
-       AND created_at <= :anchor
-     ORDER BY created_at DESC
      LIMIT 1`,
-    { conversation_id: conversationId, anchor: target[0].created_at }
+    { message_id: target[0].parent_id, conversation_id: conversationId }
   );
   if (userRows.length === 0) {
     return null;
   }
 
   const previousUser = userRows[0];
-
-  // Delete the prior assistant message + any attached events.
-  await execute(
-    'DELETE FROM hermes_events WHERE message_id = :message_id',
-    { message_id: assistantMessageId }
-  );
-  await execute(
-    'DELETE FROM attachments WHERE message_id = :message_id',
-    { message_id: assistantMessageId }
-  );
-  await execute(
-    'DELETE FROM messages WHERE id = :message_id',
-    { message_id: assistantMessageId }
-  );
-
-  // Re-enqueue the prior user message for Hermes.
+  const assistantRevisionGroupId = getRevisionGroupId(target[0]) ?? assistantMessageId;
+  if (!getRevisionGroupId(target[0])) {
+    await markMessageRevisionGroup(assistantMessageId, assistantRevisionGroupId);
+  }
   const eventId = randomUUID();
   await execute(
     `INSERT INTO hermes_events (id, user_id, conversation_id, message_id, event_type, status, payload)
@@ -1003,13 +1668,113 @@ export async function regenerateAssistantMessage(
       user_id: userId,
       conversation_id: conversationId,
       message_id: previousUser.id,
-      payload: JSON.stringify({ text: previousUser.content, regenerate: true })
+      payload: JSON.stringify({
+        text: previousUser.content,
+        regenerate: true,
+        assistant_revision_group_id: assistantRevisionGroupId
+      })
     }
   );
-  await execute(
-    'UPDATE conversations SET updated_at = UTC_TIMESTAMP() WHERE id = :id AND user_id = :user_id',
-    { id: conversationId, user_id: userId }
-  );
+  await updateConversationState(conversationId, { currNode: previousUser.id });
 
   return { eventId, userMessageId: previousUser.id };
+}
+
+export async function editUserMessage(
+  userId: string,
+  conversationId: string,
+  messageId: string,
+  content: string
+): Promise<{ messageId: string; eventId: string } | null> {
+  const targetRows = await query<{ id: string; parent_id: string | null; extra?: string | object | null }>(
+    `SELECT messages.id, messages.parent_id, messages.extra
+     FROM messages
+     INNER JOIN conversations ON conversations.id = messages.conversation_id
+     WHERE messages.id = :message_id
+       AND messages.conversation_id = :conversation_id
+       AND messages.role = 'user'
+       AND conversations.user_id = :user_id
+     LIMIT 1`,
+    { message_id: messageId, conversation_id: conversationId, user_id: userId }
+  );
+  if (targetRows.length === 0) {
+    return null;
+  }
+
+  const rootId = await ensureConversationRootMessage(conversationId);
+  const parentMessageId = targetRows[0].parent_id ?? rootId;
+  const revisionGroupId = getRevisionGroupId(targetRows[0]) ?? messageId;
+  if (!getRevisionGroupId(targetRows[0])) {
+    await markMessageRevisionGroup(messageId, revisionGroupId);
+  }
+  const nextMessageId = randomUUID();
+  const eventId = randomUUID();
+  const messageTimestamp = Date.now();
+  await execute(
+    `INSERT INTO messages (id, conversation_id, parent_id, role, content, source, status, extra, type, msg_timestamp)
+     VALUES (:id, :conversation_id, :parent_id, 'user', :content, 'browser', 'complete', :extra, 'text', :msg_timestamp)`,
+    {
+      id: nextMessageId,
+      conversation_id: conversationId,
+      parent_id: parentMessageId,
+      content,
+      extra: serializeMessageExtra({ revisionGroupId }),
+      msg_timestamp: messageTimestamp
+    }
+  );
+  await cloneAttachmentsForMessage(messageId, nextMessageId);
+  await execute(
+    `INSERT INTO hermes_events (id, user_id, conversation_id, message_id, event_type, status, payload)
+     VALUES (:id, :user_id, :conversation_id, :message_id, 'message', 'queued', :payload)`,
+    {
+      id: eventId,
+      user_id: userId,
+      conversation_id: conversationId,
+      message_id: nextMessageId,
+      payload: JSON.stringify({ text: content, edited_from_message_id: messageId })
+    }
+  );
+  await updateConversationState(conversationId, {
+    currNode: nextMessageId,
+    ...(parentMessageId === rootId ? { title: deriveConversationTitle(content) } : {})
+  });
+
+  return { messageId: nextMessageId, eventId };
+}
+
+export async function selectMessageRevision(
+  userId: string,
+  conversationId: string,
+  messageId: string
+): Promise<{ messageId: string; leafMessageId: string } | null> {
+  const rows = await query<MessageRow>(
+    `SELECT messages.id,
+            messages.parent_id,
+            messages.role,
+            messages.content,
+            messages.created_at,
+            messages.status,
+            messages.type,
+            messages.msg_timestamp
+     FROM messages
+     INNER JOIN conversations ON conversations.id = messages.conversation_id
+     WHERE messages.conversation_id = :conversation_id
+       AND conversations.user_id = :user_id
+     ORDER BY messages.msg_timestamp ASC, messages.created_at ASC, messages.id ASC`,
+    { conversation_id: conversationId, user_id: userId }
+  );
+
+  const messageTree = buildMessageTree(rows);
+  if (!messageTree.has(messageId)) {
+    return null;
+  }
+
+  const leafMessageId = findDeepestDescendant(messageTree, messageId);
+  const firstUser = firstUserMessageInBranch(collectBranchRows(messageTree, leafMessageId));
+  await updateConversationState(conversationId, {
+    currNode: leafMessageId,
+    ...(firstUser ? { title: deriveConversationTitle(firstUser.content) } : {})
+  });
+
+  return { messageId, leafMessageId };
 }

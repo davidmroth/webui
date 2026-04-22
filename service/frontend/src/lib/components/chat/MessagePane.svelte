@@ -33,8 +33,15 @@
     userDisplayName?: string;
     use24HourTime?: boolean;
     copiedMessageId?: string | null;
+    editingMessageId?: string | null;
+    editingDraft?: string;
     onCopy?: (message: ChatMessage) => void;
+    onEdit?: (message: ChatMessage) => void;
+    onEditDraftChange?: (value: string) => void;
+    onCancelEdit?: () => void;
+    onSaveEdit?: (message: ChatMessage) => void;
     onRegenerate?: (message: ChatMessage) => void;
+    onSelectRevision?: (message: ChatMessage, targetMessageId: string) => void;
     onDelete?: (message: ChatMessage) => void;
     busyMessageIds?: Set<string>;
     scrollContainer?: HTMLDivElement | null;
@@ -46,8 +53,15 @@
     userDisplayName = 'You',
     use24HourTime = false,
     copiedMessageId = null,
+    editingMessageId = null,
+    editingDraft = '',
     onCopy,
+    onEdit,
+    onEditDraftChange,
+    onCancelEdit,
+    onSaveEdit,
     onRegenerate,
+    onSelectRevision,
     onDelete,
     busyMessageIds,
     scrollContainer = $bindable(null),
@@ -62,6 +76,21 @@
     publicEnv.PUBLIC_MODEL_CAPABILITY_LABEL,
     publicEnv.PUBLIC_MODEL_FILE_LABEL
   ].filter(Boolean);
+
+  function autosizeTextarea(node: HTMLTextAreaElement) {
+    const resize = () => {
+      node.style.height = 'auto';
+      node.style.height = `${node.scrollHeight}px`;
+    };
+    resize();
+    requestAnimationFrame(resize);
+    node.addEventListener('input', resize);
+    return {
+      destroy() {
+        node.removeEventListener('input', resize);
+      }
+    };
+  }
 
   const systemStatusPatterns = [
     /^⚡ Interrupting current task\b/i,
@@ -200,6 +229,34 @@
   function showMessageHeader(role: ChatMessage['role']) {
     return role === 'system';
   }
+
+  function hasRevisionNavigation(message: ChatMessage) {
+    return (
+      message.role === 'user' &&
+      (message.revisionTotal ?? 1) > 1 &&
+      (message.revisionSiblingIds?.length ?? 0) > 1
+    );
+  }
+
+  function previousRevisionId(message: ChatMessage) {
+    if (!message.revisionSiblingIds || message.revisionSiblingIds.length < 2) {
+      return null;
+    }
+
+    const currentIndex = message.revisionIndex ?? 0;
+    return currentIndex > 0 ? message.revisionSiblingIds[currentIndex - 1] : null;
+  }
+
+  function nextRevisionId(message: ChatMessage) {
+    if (!message.revisionSiblingIds || message.revisionSiblingIds.length < 2) {
+      return null;
+    }
+
+    const currentIndex = message.revisionIndex ?? 0;
+    return currentIndex < message.revisionSiblingIds.length - 1
+      ? message.revisionSiblingIds[currentIndex + 1]
+      : null;
+  }
 </script>
 
 <div bind:this={scrollContainer} class="llama-message-scroll" onscroll={onScroll}>
@@ -237,6 +294,34 @@
                   <span class="assistant-typing-square" style={`--assistant-loader-delay: ${delayStep * 0.07}s`}></span>
                 {/each}
               </span>
+            </div>
+          {:else if displayRole === 'user' && editingMessageId === message.id}
+            <div class="message-edit-shell">
+              <textarea
+                class="message-edit-textarea"
+                rows="1"
+                use:autosizeTextarea
+                value={editingDraft}
+                oninput={(event) =>
+                  onEditDraftChange?.((event.currentTarget as HTMLTextAreaElement).value)}
+              ></textarea>
+              <div class="message-edit-actions">
+                <button
+                  class="message-edit-button message-edit-button--secondary"
+                  type="button"
+                  onclick={() => onCancelEdit?.()}
+                >
+                  Cancel
+                </button>
+                <button
+                  class="message-edit-button message-edit-button--primary"
+                  type="button"
+                  disabled={!editingDraft.trim()}
+                  onclick={() => onSaveEdit?.(message)}
+                >
+                  Save
+                </button>
+              </div>
             </div>
           {:else if message.content}
             {#if displayRole === 'assistant'}
@@ -400,23 +485,69 @@
                   <Trash2 class="h-3 w-3" />
                 </button>
               </div>
+
             {/if}
           {/if}
         </div>
-        {#if !(isStreamingAssistant(message) && !hasVisibleContent(message))}
+        {#if !(isStreamingAssistant(message) && !hasVisibleContent(message)) && editingMessageId !== message.id}
           {#if displayRole === 'user'}
-            <div class="llama-message-actions user-actions user-actions-outside" aria-label="Message actions">
-              <button
-                class={`message-action-icon ${copiedMessageId === message.id ? 'is-active' : ''}`}
-                type="button"
-                title={copiedMessageId === message.id ? 'Copied' : 'Copy'}
-                onclick={() => onCopy?.(message)}
-              >
-                <Copy class="h-3 w-3" />
-              </button>
-              <button class="message-action-icon user-edit-action disabled" type="button" title="Edit unavailable" disabled>
-                <Edit class="h-3 w-3" />
-              </button>
+            <div class="user-controls-outside">
+              <div class="llama-message-actions user-actions user-actions-outside" aria-label="Message actions">
+                <button
+                  class={`message-action-icon ${copiedMessageId === message.id ? 'is-active' : ''}`}
+                  type="button"
+                  title={copiedMessageId === message.id ? 'Copied' : 'Copy'}
+                  onclick={() => onCopy?.(message)}
+                >
+                  <Copy class="h-3 w-3" />
+                </button>
+                <button
+                  class={`message-action-icon user-edit-action ${editingMessageId === message.id ? 'is-active' : ''}`}
+                  type="button"
+                  title={editingMessageId === message.id ? 'Editing' : 'Edit and resubmit'}
+                  disabled={editingMessageId !== null && editingMessageId !== message.id}
+                  onclick={() => onEdit?.(message)}
+                >
+                  <Edit class="h-3 w-3" />
+                </button>
+              </div>
+              {#if hasRevisionNavigation(message)}
+                <div class="message-revision-switcher message-revision-switcher--inline" aria-label="Message revisions">
+                  <button
+                    class="message-revision-button"
+                    type="button"
+                    aria-label="Previous revision"
+                    disabled={!previousRevisionId(message)}
+                    onclick={() => {
+                      const targetMessageId = previousRevisionId(message);
+                      if (targetMessageId) {
+                        onSelectRevision?.(message, targetMessageId);
+                      }
+                    }}
+                  >
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                      <path d="M15 6L9 12L15 18" stroke="currentColor" stroke-width="2" stroke-linecap="square"></path>
+                    </svg>
+                  </button>
+                  <span>{(message.revisionIndex ?? 0) + 1} / {message.revisionTotal ?? 1}</span>
+                  <button
+                    class="message-revision-button"
+                    type="button"
+                    aria-label="Next revision"
+                    disabled={!nextRevisionId(message)}
+                    onclick={() => {
+                      const targetMessageId = nextRevisionId(message);
+                      if (targetMessageId) {
+                        onSelectRevision?.(message, targetMessageId);
+                      }
+                    }}
+                  >
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                      <path d="M9 6L15 12L9 18" stroke="currentColor" stroke-width="2" stroke-linecap="square"></path>
+                    </svg>
+                  </button>
+                </div>
+              {/if}
             </div>
           {/if}
         {/if}

@@ -249,6 +249,7 @@ export async function POST({ params, request }: { params: { conversationId: stri
     const formData = await request.formData();
     const content = String(formData.get('content') || '').trim();
     const role = normalizeInboundRole(formData.get('role'));
+    const userMessageId = normalizeOptionalString(formData.get('userMessageId'));
     const files = formData
       .getAll('attachments')
       .filter((value: FormDataEntryValue): value is File => value instanceof File && value.size > 0);
@@ -271,13 +272,14 @@ export async function POST({ params, request }: { params: { conversationId: stri
       params.conversationId,
       content,
       files,
-      { timings, role }
+      { timings, role, userMessageId }
     );
     return json({ ok: true, messageId }, { status: 201 });
   }
 
   const body: Record<string, unknown> = await request.json().catch(() => ({}));
   const role = normalizeInboundRole(body.role);
+  const userMessageId = normalizeOptionalString(body.userMessageId);
 
   const rawAttachmentNames = Array.isArray(body.attachments)
     ? body.attachments
@@ -315,7 +317,7 @@ export async function POST({ params, request }: { params: { conversationId: stri
     let messageId = typeof body.messageId === 'string' ? body.messageId : '';
 
     if (!messageId) {
-      messageId = await openStreamingAssistantMessage(params.conversationId);
+      messageId = await openStreamingAssistantMessage(params.conversationId, { userMessageId });
     }
 
     if (delta) {
@@ -371,12 +373,12 @@ export async function POST({ params, request }: { params: { conversationId: stri
           params.conversationId,
           content,
           attachments,
-          { timings: normalizedTimings, role }
+          { timings: normalizedTimings, role, userMessageId }
         )
       : await storeAssistantMessage(
           params.conversationId,
           content,
-          { timings: normalizedTimings, role }
+          { timings: normalizedTimings, role, userMessageId }
         );
 
     await persistSenderTrace(params.conversationId, traceWithTimingSignal, {

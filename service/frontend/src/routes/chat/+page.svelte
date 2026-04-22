@@ -57,6 +57,8 @@
   let isClearingStalled = $state(false);
   let isRefreshing = $state(false);
   let copiedMessageId = $state<string | null>(null);
+  let editingMessageId = $state<string | null>(null);
+  let editingDraft = $state('');
   let errorMessage = $state<string | null>(null);
   let busyMessageIds = $state<Set<string>>(new Set());
   let isDragActive = $state(false);
@@ -689,6 +691,10 @@
     const payload = await response.json();
     syncPendingAssistant(conversationId, payload.messages);
     messages = payload.messages;
+    if (editingMessageId && !payload.messages.some((message: ChatMessage) => message.id === editingMessageId)) {
+      editingMessageId = null;
+      editingDraft = '';
+    }
     await maybeNotifyAssistantReply(conversationId, payload.messages);
     serverAssistantBusyByConversation = {
       ...serverAssistantBusyByConversation,
@@ -713,6 +719,8 @@
     }
 
     currentConversationId = conversationId;
+    editingMessageId = null;
+    editingDraft = '';
     errorMessage = null;
     setChatUrl(conversationId);
     if (isMobileViewport) sidebarCollapsed = true;
@@ -724,6 +732,8 @@
     currentConversationId = null;
     messages = [];
     draftMessage = '';
+    editingMessageId = null;
+    editingDraft = '';
     clearPendingFiles();
     errorMessage = null;
     setChatUrl(null);
@@ -755,6 +765,91 @@
     busyMessageIds = next;
   }
 
+  function startEditingMessage(message: ChatMessage) {
+    if (message.role !== 'user' || message.id.startsWith('pending-')) {
+      return;
+    }
+
+    editingMessageId = message.id;
+    editingDraft = message.content;
+    errorMessage = null;
+  }
+
+  function cancelEditingMessage() {
+    editingMessageId = null;
+    editingDraft = '';
+  }
+
+  async function saveEditedMessage(message: ChatMessage) {
+    if (!currentConversationId || editingMessageId !== message.id) {
+      return;
+    }
+
+    const nextContent = editingDraft.trim();
+    if (!nextContent) {
+      errorMessage = 'Message content is required.';
+      return;
+    }
+
+    markBusy(message.id, true);
+    try {
+      const response = await fetch(
+        `/api/conversations/${currentConversationId}/messages/${message.id}`,
+        {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ content: nextContent })
+        }
+      );
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.error || 'Unable to update message.');
+      }
+
+      const payload = await response.json();
+      const placeholderId = createClientId('pending-assistant-');
+      cancelEditingMessage();
+      clearPendingAssistant(currentConversationId);
+      setPendingAssistant(currentConversationId, payload.messageId, placeholderId);
+      await refreshConversations();
+      await loadMessages(currentConversationId, { forceScroll: true });
+      focusComposer();
+    } catch (error) {
+      errorMessage = error instanceof Error ? error.message : 'Unable to update message.';
+    } finally {
+      markBusy(message.id, false);
+    }
+  }
+
+  async function selectMessageRevision(message: ChatMessage, targetMessageId: string) {
+    if (!currentConversationId || message.id.startsWith('pending-') || !targetMessageId) {
+      return;
+    }
+
+    markBusy(message.id, true);
+    try {
+      const response = await fetch(
+        `/api/conversations/${currentConversationId}/messages/${targetMessageId}/select`,
+        { method: 'POST' }
+      );
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.error || 'Unable to switch revisions.');
+      }
+
+      cancelEditingMessage();
+      clearPendingAssistant(currentConversationId);
+      await refreshConversations();
+      await loadMessages(currentConversationId);
+    } catch (error) {
+      errorMessage = error instanceof Error ? error.message : 'Unable to switch revisions.';
+    } finally {
+      markBusy(message.id, false);
+    }
+  }
+
   async function deleteMessage(message: ChatMessage) {
     if (!currentConversationId || message.id.startsWith('pending-')) return;
     if (typeof window !== 'undefined' && !window.confirm('Delete this message?')) return;
@@ -767,6 +862,9 @@
       if (!response.ok) {
         const payload = await response.json().catch(() => ({}));
         throw new Error(payload.error || 'Unable to delete message.');
+      }
+      if (editingMessageId === message.id) {
+        cancelEditingMessage();
       }
       await loadMessages(currentConversationId);
       await refreshConversations();
@@ -795,6 +893,7 @@
       // Drop the assistant message and stage a placeholder so the UI shows the
       // typing indicator until the polling loop picks up the new reply.
       const placeholderId = createClientId('pending-assistant-');
+      cancelEditingMessage();
       messages = messages
         .filter((entry) => entry.id !== message.id)
         .concat(createPendingAssistantMessage(placeholderId));
@@ -824,7 +923,8 @@
       contentType: pendingFile.file.type || 'application/octet-stream',
       sizeBytes: pendingFile.file.size,
       downloadUrl: pendingFile.previewUrl,
-      isImage: pendingFile.file.type.startsWith('image/')
+      isImage: pendingFile.file.type.startsWith('image/'),
+      isHtml: (pendingFile.file.type || '').split(';', 1)[0]?.trim().toLowerCase() === 'text/html'
     }));
 
     const optimisticMessage: ChatMessage = {
@@ -1433,9 +1533,18 @@
               userDisplayName={userDisplayName}
               use24HourTime={use24HourTime}
               copiedMessageId={copiedMessageId}
+              editingMessageId={editingMessageId}
+              editingDraft={editingDraft}
               busyMessageIds={busyMessageIds}
               onCopy={copyMessage}
+              onEdit={startEditingMessage}
+              onEditDraftChange={(value) => {
+                editingDraft = value;
+              }}
+              onCancelEdit={cancelEditingMessage}
+              onSaveEdit={saveEditedMessage}
               onRegenerate={regenerateMessage}
+              onSelectRevision={selectMessageRevision}
               onDelete={deleteMessage}
               onScroll={handleMessageScroll}
             />

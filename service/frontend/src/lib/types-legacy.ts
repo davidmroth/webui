@@ -30,6 +30,9 @@ export interface ChatMessage {
   createdAt: string;
   status: 'complete' | 'streaming' | 'error';
   attachments: MessageAttachment[];
+  revisionSiblingIds?: string[];
+  revisionIndex?: number;
+  revisionTotal?: number;
   /**
    * Real llama.cpp-style inference timings for assistant messages, when the
    * upstream provider emits them. ``null``/``undefined`` for providers that
