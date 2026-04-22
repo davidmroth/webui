@@ -44,6 +44,7 @@
   --code-foreground: oklch(0.145 0 0);
   --layer-popover: 1000000;
   --chat-viewport-height: 100dvh;
+  --chat-viewport-offset-top: 0px;
   --chat-form-area-height: 8rem;
   --chat-form-area-offset: 2rem;
   --max-message-height: max(24rem, min(80dvh, calc(100dvh - var(--chat-form-area-height) - 12rem)));
@@ -2209,7 +2210,9 @@ a {
 
   body.chat-route .shell {
     position: fixed;
-    inset: 0;
+    top: var(--chat-viewport-offset-top, 0px);
+    left: 0;
+    right: 0;
     height: var(--chat-viewport-height, 100dvh);
     min-height: var(--chat-viewport-height, 100dvh);
   }
@@ -2279,7 +2282,14 @@ a {
   }
 
   .llama-topbar {
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    background: color-mix(in srgb, var(--panel) 92%, transparent);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
     padding-top: 0.8rem;
+    padding-bottom: 0.45rem;
   }
 
   .llama-toolbar-button.llama-sidebar-collapse {
