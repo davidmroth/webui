@@ -7,6 +7,55 @@
 
   let { children } = $props();
 
+  const LINK_WINDOW_FEATURES = 'noopener,noreferrer';
+  const MOBILE_VIEWPORT_MEDIA_QUERY = '(max-width: 768px)';
+
+  function shouldOpenAnchorInNewWindow(anchor: HTMLAnchorElement) {
+    if (!anchor.href || anchor.hasAttribute('download')) {
+      return false;
+    }
+
+    return !anchor.href.startsWith('javascript:');
+  }
+
+  function applyAnchorDefaults(root: ParentNode = document) {
+    for (const anchor of root.querySelectorAll('a[href]')) {
+      if (!(anchor instanceof HTMLAnchorElement) || !shouldOpenAnchorInNewWindow(anchor)) {
+        continue;
+      }
+
+      anchor.target = '_blank';
+      anchor.rel = 'noopener noreferrer';
+    }
+  }
+
+  function openAnchorInNewWindow(event: MouseEvent) {
+    if (event.defaultPrevented || event.button !== 0) {
+      return;
+    }
+
+    const target = event.target;
+    if (!(target instanceof Element)) {
+      return;
+    }
+
+    const anchor = target.closest('a[href]');
+    if (!(anchor instanceof HTMLAnchorElement) || !shouldOpenAnchorInNewWindow(anchor)) {
+      return;
+    }
+
+    event.preventDefault();
+    window.open(anchor.href, '_blank', LINK_WINDOW_FEATURES);
+  }
+
+  function suppressContextMenu(event: MouseEvent) {
+    if (!window.matchMedia(MOBILE_VIEWPORT_MEDIA_QUERY).matches) {
+      return;
+    }
+
+    event.preventDefault();
+  }
+
   onMount(() => {
     // Clear the boot-time `app-init` class once the app has hydrated and
     // painted at least once. Two RAFs ensures Svelte's first DOM update has
@@ -129,10 +178,33 @@
     const fingerprintInterval = setInterval(() => {
       void checkBuildFingerprint();
     }, 60_000);
+    const anchorObserver = new MutationObserver((entries) => {
+      for (const entry of entries) {
+        for (const node of entry.addedNodes) {
+          if (!(node instanceof Element)) {
+            continue;
+          }
 
+          if (node.matches('a[href]')) {
+            applyAnchorDefaults(node.parentElement ?? document);
+            continue;
+          }
+
+          applyAnchorDefaults(node);
+        }
+      }
+    });
+
+    applyAnchorDefaults();
+    anchorObserver.observe(document.body, { childList: true, subtree: true });
+    document.addEventListener('click', openAnchorInNewWindow, true);
+    document.addEventListener('contextmenu', suppressContextMenu, true);
     document.addEventListener('visibilitychange', onVisible);
 
     return () => {
+      anchorObserver.disconnect();
+      document.removeEventListener('click', openAnchorInNewWindow, true);
+      document.removeEventListener('contextmenu', suppressContextMenu, true);
       document.removeEventListener('visibilitychange', onVisible);
       clearInterval(fingerprintInterval);
       if (refreshInterval) {

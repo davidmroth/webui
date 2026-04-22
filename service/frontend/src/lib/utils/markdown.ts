@@ -8,6 +8,8 @@ import remarkParse from 'remark-parse';
 import remarkRehype from 'remark-rehype';
 import { unified } from 'unified';
 
+const LINK_REL = 'noopener noreferrer';
+
 const processor = unified()
 	.use(remarkParse)
 	.use(remarkGfm)
@@ -16,7 +18,38 @@ const processor = unified()
 	.use(remarkRehype)
 	.use(rehypeKatex)
 	.use(rehypeHighlight, { detect: true, ignoreMissing: true })
+	.use(rehypeOpenLinksInNewWindow)
 	.use(rehypeStringify);
+
+function rehypeOpenLinksInNewWindow() {
+	return (tree: unknown) => {
+		visitNode(tree);
+	};
+}
+
+function visitNode(node: unknown) {
+	if (!node || typeof node !== 'object') {
+		return;
+	}
+
+	const element = node as {
+		tagName?: unknown;
+		properties?: Record<string, unknown>;
+		children?: unknown[];
+	};
+
+	if (element.tagName === 'a') {
+		element.properties = {
+			...element.properties,
+			target: '_blank',
+			rel: LINK_REL
+		};
+	}
+
+	for (const child of element.children ?? []) {
+		visitNode(child);
+	}
+}
 
 /**
  * Render a markdown string to sanitized HTML.

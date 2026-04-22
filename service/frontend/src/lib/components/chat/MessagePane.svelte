@@ -198,7 +198,7 @@
             <div class="attachment-stack">
               {#each message.attachments as attachment}
                 {#if attachment.downloadUrl}
-                  <a class="attachment-card" href={attachment.downloadUrl} target="_blank" rel="noreferrer">
+                  <a class="attachment-card" href={attachment.downloadUrl} target="_blank" rel="noopener noreferrer">
                     {#if attachment.isImage}
                       <img class="attachment-preview" src={attachment.downloadUrl} alt={attachment.fileName} />
                     {/if}

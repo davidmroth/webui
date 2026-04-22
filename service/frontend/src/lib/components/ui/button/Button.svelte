@@ -48,10 +48,18 @@
     children,
     ...rest
   }: Props = $props();
+
+  const anchorAttributes = href
+    ? ({
+        target: '_blank',
+        rel: 'noopener noreferrer',
+        ...rest
+      } as HTMLAnchorAttributes)
+    : null;
 </script>
 
 {#if href}
-  <a {href} class={cn(buttonVariants({ variant, size }), className)} {...rest as HTMLAnchorAttributes}>
+  <a {href} class={cn(buttonVariants({ variant, size }), className)} {...anchorAttributes}>
     {@render children?.()}
   </a>
 {:else}
