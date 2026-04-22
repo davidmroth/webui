@@ -3,6 +3,7 @@
     BookOpenText,
     Clock3,
     Copy,
+    Download,
     Edit,
     Gauge,
     RefreshCw,
@@ -153,7 +154,7 @@
   }
 
   function showMessageHeader(role: ChatMessage['role']) {
-    return role !== 'user';
+    return role === 'system';
   }
 </script>
 
@@ -198,14 +199,17 @@
             <div class="attachment-stack">
               {#each message.attachments as attachment}
                 {#if attachment.downloadUrl}
-                  <a class="attachment-card" href={attachment.downloadUrl} target="_blank" rel="noopener noreferrer">
-                    {#if attachment.isImage}
-                      <img class="attachment-preview" src={attachment.downloadUrl} alt={attachment.fileName} />
-                    {/if}
-                    <div>
-                      <div>{attachment.fileName}</div>
-                      <div class="message-meta">{attachment.contentType} · {Math.max(1, Math.round(attachment.sizeBytes / 1024))} KB</div>
+                  <a class="attachment-card attachment-download" href={attachment.downloadUrl} download={attachment.fileName}>
+                    <div class="attachment-card-main">
+                      {#if attachment.isImage}
+                        <img class="attachment-preview" src={attachment.downloadUrl} alt={attachment.fileName} />
+                      {/if}
+                      <div class="attachment-card-content">
+                        <div>{attachment.fileName}</div>
+                        <div class="message-meta">{attachment.contentType} · {Math.max(1, Math.round(attachment.sizeBytes / 1024))} KB</div>
+                      </div>
                     </div>
+                    <Download class="attachment-download-icon" aria-hidden="true" />
                   </a>
                 {:else}
                   <div class="attachment-card">
@@ -294,7 +298,7 @@
 
           {#if !(isStreamingAssistant(message) && !hasVisibleContent(message))}
             {@const isBusy = busyMessageIds?.has(message.id) ?? false}
-            {#if message.role !== 'user'}
+            {#if message.role === 'assistant'}
               <div class="llama-message-actions assistant-actions" aria-label="Message actions">
                 <button
                   class={`message-action-icon ${copiedMessageId === message.id ? 'is-active' : ''}`}

@@ -42,15 +42,13 @@
               title="Queued message is waiting for Hermes worker heartbeat"
             ></span>
           {/if}
-          {conversation.title}
+          <span class="llama-conversation-title-text">{conversation.title}</span>
         </div>
         <div class="llama-conversation-meta">
           {new Date(conversation.updatedAt).toLocaleDateString([], { month: 'short', day: 'numeric' })}
           ·
           {formatConversationTime(conversation.updatedAt)}
-          {#if conversation.assistantBusy && !conversation.assistantStalled}
-            · <span class="llama-conversation-busy-label">working</span>
-          {:else if conversation.assistantStalled}
+          {#if conversation.assistantStalled}
             · <span class="llama-conversation-stalled-label">stalled</span>
           {/if}
         </div>

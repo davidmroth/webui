@@ -436,6 +436,14 @@
     shouldAutoScroll = isNearBottom();
   }
 
+  function scrollMessagesToBottomSync() {
+    if (!messageScrollElement) {
+      return;
+    }
+
+    messageScrollElement.scrollTop = messageScrollElement.scrollHeight;
+  }
+
   async function scrollMessagesToBottom(behavior: ScrollBehavior = 'auto') {
     shouldAutoScroll = true;
     await tick();
@@ -647,7 +655,7 @@
     await tick();
     if (messageScrollElement) {
       if (shouldStickToBottom) {
-        messageScrollElement.scrollTop = messageScrollElement.scrollHeight;
+        scrollMessagesToBottomSync();
         shouldAutoScroll = true;
       } else {
         messageScrollElement.scrollTop = previousScrollTop;
@@ -1112,6 +1120,8 @@
   }
 
   onMount(() => {
+    let resizeObserver: ResizeObserver | null = null;
+
     const refresh = async () => {
       if (isRefreshing) {
         return;
@@ -1141,8 +1151,18 @@
       // Jump scroll container to the bottom synchronously so the SSR'd
       // transcript appears already-scrolled when the boot overlay fades out.
       if (messageScrollElement) {
-        messageScrollElement.scrollTop = messageScrollElement.scrollHeight;
+        scrollMessagesToBottomSync();
         shouldAutoScroll = true;
+
+        const scrollContentElement = messageScrollElement.firstElementChild;
+        if (scrollContentElement instanceof HTMLElement && typeof ResizeObserver !== 'undefined') {
+          resizeObserver = new ResizeObserver(() => {
+            if (shouldAutoScroll) {
+              scrollMessagesToBottomSync();
+            }
+          });
+          resizeObserver.observe(scrollContentElement);
+        }
       }
     });
     loadTimeFormatPreference();
@@ -1188,6 +1208,7 @@
     window.addEventListener('popstate', handlePopState);
 
     return () => {
+      resizeObserver?.disconnect();
       window.clearInterval(interval);
       window.removeEventListener('popstate', handlePopState);
       window.removeEventListener('keydown', onKeydown);

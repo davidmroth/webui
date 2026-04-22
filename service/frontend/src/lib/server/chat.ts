@@ -778,7 +778,7 @@ export async function listRecentHermesDeliveryTraces(limit = 10): Promise<Hermes
 export async function storeAssistantMessage(
   conversationId: string,
   content: string,
-  options: { timings?: unknown } = {}
+  options: { timings?: unknown; role?: 'assistant' | 'system' } = {}
 ) {
   const ownerId = await getConversationOwnerId(conversationId);
   if (!ownerId) {
@@ -787,10 +787,11 @@ export async function storeAssistantMessage(
 
   const messageId = randomUUID();
   const timingsJson = serializeTimingsForStorage(options.timings);
+  const role = options.role === 'system' ? 'system' : 'assistant';
   await execute(
     `INSERT INTO messages (id, conversation_id, role, content, source, status, timings)
-     VALUES (:id, :conversation_id, 'assistant', :content, 'hermes', 'complete', :timings)`,
-    { id: messageId, conversation_id: conversationId, content, timings: timingsJson }
+     VALUES (:id, :conversation_id, :role, :content, 'hermes', 'complete', :timings)`,
+    { id: messageId, conversation_id: conversationId, role, content, timings: timingsJson }
   );
   await execute(
     'UPDATE conversations SET updated_at = UTC_TIMESTAMP() WHERE id = :id',
@@ -829,7 +830,7 @@ export async function storeAssistantMessageWithAttachments(
   conversationId: string,
   content: string,
   files: AttachmentUpload[] = [],
-  options: { timings?: unknown } = {}
+  options: { timings?: unknown; role?: 'assistant' | 'system' } = {}
 ) {
   const ownerId = await getConversationOwnerId(conversationId);
   if (!ownerId) {

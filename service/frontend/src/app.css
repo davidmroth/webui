@@ -436,7 +436,7 @@ body {
 :root.dark .llama-secondary-button {
   background: var(--accent-soft);
   color: var(--text);
-  border-color: var(--border);
+  border-color: rgba(255, 255, 255, 0.07);
 }
 :root.dark .llama-toolbar-button:hover,
 :root.dark .secondary-button:hover,
@@ -697,10 +697,19 @@ a {
 }
 
 .llama-conversation-title {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+  font-weight: 500;
+}
+
+.llama-conversation-title-text {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-weight: 500;
+  flex: 1;
 }
 
 .llama-conversation-meta {
@@ -710,9 +719,9 @@ a {
 
 .llama-conversation-busy {
   display: inline-block;
+  flex-shrink: 0;
   width: 0.55rem;
   height: 0.55rem;
-  margin-right: 0.4rem;
   border-radius: 999px;
   background: #22c55e;
   box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.6);
@@ -720,16 +729,11 @@ a {
   vertical-align: middle;
 }
 
-.llama-conversation-busy-label {
-  color: #16a34a;
-  font-weight: 600;
-}
-
 .llama-conversation-stalled {
   display: inline-block;
+  flex-shrink: 0;
   width: 0.55rem;
   height: 0.55rem;
-  margin-right: 0.4rem;
   border-radius: 999px;
   background: #d97706;
   vertical-align: middle;
@@ -819,6 +823,7 @@ a {
 
 .llama-secondary-button,
 .secondary-button {
+  border-color: rgba(29, 29, 24, 0.07);
   background: rgba(255, 255, 255, 0.72);
   color: var(--text);
 }
@@ -1164,9 +1169,8 @@ a {
   background: var(--panel-strong);
 }
 
-/* Grok-style: assistant + system messages render as plain text, not bubbles. */
-.llama-message-row.assistant > .llama-message-card,
-.llama-message-row.system > .llama-message-card {
+/* Grok-style: assistant messages render as plain text, not bubbles. */
+.llama-message-row.assistant > .llama-message-card {
   gap: 0.0rem;
   padding: 0;
   border: none;
@@ -1175,9 +1179,21 @@ a {
   border-radius: 0;
 }
 
-.llama-message-row.assistant .llama-message-header,
-.llama-message-row.system .llama-message-header {
+.llama-message-row.assistant .llama-message-header {
   display: none;
+}
+
+.llama-message-row.system > .llama-message-card {
+  gap: 0.45rem;
+  padding: 0.78rem 0.92rem 0.84rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 16%, rgba(29, 29, 24, 0.12));
+  border-radius: 1rem;
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--accent) 9%, rgba(255, 255, 255, 0.98)) 0%,
+    color-mix(in srgb, var(--accent) 3%, rgba(255, 255, 255, 0.96)) 100%
+  );
+  box-shadow: 0 14px 28px -32px rgba(22, 22, 20, 0.45);
 }
 
 .llama-message-row.user {
@@ -1189,8 +1205,8 @@ a {
 .llama-message-row.user > .llama-message-card {
   gap: 0.45rem;
   padding: 0.92rem 1.2rem 0.72rem;
-  border-color: rgba(29, 29, 24, 0.06);
-  background: rgba(255, 255, 255, 0.92);
+  border-color: color-mix(in srgb, var(--accent) 10%, rgba(29, 29, 24, 0.08));
+  background: color-mix(in srgb, var(--accent) 7%, rgba(255, 255, 255, 0.96));
   border-radius: 1.4rem;
   max-width: 100%;
   transition: box-shadow 140ms ease, border-color 140ms ease;
@@ -1198,7 +1214,7 @@ a {
 
 .llama-message-row.user:hover > .llama-message-card,
 .llama-message-row.user:focus-within > .llama-message-card {
-  border-color: rgba(29, 29, 24, 0.1);
+  border-color: color-mix(in srgb, var(--accent) 18%, rgba(29, 29, 24, 0.12));
   box-shadow: 0 8px 20px -24px rgba(22, 22, 20, 0.6);
 }
 
@@ -1206,6 +1222,10 @@ a {
 .llama-message-row.system {
   justify-self: start;
   width: min(100%, 40rem);
+}
+
+.llama-message-row.system {
+  width: min(100%, 36rem);
 }
 
 .llama-message-header {
@@ -1221,6 +1241,14 @@ a {
   justify-content: flex-end;
 }
 
+.llama-message-row.system .llama-message-header {
+  margin-bottom: 0.05rem;
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--accent) 38%, var(--text-muted));
+}
+
 .llama-message-role {
   display: inline-flex;
   align-items: center;
@@ -1230,11 +1258,28 @@ a {
   text-transform: capitalize;
 }
 
+.llama-message-row.system .llama-message-role {
+  letter-spacing: 0.08em;
+  color: color-mix(in srgb, var(--accent) 54%, var(--text));
+}
+
 .message-role-dot {
   width: 0.55rem;
   height: 0.55rem;
   border-radius: 999px;
   background: var(--accent);
+}
+
+.llama-message-row.system .message-role-dot {
+  width: 0.46rem;
+  height: 0.46rem;
+  border-radius: 0.15rem;
+  background: color-mix(in srgb, var(--accent) 72%, rgba(29, 29, 24, 0.18));
+}
+
+.llama-message-row.system .message-meta {
+  font-size: 0.7rem;
+  color: color-mix(in srgb, var(--accent) 26%, var(--text-muted));
 }
 
 .llama-message-body {
@@ -1247,6 +1292,12 @@ a {
 .llama-message-row.user .llama-message-body {
   font-size: 1rem;
   line-height: 1.5;
+}
+
+.llama-message-row.system .llama-message-body {
+  font-size: 0.88rem;
+  line-height: 1.46;
+  color: color-mix(in srgb, var(--text) 90%, var(--accent));
 }
 
 .llama-message-body.markdown-content {
@@ -1308,6 +1359,7 @@ a {
 .attachment-stack {
   display: grid;
   gap: 0.7rem;
+  margin-top: 0.6rem;
   min-width: 0;
 }
 
@@ -1324,12 +1376,44 @@ a {
   text-decoration: none;
 }
 
+.attachment-download {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.9rem;
+  margin-block: 0.2rem;
+}
+
+.attachment-card-main {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.8rem;
+  align-items: center;
+  min-width: 0;
+  flex: 1;
+}
+
+.attachment-card-content {
+  min-width: 0;
+}
+
 .attachment-card > div {
   min-width: 0;
 }
 
 .attachment-card > div > div {
   overflow-wrap: anywhere;
+}
+
+.attachment-card-content > div {
+  overflow-wrap: anywhere;
+}
+
+.attachment-download-icon {
+  width: 1rem;
+  height: 1rem;
+  flex: 0 0 auto;
+  color: var(--accent);
 }
 
 .attachment-preview {

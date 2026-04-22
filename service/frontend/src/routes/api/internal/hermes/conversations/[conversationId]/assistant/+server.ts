@@ -50,27 +50,29 @@ interface NormalizedSenderTrace {
   contentLength: number;
 }
 
+type HermesInboundRole = 'assistant' | 'system';
+
 function isAuthorized(request: Request) {
   const expected = getConfig().hermesServiceToken;
   const authHeader = request.headers.get('authorization') || '';
   return authHeader === `Bearer ${expected}`;
 }
 
-function bufferToArrayBuffer(buffer: Buffer): ArrayBuffer {
-  return Uint8Array.from(buffer).buffer;
+function bytesToArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
 }
 
 function createAttachmentUpload(
   fileName: string,
   contentType: string,
-  buffer: Buffer
+  bytes: Uint8Array
 ): AttachmentUpload {
   return {
     name: fileName,
     type: contentType,
-    size: buffer.byteLength,
+    size: bytes.byteLength,
     async arrayBuffer() {
-      return bufferToArrayBuffer(buffer);
+      return bytesToArrayBuffer(bytes);
     }
   };
 }
@@ -94,6 +96,15 @@ function normalizeNonNegativeInteger(value: unknown, fallback: number): number {
   }
 
   return Math.max(0, Math.floor(normalized));
+}
+
+function normalizeInboundRole(value: unknown): HermesInboundRole {
+  return value === 'system' ? 'system' : 'assistant';
+}
+
+function decodeBase64ToBytes(base64: string): Uint8Array {
+  const decoded = atob(base64);
+  return Uint8Array.from(decoded, (char) => char.charCodeAt(0));
 }
 
 function normalizeSenderTraceInput(
@@ -175,12 +186,12 @@ function parseJsonAttachments(rawAttachments: unknown): AttachmentUpload[] {
         typeof attachment.contentType === 'string' && attachment.contentType.trim()
           ? attachment.contentType.trim()
           : 'text/plain; charset=utf-8';
-      const buffer = Buffer.from(attachment.text, 'utf8');
-      if (buffer.byteLength === 0) {
+      const bytes = new TextEncoder().encode(attachment.text);
+      if (bytes.byteLength === 0) {
         throw new Error(`attachments[${index}] text must not be empty.`);
       }
 
-      return createAttachmentUpload(fileName, contentType, buffer);
+      return createAttachmentUpload(fileName, contentType, bytes);
     }
 
     if (typeof attachment.base64Data === 'string') {
@@ -189,8 +200,8 @@ function parseJsonAttachments(rawAttachments: unknown): AttachmentUpload[] {
         throw new Error(`attachments[${index}] base64Data must not be empty.`);
       }
 
-      const buffer = Buffer.from(normalizedBase64, 'base64');
-      if (buffer.byteLength === 0) {
+      const bytes = decodeBase64ToBytes(normalizedBase64);
+      if (bytes.byteLength === 0) {
         throw new Error(`attachments[${index}] base64Data could not be decoded.`);
       }
 
@@ -199,7 +210,7 @@ function parseJsonAttachments(rawAttachments: unknown): AttachmentUpload[] {
           ? attachment.contentType.trim()
           : 'application/octet-stream';
 
-      return createAttachmentUpload(fileName, contentType, buffer);
+      return createAttachmentUpload(fileName, contentType, bytes);
     }
 
     throw new Error(
@@ -237,6 +248,7 @@ export async function POST({ params, request }: { params: { conversationId: stri
   if (contentType.includes('multipart/form-data')) {
     const formData = await request.formData();
     const content = String(formData.get('content') || '').trim();
+    const role = normalizeInboundRole(formData.get('role'));
     const files = formData
       .getAll('attachments')
       .filter((value: FormDataEntryValue): value is File => value instanceof File && value.size > 0);
@@ -259,12 +271,13 @@ export async function POST({ params, request }: { params: { conversationId: stri
       params.conversationId,
       content,
       files,
-      { timings }
+      { timings, role }
     );
     return json({ ok: true, messageId }, { status: 201 });
   }
 
   const body: Record<string, unknown> = await request.json().catch(() => ({}));
+  const role = normalizeInboundRole(body.role);
 
   const rawAttachmentNames = Array.isArray(body.attachments)
     ? body.attachments
@@ -358,12 +371,12 @@ export async function POST({ params, request }: { params: { conversationId: stri
           params.conversationId,
           content,
           attachments,
-          { timings: normalizedTimings }
+          { timings: normalizedTimings, role }
         )
       : await storeAssistantMessage(
           params.conversationId,
           content,
-          { timings: normalizedTimings }
+          { timings: normalizedTimings, role }
         );
 
     await persistSenderTrace(params.conversationId, traceWithTimingSignal, {
