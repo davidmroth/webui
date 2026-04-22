@@ -1312,36 +1312,40 @@ a {
   white-space: normal;
 }
 
-.assistant-typing-indicator {
-  display: inline-grid;
-  gap: 0.45rem;
-  justify-items: start;
-}
 
-.assistant-typing-bubble {
+.assistant-typing-indicator {
   display: inline-flex;
   align-items: center;
-  gap: 0.32rem;
-  padding: 0.7rem 0.88rem;
-  border: 1px solid rgba(29, 29, 24, 0.08);
-  border-radius: 999px;
-  background: rgba(31, 31, 28, 0.05);
 }
 
-.assistant-typing-dot {
-  width: 0.42rem;
-  height: 0.42rem;
-  border-radius: 999px;
-  background: rgba(31, 31, 28, 0.42);
-  animation: assistant-typing-bounce 1.2s infinite ease-in-out;
+.assistant-typing-indicator--placeholder {
+  padding: 0.1rem 0 0.2rem;
 }
 
-.assistant-typing-dot:nth-child(2) {
-  animation-delay: 0.15s;
+.assistant-typing-loader {
+  --assistant-loader-cell-size: 0.28rem;
+  --assistant-loader-gap: 0.08rem;
+  display: grid;
+  grid-template-columns: repeat(3, var(--assistant-loader-cell-size));
+  gap: var(--assistant-loader-gap);
+  width: max-content;
+  color: var(--text);
+  flex: none;
 }
 
-.assistant-typing-dot:nth-child(3) {
-  animation-delay: 0.3s;
+.assistant-typing-loader--compact {
+  --assistant-loader-cell-size: 0.16rem;
+  --assistant-loader-gap: 0.05rem;
+}
+
+.assistant-typing-square {
+  width: var(--assistant-loader-cell-size);
+  height: var(--assistant-loader-cell-size);
+  border-radius: 0.04rem;
+  background: currentColor;
+  animation: assistant-typing-block-pulse 1s infinite ease-in-out;
+  animation-delay: var(--assistant-loader-delay, 0s);
+  transform-origin: center;
 }
 
 .assistant-typing-label,
@@ -1353,15 +1357,7 @@ a {
 .assistant-stream-status {
   display: inline-flex;
   align-items: center;
-  gap: 0.45rem;
-}
-
-.assistant-stream-pulse {
-  width: 0.5rem;
-  height: 0.5rem;
-  border-radius: 999px;
-  background: var(--accent);
-  animation: assistant-busy-pulse 1.4s infinite ease-in-out;
+  gap: 0.5rem;
 }
 
 .attachment-stack {
@@ -2056,15 +2052,15 @@ a {
   }
 }
 
-@keyframes assistant-busy-pulse {
+@keyframes assistant-typing-block-pulse {
   0%,
   100% {
-    transform: scale(0.92);
-    opacity: 0.45;
+    transform: scale(0.52);
+    opacity: 0.3;
   }
 
-  50% {
-    transform: scale(1.08);
+  45% {
+    transform: scale(1);
     opacity: 1;
   }
 }

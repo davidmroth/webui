@@ -217,11 +217,16 @@
             </div>
           {/if}
           {#if isStreamingAssistant(message) && !hasVisibleContent(message)}
-            <div class="assistant-typing-indicator" role="status" aria-live="polite" aria-label="Assistant is typing">
-              <span class="assistant-typing-bubble" aria-hidden="true">
-                <span class="assistant-typing-dot"></span>
-                <span class="assistant-typing-dot"></span>
-                <span class="assistant-typing-dot"></span>
+            <div
+              class="assistant-typing-indicator assistant-typing-indicator--placeholder"
+              role="status"
+              aria-live="polite"
+              aria-label="Assistant is responding"
+            >
+              <span class="assistant-typing-loader" aria-hidden="true">
+                {#each [0, 1, 2, 3, 4, 5, 6, 7, 8] as delayStep}
+                  <span class="assistant-typing-square" style={`--assistant-loader-delay: ${delayStep * 0.07}s`}></span>
+                {/each}
               </span>
             </div>
           {:else if message.content}
@@ -278,9 +283,13 @@
             </div>
           {/if}
           {#if isStreamingAssistant(message) && hasVisibleContent(message)}
-            <div class="assistant-stream-status" role="status" aria-live="polite">
-              <span class="assistant-stream-pulse"></span>
-              <span>Assistant is still typing...</span>
+            <div class="assistant-stream-status" role="status" aria-live="polite" aria-label="Assistant is responding">
+              <span class="assistant-typing-loader assistant-typing-loader--compact" aria-hidden="true">
+                {#each [0, 1, 2, 3, 4, 5, 6, 7, 8] as delayStep}
+                  <span class="assistant-typing-square" style={`--assistant-loader-delay: ${delayStep * 0.07}s`}></span>
+                {/each}
+              </span>
+              <span class="assistant-typing-label">Responding</span>
             </div>
           {:else if message.status !== 'complete' && !isStreamingAssistant(message)}
             <div class="message-meta">Status: {message.status}</div>
