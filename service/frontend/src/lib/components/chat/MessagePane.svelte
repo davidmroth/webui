@@ -11,7 +11,8 @@
     RefreshCw,
     Sparkles,
     Trash2,
-    WholeWord
+    WholeWord,
+    X
   } from '@lucide/svelte';
   import { env as publicEnv } from '$env/dynamic/public';
   import type { ChatMessage, MessageAttachment } from '$lib/types-legacy';
@@ -701,6 +702,30 @@
       aria-modal="true"
       aria-label={`Preview ${selectedHtmlAttachment.fileName}`}
     >
+      {#if isHtmlAttachmentFullscreen}
+        <div class="llama-attachment-modal-floating-actions">
+          <button
+            class="secondary-button llama-attachment-modal-icon-button"
+            type="button"
+            aria-label="Switch to default modal size"
+            onclick={toggleHtmlAttachmentSize}
+          >
+            <Minimize2 class="h-4 w-4" aria-hidden="true" />
+            <span class="visually-hidden">Default size</span>
+          </button>
+
+          <button
+            class="secondary-button llama-attachment-modal-icon-button"
+            type="button"
+            aria-label="Close HTML preview"
+            onclick={closeHtmlAttachment}
+          >
+            <X class="h-4 w-4" aria-hidden="true" />
+            <span class="visually-hidden">Close preview</span>
+          </button>
+        </div>
+      {/if}
+
       <header class="llama-attachment-modal-header">
         <div class="llama-attachment-modal-copy">
           <h2>{selectedHtmlAttachment.fileName}</h2>
