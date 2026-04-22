@@ -82,6 +82,110 @@
     logNotificationDiagnostic('serviceWorker', sw);
   }
 
+  async function registerServiceWorkerManually() {
+    if (typeof window === 'undefined' || !('serviceWorker' in navigator)) {
+      logNotificationDiagnostic('sw.register', 'serviceWorker not supported in this browser');
+      return;
+    }
+
+    // Dump every existing registration on this origin so we can see whether
+    // the auto-registration ran but landed on a different scope.
+    try {
+      const all = await navigator.serviceWorker.getRegistrations();
+      logNotificationDiagnostic(
+        'sw.getRegistrations',
+        all.map((reg) => ({
+          scope: reg.scope,
+          installingState: reg.installing?.state ?? null,
+          waitingState: reg.waiting?.state ?? null,
+          activeState: reg.active?.state ?? null,
+          activeScript: reg.active?.scriptURL ?? null
+        }))
+      );
+    } catch (error) {
+      logNotificationDiagnostic(
+        'sw.getRegistrations.error',
+        error instanceof Error ? error.message : String(error)
+      );
+    }
+
+    // Try every plausible SW URL so we can tell prod-build vs vite-dev.
+    const candidates: { url: string; type: 'classic' | 'module' }[] = [
+      { url: '/sw.js', type: 'classic' },
+      { url: '/dev-sw.js?dev-sw', type: 'module' }
+    ];
+
+    for (const candidate of candidates) {
+      try {
+        const probe = await fetch(candidate.url, { cache: 'no-store' });
+        logNotificationDiagnostic(`sw.fetch ${candidate.url}`, {
+          status: probe.status,
+          contentType: probe.headers.get('content-type'),
+          contentLength: probe.headers.get('content-length')
+        });
+        if (!probe.ok) continue;
+
+        const ct = probe.headers.get('content-type') ?? '';
+        if (!ct.includes('javascript')) {
+          logNotificationDiagnostic(
+            `sw.fetch ${candidate.url}.warning`,
+            `served with content-type "${ct}" (browsers reject SWs not served as JS)`
+          );
+          continue;
+        }
+
+        const registration = await navigator.serviceWorker.register(candidate.url, {
+          scope: '/',
+          type: candidate.type,
+          updateViaCache: 'none'
+        });
+        logNotificationDiagnostic(`sw.register.ok ${candidate.url}`, {
+          scope: registration.scope,
+          installingState: registration.installing?.state ?? null,
+          waitingState: registration.waiting?.state ?? null,
+          activeState: registration.active?.state ?? null
+        });
+        window.setTimeout(() => {
+          void inspectNotificationEnvironment();
+        }, 1500);
+        return;
+      } catch (error) {
+        logNotificationDiagnostic(
+          `sw.register.error ${candidate.url}`,
+          error instanceof Error ? `${error.name}: ${error.message}` : String(error)
+        );
+      }
+    }
+
+    logNotificationDiagnostic(
+      'sw.register.summary',
+      'No service-worker URL was successfully registered. See entries above for the per-URL reason.'
+    );
+  }
+
+  async function unregisterAllServiceWorkers() {
+    if (typeof window === 'undefined' || !('serviceWorker' in navigator)) {
+      logNotificationDiagnostic('sw.unregister', 'serviceWorker not supported');
+      return;
+    }
+    try {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      if (regs.length === 0) {
+        logNotificationDiagnostic('sw.unregister', 'no registrations found');
+        return;
+      }
+      for (const reg of regs) {
+        const ok = await reg.unregister();
+        logNotificationDiagnostic('sw.unregister', { scope: reg.scope, ok });
+      }
+    } catch (error) {
+      logNotificationDiagnostic(
+        'sw.unregister.error',
+        error instanceof Error ? error.message : String(error)
+      );
+    }
+  }
+
   async function requestNotificationPermissionFromMaintenance() {
     if (typeof Notification === 'undefined') {
       logNotificationDiagnostic('permission.requestPermission', 'Notification API unavailable');
@@ -174,6 +278,26 @@
       } catch (error) {
         logNotificationDiagnostic(
           'test.page.error',
+          error instanceof Error ? error.message : String(error)
+        );
+      }
+
+      // Prove the notification was actually created (vs. silently suppressed
+      // by an OS-level setting). If getNotifications() returns our entry,
+      // the browser API succeeded — any "I don't see a banner" problem is
+      // then 100% an OS / Focus / Notification Center issue.
+      try {
+        const reg = await navigator.serviceWorker?.getRegistration();
+        if (reg) {
+          const live = await reg.getNotifications();
+          logNotificationDiagnostic(
+            'test.sw.getNotifications',
+            live.map((n) => ({ title: n.title, body: n.body, tag: n.tag }))
+          );
+        }
+      } catch (error) {
+        logNotificationDiagnostic(
+          'test.sw.getNotifications.error',
           error instanceof Error ? error.message : String(error)
         );
       }
@@ -309,8 +433,11 @@
             <h2 class="text-lg font-semibold">Notification plumbing test</h2>
             <p class="mt-1 text-sm text-muted-foreground">
               Fires real browser notifications using the same code paths as the chat page (service-worker
-              <code>showNotification</code> + page <code>Notification</code> fallback). Use the delayed buttons
-              to test background/minimized delivery on Android and desktop.
+              <code>showNotification</code> + page <code>Notification</code> fallback). On Android,
+              page-level <code>Notification</code> is essentially a no-op — only service-worker
+              notifications surface in the system tray. If <em>Inspect environment</em> shows
+              <code>existingScope: null</code>, click <em>Register service worker</em> first and watch the log
+              for the failure reason.
             </p>
           </div>
         </div>
@@ -329,6 +456,20 @@
             onclick={inspectNotificationEnvironment}
           >
             Inspect environment
+          </button>
+          <button
+            type="button"
+            class="inline-flex items-center rounded-md border border-border bg-background px-3 py-2 text-sm font-medium hover:bg-accent"
+            onclick={registerServiceWorkerManually}
+          >
+            Register service worker
+          </button>
+          <button
+            type="button"
+            class="inline-flex items-center rounded-md border border-border bg-background px-3 py-2 text-sm font-medium hover:bg-accent"
+            onclick={unregisterAllServiceWorkers}
+          >
+            Unregister SW
           </button>
           <button
             type="button"
