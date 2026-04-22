@@ -401,22 +401,21 @@ body {
   color: var(--text);
   font-size: 14px;
   line-height: 1.5;
+  background: var(--bg);
 }
 
 :root.dark body {
-  background:
-    radial-gradient(circle at top left, rgba(255, 255, 255, 0.06), transparent 35%),
-    linear-gradient(180deg, #0f0f10 0%, #161618 100%);
+  background: var(--bg);
 }
 
 /* Dark-mode surface overrides for legacy llama-* chat shell.
    Replaces hardcoded white/cream rgbas with token-driven surfaces. */
 :root.dark .llama-frame {
-  background: linear-gradient(180deg, var(--panel-strong), var(--panel-muted));
+  background: var(--panel-strong);
   border-color: var(--border);
 }
 :root.dark .llama-sidebar {
-  background: linear-gradient(180deg, var(--panel-muted), var(--bg-accent));
+  background: var(--panel-muted);
   border-right-color: var(--border);
 }
 :root.dark .llama-search-input,
@@ -466,7 +465,7 @@ body {
   color: #151518;
 }
 :root.dark .llama-composer-wrap {
-  background: linear-gradient(180deg, transparent 0%, rgba(15, 15, 16, 0.92) 18%, rgba(15, 15, 16, 0.98) 100%);
+  background: rgba(15, 15, 16, 0.98);
 }
 :root.dark .llama-message-card,
 :root.dark .llama-user-card,
@@ -545,7 +544,7 @@ a {
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: var(--app-radius);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.75), rgba(248, 246, 241, 0.92));
+  background: var(--panel-strong);
   backdrop-filter: blur(20px);
   transition: grid-template-columns 200ms ease;
 }
