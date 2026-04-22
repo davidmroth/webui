@@ -6,6 +6,8 @@
     Download,
     Edit,
     Gauge,
+    Maximize2,
+    Minimize2,
     RefreshCw,
     Sparkles,
     Trash2,
@@ -53,6 +55,7 @@
   }: Props = $props();
   let statsViewByMessageId = $state<Record<string, StatsView>>({});
   let selectedHtmlAttachment = $state<MessageAttachment | null>(null);
+  let isHtmlAttachmentFullscreen = $state(false);
 
   const modelBadges = [
     publicEnv.PUBLIC_MODEL_SIZE_LABEL,
@@ -182,10 +185,16 @@
 
   function openHtmlAttachment(attachment: MessageAttachment) {
     selectedHtmlAttachment = attachment;
+    isHtmlAttachmentFullscreen = false;
   }
 
   function closeHtmlAttachment() {
     selectedHtmlAttachment = null;
+    isHtmlAttachmentFullscreen = false;
+  }
+
+  function toggleHtmlAttachmentSize() {
+    isHtmlAttachmentFullscreen = !isHtmlAttachmentFullscreen;
   }
 
   function showMessageHeader(role: ChatMessage['role']) {
@@ -427,6 +436,7 @@
     }}
   >
     <div
+      class:fullscreen={isHtmlAttachmentFullscreen}
       class="llama-attachment-modal"
       role="dialog"
       aria-modal="true"
@@ -440,7 +450,24 @@
           </div>
         </div>
 
-        <button class="secondary-button" type="button" onclick={closeHtmlAttachment}>Close</button>
+        <div class="llama-attachment-modal-actions">
+          <button
+            class="secondary-button"
+            type="button"
+            aria-label={isHtmlAttachmentFullscreen ? 'Switch to default modal size' : 'Switch to fullscreen modal size'}
+            onclick={toggleHtmlAttachmentSize}
+          >
+            {#if isHtmlAttachmentFullscreen}
+              <Minimize2 class="h-3.5 w-3.5" aria-hidden="true" />
+              <span>Default size</span>
+            {:else}
+              <Maximize2 class="h-3.5 w-3.5" aria-hidden="true" />
+              <span>Fullscreen</span>
+            {/if}
+          </button>
+
+          <button class="secondary-button" type="button" onclick={closeHtmlAttachment}>Close</button>
+        </div>
       </header>
 
       <div class="llama-attachment-modal-body">

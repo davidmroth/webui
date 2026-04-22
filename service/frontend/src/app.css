@@ -1486,6 +1486,8 @@ a {
 }
 
 .llama-attachment-modal {
+  display: flex;
+  flex-direction: column;
   width: min(960px, 100%);
   max-height: 90vh;
   border: 1px solid var(--border);
@@ -1493,6 +1495,13 @@ a {
   background: var(--panel-strong, rgba(255, 255, 255, 0.98));
   box-shadow: var(--shadow);
   overflow: hidden;
+}
+
+.llama-attachment-modal.fullscreen {
+  width: calc(100vw - 2rem);
+  max-width: calc(100vw - 2rem);
+  height: calc(100vh - 2rem);
+  max-height: calc(100vh - 2rem);
 }
 
 .llama-attachment-modal-header,
@@ -1518,9 +1527,27 @@ a {
   overflow-wrap: anywhere;
 }
 
+.llama-attachment-modal-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.llama-attachment-modal-actions .secondary-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
 .llama-attachment-modal-body {
+  flex: 0 0 auto;
   padding: 0;
   background: color-mix(in srgb, var(--panel-muted) 82%, white);
+}
+
+.llama-attachment-modal.fullscreen .llama-attachment-modal-body {
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .llama-attachment-preview-frame {
@@ -1529,6 +1556,10 @@ a {
   height: min(68vh, 720px);
   border: 0;
   background: white;
+}
+
+.llama-attachment-modal.fullscreen .llama-attachment-preview-frame {
+  height: 100%;
 }
 
 .llama-attachment-preview-empty {
@@ -1555,8 +1586,20 @@ a {
     flex-direction: column;
   }
 
+  .llama-attachment-modal-actions {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
   .llama-attachment-preview-frame {
     height: 56vh;
+  }
+
+  .llama-attachment-modal.fullscreen {
+    width: calc(100vw - 1rem);
+    max-width: calc(100vw - 1rem);
+    height: calc(100vh - 1rem);
+    max-height: calc(100vh - 1rem);
   }
 }
 
