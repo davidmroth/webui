@@ -486,6 +486,21 @@ async function resolveAssistantParentMessageId(
     }
   }
 
+  const conversation = await getConversationState(conversationId);
+  if (conversation?.curr_node) {
+    const currentRows = await query<{ id: string; type?: 'text' | 'root' }>(
+      `SELECT id, type
+       FROM messages
+       WHERE id = :id
+         AND conversation_id = :conversation_id
+       LIMIT 1`,
+      { id: conversation.curr_node, conversation_id: conversationId }
+    );
+    if (currentRows[0]?.id && currentRows[0].type !== 'root') {
+      return currentRows[0].id;
+    }
+  }
+
   const processingRows = await query<{ message_id: string }>(
     `SELECT hermes_events.message_id
      FROM hermes_events
