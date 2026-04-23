@@ -325,7 +325,7 @@ export async function POST({ params, request }: { params: { conversationId: stri
     }
 
     if (delta) {
-      await appendAssistantChunk(messageId, seq, delta);
+      await appendAssistantChunk(params.conversationId, messageId, seq, delta);
     }
 
     if (done) {
@@ -335,12 +335,16 @@ export async function POST({ params, request }: { params: { conversationId: stri
       // chunk log itself is the source of truth — finalizeStreamingAssistantMessage
       // assumes the caller passes the assembled content. Fall back to assembling.
       if (finalContent) {
-        await finalizeStreamingAssistantMessage(messageId, finalContent, { timings: normalizedTimings });
+        await finalizeStreamingAssistantMessage(params.conversationId, messageId, finalContent, {
+          timings: normalizedTimings
+        });
       } else {
         const { listAssistantChunks } = await import('$server/chat');
         const chunks = await listAssistantChunks(messageId, -1);
         const assembled = chunks.map((row) => row.delta).join('');
-        await finalizeStreamingAssistantMessage(messageId, assembled, { timings: normalizedTimings });
+        await finalizeStreamingAssistantMessage(params.conversationId, messageId, assembled, {
+          timings: normalizedTimings
+        });
       }
     }
 

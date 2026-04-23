@@ -1,13 +1,15 @@
 import { error } from '@sveltejs/kit';
 import { requireSession } from '$server/auth';
 import {
-  findLatestAssistantMessage,
   findActiveAssistantMessage,
   getMessageStatus,
   listAssistantChunks
 } from '$server/chat';
+import {
+  subscribeConversationStream,
+  type ConversationStreamEvent
+} from '$server/conversation-stream';
 
-const POLL_INTERVAL_MS = 200;
 const HEARTBEAT_INTERVAL_MS = 15_000;
 const MAX_STREAM_DURATION_MS = 5 * 60_000;
 
@@ -25,6 +27,7 @@ export async function GET(event) {
   const encoder = new TextEncoder();
   let cancelled = false;
   let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  const abortController = new AbortController();
 
   const stream = new ReadableStream({
     async start(controller) {
@@ -43,49 +46,148 @@ export async function GET(event) {
       const startedAt = Date.now();
       let lastSeq = -1;
       let activeMessageId: string | null = null;
-      let latestAssistantId = (await findLatestAssistantMessage(session.userId, conversationId))?.id ?? null;
-
-      // Wait briefly for an active streaming message to appear.
-      while (!cancelled && Date.now() - startedAt < MAX_STREAM_DURATION_MS) {
-        if (!activeMessageId) {
-          activeMessageId = await findActiveAssistantMessage(session.userId, conversationId);
-          if (activeMessageId) {
-            send(sse('message', { messageId: activeMessageId }));
-          }
+      const queuedEvents: ConversationStreamEvent[] = [];
+      let resolveNextEvent: ((streamEvent: ConversationStreamEvent | null) => void) | null = null;
+      const unsubscribe = subscribeConversationStream(conversationId, (streamEvent) => {
+        if (cancelled) {
+          return;
         }
 
-        if (activeMessageId) {
-          const chunks = await listAssistantChunks(activeMessageId, lastSeq);
-          for (const chunk of chunks) {
-            send(sse('delta', { messageId: activeMessageId, seq: chunk.seq, delta: chunk.delta }));
-            if (chunk.seq > lastSeq) lastSeq = chunk.seq;
+        if (resolveNextEvent) {
+          const resolve = resolveNextEvent;
+          resolveNextEvent = null;
+          resolve(streamEvent);
+          return;
+        }
+
+        queuedEvents.push(streamEvent);
+      });
+
+      const waitForNextEvent = (timeoutMs: number) =>
+        new Promise<ConversationStreamEvent | null>((resolve) => {
+          if (queuedEvents.length > 0) {
+            resolve(queuedEvents.shift() ?? null);
+            return;
           }
+
+          const handleAbort = () => {
+            cleanup();
+            resolve(null);
+          };
+          const timer = setTimeout(() => {
+            cleanup();
+            resolve(null);
+          }, timeoutMs);
+          const wrappedResolve = (streamEvent: ConversationStreamEvent | null) => {
+            cleanup();
+            resolve(streamEvent);
+          };
+          const cleanup = () => {
+            clearTimeout(timer);
+            abortController.signal.removeEventListener('abort', handleAbort);
+            if (resolveNextEvent === wrappedResolve) {
+              resolveNextEvent = null;
+            }
+          };
+
+          resolveNextEvent = wrappedResolve;
+          abortController.signal.addEventListener('abort', handleAbort, { once: true });
+        });
+
+      const flushChunks = async (messageId: string) => {
+        const chunks = await listAssistantChunks(messageId, lastSeq);
+        for (const chunk of chunks) {
+          if (chunk.seq <= lastSeq) {
+            continue;
+          }
+
+          send(sse('delta', { messageId, seq: chunk.seq, delta: chunk.delta }));
+          lastSeq = chunk.seq;
+        }
+      };
+
+      try {
+        activeMessageId = await findActiveAssistantMessage(session.userId, conversationId);
+        if (activeMessageId) {
+          send(sse('message', { messageId: activeMessageId }));
+          await flushChunks(activeMessageId);
 
           const status = await getMessageStatus(activeMessageId);
           if (!status || status.status !== 'streaming') {
             send(sse('done', { messageId: activeMessageId, status: status?.status ?? 'complete' }));
-            break;
-          }
-        } else {
-          const latestAssistant = await findLatestAssistantMessage(session.userId, conversationId);
-          if (latestAssistant && latestAssistant.id !== latestAssistantId) {
-            send(sse('done', { messageId: latestAssistant.id, status: latestAssistant.status }));
-            break;
+            activeMessageId = null;
+            lastSeq = -1;
           }
         }
 
-        await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
-      }
+        while (!cancelled && Date.now() - startedAt < MAX_STREAM_DURATION_MS) {
+          const remainingMs = MAX_STREAM_DURATION_MS - (Date.now() - startedAt);
+          const streamEvent = await waitForNextEvent(remainingMs);
+          if (!streamEvent) {
+            break;
+          }
 
-      if (heartbeatTimer) clearInterval(heartbeatTimer);
-      try {
-        controller.close();
-      } catch {
-        // already closed
+          if (streamEvent.type === 'message') {
+            if (activeMessageId !== streamEvent.messageId) {
+              activeMessageId = streamEvent.messageId;
+              lastSeq = -1;
+              send(sse('message', { messageId: activeMessageId }));
+              await flushChunks(activeMessageId);
+            }
+            continue;
+          }
+
+          if (streamEvent.type === 'delta') {
+            if (activeMessageId !== streamEvent.messageId) {
+              activeMessageId = streamEvent.messageId;
+              lastSeq = -1;
+              send(sse('message', { messageId: activeMessageId }));
+            }
+
+            if (streamEvent.seq > lastSeq) {
+              send(
+                sse('delta', {
+                  messageId: streamEvent.messageId,
+                  seq: streamEvent.seq,
+                  delta: streamEvent.delta
+                })
+              );
+              lastSeq = streamEvent.seq;
+            }
+            continue;
+          }
+
+          if (activeMessageId === streamEvent.messageId) {
+            await flushChunks(streamEvent.messageId);
+          }
+
+          send(
+            sse('done', {
+              messageId: streamEvent.messageId,
+              status: streamEvent.status
+            })
+          );
+          activeMessageId = null;
+          lastSeq = -1;
+        }
+      } finally {
+        unsubscribe();
+        if (resolveNextEvent) {
+          const resolve = resolveNextEvent;
+          resolveNextEvent = null;
+          resolve(null);
+        }
+        if (heartbeatTimer) clearInterval(heartbeatTimer);
+        try {
+          controller.close();
+        } catch {
+          // already closed
+        }
       }
     },
     cancel() {
       cancelled = true;
+      abortController.abort();
       if (heartbeatTimer) clearInterval(heartbeatTimer);
     }
   });

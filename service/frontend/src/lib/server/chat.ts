@@ -1,6 +1,7 @@
 import { Buffer } from 'node:buffer';
 import { randomUUID } from 'node:crypto';
 import { execute, pool, query } from './db';
+import { publishConversationStreamEvent } from './conversation-stream';
 import { getConfig } from './env';
 import { getObjectBuffer, uploadObject } from './storage';
 import { getHermesWorkerHeartbeat } from './hermes-heartbeat';
@@ -290,6 +291,26 @@ function collectBranchRows(nodes: Map<string, MessageNode>, leafId: string | nul
 
   path.reverse();
   return path;
+}
+
+function resolveVisibleConversationRows(
+  nodes: Map<string, MessageNode>,
+  currNode: string | null
+): MessageRow[] {
+  const activeRows = collectBranchRows(nodes, resolveConversationLeafId(nodes, currNode)).filter(
+    (row) => row.type !== 'root'
+  );
+  if (activeRows.length > 0) {
+    return activeRows;
+  }
+
+  // Some legacy conversations can carry malformed branch pointers after schema
+  // upgrades. Fall back to the full non-root timeline instead of rendering an
+  // empty history.
+  return Array.from(nodes.values())
+    .map((node) => node.row)
+    .filter((row) => row.type !== 'root')
+    .sort(compareMessageRows);
 }
 
 function findDeepestDescendant(nodes: Map<string, MessageNode>, startId: string): string {
@@ -850,8 +871,7 @@ export async function listMessages(userId: string, conversationId: string): Prom
   );
 
   const messageTree = buildMessageTree(rows);
-  const activeLeafId = resolveConversationLeafId(messageTree, conversation.curr_node);
-  const activeRows = collectBranchRows(messageTree, activeLeafId).filter((row) => row.type !== 'root');
+  const activeRows = resolveVisibleConversationRows(messageTree, conversation.curr_node);
   const attachmentsByMessageId = await listAttachmentsByMessageIds(activeRows.map((row) => row.id));
 
   return activeRows.map((row) => {
@@ -1005,10 +1025,7 @@ export async function findLatestAssistantMessage(
   );
 
   const messageTree = buildMessageTree(rows);
-  const activeRows = collectBranchRows(
-    messageTree,
-    resolveConversationLeafId(messageTree, conversation.curr_node)
-  );
+  const activeRows = resolveVisibleConversationRows(messageTree, conversation.curr_node);
   const assistantRows = activeRows.filter(
     (row): row is MessageRow & { status: 'complete' | 'streaming' | 'error' } => row.role === 'assistant'
   );
@@ -1033,12 +1050,24 @@ export async function getMessageStatus(messageId: string) {
  * Append a streaming chunk for an assistant message. The (message_id, seq)
  * unique key prevents duplicate writes if the producer retries.
  */
-export async function appendAssistantChunk(messageId: string, seq: number, delta: string) {
+export async function appendAssistantChunk(
+  conversationId: string,
+  messageId: string,
+  seq: number,
+  delta: string
+) {
   await execute(
     `INSERT IGNORE INTO hermes_message_chunks (message_id, seq, delta)
      VALUES (:message_id, :seq, :delta)`,
     { message_id: messageId, seq, delta }
   );
+  publishConversationStreamEvent({
+    type: 'delta',
+    conversationId,
+    messageId,
+    seq,
+    delta
+  });
 }
 
 /**
@@ -1088,6 +1117,7 @@ export async function openStreamingAssistantMessage(
     }
   );
   await updateConversationState(conversationId, { currNode: messageId });
+  publishConversationStreamEvent({ type: 'message', conversationId, messageId });
   return messageId;
 }
 
@@ -1096,6 +1126,7 @@ export async function openStreamingAssistantMessage(
  * content and marking it complete.
  */
 export async function finalizeStreamingAssistantMessage(
+  conversationId: string,
   messageId: string,
   finalContent: string,
   options: { timings?: unknown } = {}
@@ -1125,6 +1156,12 @@ export async function finalizeStreamingAssistantMessage(
      WHERE m.id = :id`,
     { id: messageId, last_modified: Date.now(), curr_node: messageId }
   );
+  publishConversationStreamEvent({
+    type: 'done',
+    conversationId,
+    messageId,
+    status: 'complete'
+  });
 }
 
 /**
@@ -1154,6 +1191,12 @@ export async function cancelActiveAssistantTurn(
       `UPDATE messages SET status = 'complete', content = :content WHERE id = :id`,
       { id: streamingId, content: assembled }
     );
+    publishConversationStreamEvent({
+      type: 'done',
+      conversationId,
+      messageId: streamingId,
+      status: 'complete'
+    });
   }
 
   // mysql2 OkPacket has affectedRows; the helper returns its result. We treat
@@ -1454,6 +1497,12 @@ export async function storeAssistantMessage(
     }
   );
   await updateConversationState(conversationId, { currNode: messageId });
+  publishConversationStreamEvent({
+    type: 'done',
+    conversationId,
+    messageId,
+    status: 'complete'
+  });
 
   return messageId;
 }

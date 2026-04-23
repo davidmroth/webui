@@ -44,9 +44,9 @@
   };
 
   let { data, form } = $props();
-  let currentConversationId = $state<string | null>(null);
-  let messages = $state<ChatMessage[]>([]);
-  let conversations = $state<ConversationSummary[]>([]);
+  let currentConversationId = $state<string | null>(data.currentConversationId ?? null);
+  let messages = $state<ChatMessage[]>(data.messages ?? []);
+  let conversations = $state<ConversationSummary[]>(data.conversations ?? []);
   let pendingFiles = $state<PendingAttachment[]>([]);
   let pendingAssistantByConversation = $state<Record<string, PendingAssistantState>>({});
   let serverAssistantBusyByConversation = $state<Record<string, boolean>>({});
@@ -55,7 +55,6 @@
   let draftMessage = $state('');
   let isSending = $state(false);
   let isClearingStalled = $state(false);
-  let isRefreshing = $state(false);
   let copiedMessageId = $state<string | null>(null);
   let editingMessageId = $state<string | null>(null);
   let editingDraft = $state('');
@@ -67,8 +66,12 @@
   let notificationsEnabled = $state(false);
   let notificationPermission = $state<NotificationPermission>('default');
   let seenAssistantMessageIds = $state<Set<string>>(new Set());
-  let lastKnownConversationUpdatedAtById = $state<Record<string, string>>({});
-  let lastKnownAssistantBusyById = $state<Record<string, boolean>>({});
+  let lastKnownConversationUpdatedAtById = $state<Record<string, string>>(
+    indexConversationUpdatedAt(data.conversations ?? [])
+  );
+  let lastKnownAssistantBusyById = $state<Record<string, boolean>>(
+    indexConversationAssistantBusy(data.conversations ?? [])
+  );
   let slashCommands = $state<SlashCommand[]>([
     {
       command: '/new',
@@ -118,6 +121,7 @@
   const notificationsSupported = $derived(
     typeof window !== 'undefined' && typeof Notification !== 'undefined'
   );
+  let streamedAssistantSeqByMessageId: Record<string, number> = {};
 
   function loadTimeFormatPreference() {
     if (typeof window === 'undefined') {
@@ -393,6 +397,81 @@
     lastKnownAssistantBusyById = indexConversationAssistantBusy(data.conversations);
   });
 
+  $effect(() => {
+    if (typeof EventSource === 'undefined' || !currentConversationId) {
+      return;
+    }
+
+    const conversationId = currentConversationId;
+    const stream = new EventSource(`/api/conversations/${conversationId}/messages/stream`);
+
+    const handleMessageEvent = (event: Event) => {
+      if (currentConversationId !== conversationId) {
+        return;
+      }
+
+      const payload = parseStreamPayload(event);
+      const messageId = typeof payload?.messageId === 'string' ? payload.messageId : null;
+      if (!messageId) {
+        return;
+      }
+
+      ensureStreamingAssistantMessage(conversationId, messageId);
+      void refreshConversations();
+    };
+
+    const handleDeltaEvent = (event: Event) => {
+      if (currentConversationId !== conversationId) {
+        return;
+      }
+
+      const payload = parseStreamPayload(event);
+      const messageId = typeof payload?.messageId === 'string' ? payload.messageId : null;
+      const seq = typeof payload?.seq === 'number' ? payload.seq : Number(payload?.seq);
+      const delta = typeof payload?.delta === 'string' ? payload.delta : '';
+      if (!messageId || !Number.isFinite(seq) || !delta) {
+        return;
+      }
+
+      applyStreamingAssistantDelta(conversationId, messageId, seq, delta);
+      if (shouldAutoScroll) {
+        void scrollMessagesToBottom();
+      }
+    };
+
+    const handleDoneEvent = (event: Event) => {
+      if (currentConversationId !== conversationId) {
+        return;
+      }
+
+      const payload = parseStreamPayload(event);
+      const messageId = typeof payload?.messageId === 'string' ? payload.messageId : null;
+      const status: ChatMessage['status'] = payload?.status === 'error' ? 'error' : 'complete';
+
+      if (messageId) {
+        messages = messages.map((message): ChatMessage =>
+          message.id === messageId ? { ...message, status } : message
+        );
+        delete streamedAssistantSeqByMessageId[messageId];
+      }
+
+      clearPendingAssistant(conversationId);
+      setConversationBusyState(conversationId, false);
+      void Promise.all([refreshConversations(), loadMessages(conversationId)]);
+    };
+
+    stream.addEventListener('message', handleMessageEvent);
+    stream.addEventListener('delta', handleDeltaEvent);
+    stream.addEventListener('done', handleDoneEvent);
+
+    return () => {
+      stream.removeEventListener('message', handleMessageEvent);
+      stream.removeEventListener('delta', handleDeltaEvent);
+      stream.removeEventListener('done', handleDoneEvent);
+      stream.close();
+    };
+  });
+
   const filteredConversations = $derived.by(() => {
     const query = searchQuery.trim().toLowerCase();
     if (!query) {
@@ -607,6 +686,102 @@
     const hasAssistantReply = nextMessages.slice(userIndex + 1).some((message) => message.role === 'assistant');
     if (hasAssistantReply) {
       clearPendingAssistant(conversationId);
+    }
+  }
+
+  function setConversationBusyState(conversationId: string, busy: boolean) {
+    serverAssistantBusyByConversation = {
+      ...serverAssistantBusyByConversation,
+      [conversationId]: busy
+    };
+
+    conversations = conversations.map((conversation) =>
+      conversation.id === conversationId
+        ? {
+            ...conversation,
+            assistantBusy: busy,
+            assistantStalled: busy ? false : conversation.assistantStalled
+          }
+        : conversation
+    );
+  }
+
+  function ensureStreamingAssistantMessage(conversationId: string, messageId: string) {
+    const pendingAssistant = pendingAssistantByConversation[conversationId];
+    const existingIndex = messages.findIndex((message) => message.id === messageId);
+    const placeholderIndex = pendingAssistant
+      ? messages.findIndex((message) => message.id === pendingAssistant.placeholderId)
+      : -1;
+
+    if (existingIndex !== -1) {
+      messages = messages
+        .map((message, index): ChatMessage =>
+          index === existingIndex ? { ...message, status: 'streaming' } : message
+        )
+        .filter((_, index) => index !== placeholderIndex);
+    } else if (placeholderIndex !== -1) {
+      messages = messages.map((message, index): ChatMessage =>
+        index === placeholderIndex ? { ...message, id: messageId, status: 'streaming' } : message
+      );
+    } else {
+      messages = [...messages, createPendingAssistantMessage(messageId)];
+    }
+
+    clearPendingAssistant(conversationId);
+    setConversationBusyState(conversationId, true);
+  }
+
+  function applyStreamingAssistantDelta(
+    conversationId: string,
+    messageId: string,
+    seq: number,
+    delta: string
+  ) {
+    const lastSeq = streamedAssistantSeqByMessageId[messageId] ?? -1;
+    if (seq <= lastSeq) {
+      return;
+    }
+
+    streamedAssistantSeqByMessageId[messageId] = seq;
+    ensureStreamingAssistantMessage(conversationId, messageId);
+
+    let updated = false;
+    messages = messages.map((message): ChatMessage => {
+      if (message.id !== messageId) {
+        return message;
+      }
+
+      updated = true;
+      return {
+        ...message,
+        status: 'streaming',
+        content: `${message.content}${delta}`
+      };
+    });
+
+    if (!updated) {
+      messages = [
+        ...messages,
+        {
+          ...createPendingAssistantMessage(messageId),
+          content: delta
+        }
+      ];
+    }
+  }
+
+  function parseStreamPayload(event: Event) {
+    if (!(event instanceof MessageEvent) || typeof event.data !== 'string' || !event.data) {
+      return null;
+    }
+
+    try {
+      const payload = JSON.parse(event.data);
+      return payload && typeof payload === 'object'
+        ? (payload as Record<string, unknown>)
+        : null;
+    } catch {
+      return null;
     }
   }
 
@@ -891,7 +1066,7 @@
       }
       const payload = await response.json();
       // Drop the assistant message and stage a placeholder so the UI shows the
-      // typing indicator until the polling loop picks up the new reply.
+      // typing indicator until the assistant stream starts sending deltas.
       const placeholderId = createClientId('pending-assistant-');
       cancelEditingMessage();
       messages = messages
@@ -1264,23 +1439,6 @@
 
     let resizeObserver: ResizeObserver | null = null;
 
-    const refresh = async () => {
-      if (isRefreshing) {
-        return;
-      }
-
-      isRefreshing = true;
-      try {
-        const tasks = [refreshConversations()];
-        if (currentConversationId) {
-          tasks.push(loadMessages(currentConversationId));
-        }
-        await Promise.all(tasks);
-      } finally {
-        isRefreshing = false;
-      }
-    };
-
     const handlePopState = async () => {
       const url = new URL(window.location.href);
       currentConversationId = url.searchParams.get('conversation');
@@ -1350,7 +1508,6 @@
     };
     document.addEventListener('visibilitychange', onVisibilityChange);
 
-    const interval = window.setInterval(refresh, 2000);
     window.addEventListener('popstate', handlePopState);
 
     return () => {
@@ -1364,7 +1521,6 @@
       bodyElement.classList.remove('chat-route');
       rootElement.style.removeProperty('--chat-viewport-height');
       rootElement.style.removeProperty('--chat-viewport-offset-top');
-      window.clearInterval(interval);
       window.clearInterval(slashCommandsRefreshInterval);
       window.removeEventListener('popstate', handlePopState);
       window.removeEventListener('keydown', onKeydown);
