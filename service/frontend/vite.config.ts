@@ -37,6 +37,9 @@ export default defineConfig({
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,webp,woff2}'],
         importScripts: ['sw-notifications.js'],
+        // This app is SSR-driven, so there is no precached app-shell index.html
+        // for Workbox to serve as a navigation fallback.
+        navigateFallback: undefined,
         navigateFallbackDenylist: [/^\/api\//]
       },
       devOptions: {
