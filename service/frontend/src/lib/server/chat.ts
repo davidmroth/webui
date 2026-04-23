@@ -1545,6 +1545,7 @@ export async function storeAssistantMessage(
     }
   );
   await updateConversationState(conversationId, { currNode: messageId });
+  publishConversationStreamEvent({ type: 'message', conversationId, messageId });
   if (options.publishDoneEvent !== false) {
     publishConversationStreamEvent({
       type: 'done',
