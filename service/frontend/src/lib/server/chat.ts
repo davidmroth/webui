@@ -1164,6 +1164,38 @@ export async function finalizeStreamingAssistantMessage(
   });
 }
 
+export async function updateAssistantMessage(
+  conversationId: string,
+  messageId: string,
+  content: string,
+  options: { timings?: unknown } = {}
+) {
+  const timingsJson = serializeTimingsForStorage(options.timings);
+  if (timingsJson === null) {
+    await execute(
+      `UPDATE messages
+       SET content = :content, status = 'complete'
+       WHERE id = :id AND conversation_id = :conversation_id AND source = 'hermes' AND role IN ('assistant', 'system')`,
+      { id: messageId, conversation_id: conversationId, content }
+    );
+  } else {
+    await execute(
+      `UPDATE messages
+       SET content = :content, status = 'complete', timings = :timings
+       WHERE id = :id AND conversation_id = :conversation_id AND source = 'hermes' AND role IN ('assistant', 'system')`,
+      { id: messageId, conversation_id: conversationId, content, timings: timingsJson }
+    );
+  }
+
+  await updateConversationState(conversationId, { currNode: messageId });
+  publishConversationStreamEvent({
+    type: 'done',
+    conversationId,
+    messageId,
+    status: 'complete'
+  });
+}
+
 /**
  * Cancel the in-flight assistant turn for a conversation: marks any queued or
  * processing events cancelled and finalizes any streaming assistant message

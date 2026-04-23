@@ -5,6 +5,7 @@ import {
   openStreamingAssistantMessage,
   appendAssistantChunk,
   finalizeStreamingAssistantMessage,
+  updateAssistantMessage,
   recordHermesDeliveryTrace
 } from '$server/chat';
 import { getConfig } from '$server/env';
@@ -352,6 +353,47 @@ export async function POST({ params, request }: { params: { conversationId: stri
   }
 
   const content = typeof body.content === 'string' ? body.content.trim() : '';
+  const messageId = normalizeOptionalString(body.messageId);
+
+  if (messageId) {
+    if (!content) {
+      await persistSenderTrace(params.conversationId, traceWithTimingSignal, {
+        receiverStatus: 'rejected',
+        errorText: 'Assistant update content is required.'
+      });
+      return json({ error: 'Assistant update content is required.' }, { status: 400 });
+    }
+
+    if (rawAttachmentNames.length > 0) {
+      await persistSenderTrace(params.conversationId, traceWithTimingSignal, {
+        receiverStatus: 'rejected',
+        errorText: 'Assistant updates do not support attachments.'
+      });
+      return json({ error: 'Assistant updates do not support attachments.' }, { status: 400 });
+    }
+
+    try {
+      await updateAssistantMessage(params.conversationId, messageId, content, {
+        timings: normalizedTimings
+      });
+
+      await persistSenderTrace(params.conversationId, traceWithTimingSignal, {
+        receiverMessageId: messageId,
+        receiverStatus: 'accepted'
+      });
+
+      return json({ ok: true, messageId }, { status: 200 });
+    } catch (error) {
+      await persistSenderTrace(params.conversationId, traceWithTimingSignal, {
+        receiverStatus: 'rejected',
+        errorText: error instanceof Error ? error.message : 'Failed to update assistant message.'
+      });
+      return json(
+        { error: error instanceof Error ? error.message : 'Failed to update assistant message.' },
+        { status: 500 }
+      );
+    }
+  }
 
   let attachments: AttachmentUpload[] = [];
   try {
