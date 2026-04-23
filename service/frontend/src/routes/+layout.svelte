@@ -9,6 +9,7 @@
 
   const LINK_WINDOW_FEATURES = 'noopener,noreferrer';
   const MOBILE_VIEWPORT_MEDIA_QUERY = '(max-width: 768px)';
+  const UPDATE_CHECK_INTERVAL_MS = 5 * 60_000;
 
   function shouldOpenAnchorInNewWindow(anchor: HTMLAnchorElement) {
     if (!anchor.href || anchor.hasAttribute('download')) {
@@ -71,6 +72,8 @@
     let refreshInterval: ReturnType<typeof setInterval> | undefined;
     const buildVersionStorageKey = 'hermes_webui_last_seen_build_version';
     let buildVersion: string | undefined;
+    let lastBuildFingerprintCheckAt = 0;
+    let buildFingerprintCheckInFlight: Promise<void> | null = null;
 
     try {
       buildVersion = localStorage.getItem(buildVersionStorageKey) ?? undefined;
@@ -116,8 +119,11 @@
           onRegisteredSW(_swUrl: string, registration: ServiceWorkerRegistration | undefined) {
             if (!registration) return;
             refreshInterval = setInterval(() => {
+              if (document.visibilityState !== 'visible') {
+                return;
+              }
               void registration.update();
-            }, 60_000);
+            }, UPDATE_CHECK_INTERVAL_MS);
           }
         });
       } catch (error) {
@@ -125,48 +131,71 @@
       }
     };
 
-    const checkBuildFingerprint = async () => {
-      try {
-        const response = await fetch(`/api/build-fingerprint?t=${Date.now()}`, {
-          cache: 'no-store',
-          headers: {
-            pragma: 'no-cache',
-            'cache-control': 'no-cache'
-          }
-        });
-
-        if (!response.ok) return;
-
-        const payload = (await response.json()) as { version?: string; fingerprint?: string };
-        const nextVersion = payload.version ?? payload.fingerprint;
-        if (!nextVersion) return;
-
-        if (!buildVersion) {
-          buildVersion = nextVersion;
-          try {
-            localStorage.setItem(buildVersionStorageKey, nextVersion);
-          } catch {
-            // Ignore storage write failures (private mode, quota, etc.).
-          }
+    const checkBuildFingerprint = async (options: { force?: boolean } = {}) => {
+      const force = options.force ?? false;
+      const now = Date.now();
+      if (!force) {
+        if (document.visibilityState !== 'visible') {
           return;
         }
 
-        if (nextVersion !== buildVersion) {
-          buildVersion = nextVersion;
-          try {
-            localStorage.setItem(buildVersionStorageKey, nextVersion);
-          } catch {
-            // Ignore storage write failures (private mode, quota, etc.).
-          }
-          showUpdateToast();
+        if (now - lastBuildFingerprintCheckAt < UPDATE_CHECK_INTERVAL_MS) {
+          return;
         }
-      } catch (error) {
-        console.warn('Build fingerprint check failed', error);
       }
+
+      if (buildFingerprintCheckInFlight) {
+        return buildFingerprintCheckInFlight;
+      }
+
+      lastBuildFingerprintCheckAt = now;
+      buildFingerprintCheckInFlight = (async () => {
+        try {
+          const response = await fetch(`/api/build-fingerprint?t=${Date.now()}`, {
+            cache: 'no-store',
+            headers: {
+              pragma: 'no-cache',
+              'cache-control': 'no-cache'
+            }
+          });
+
+          if (!response.ok) return;
+
+          const payload = (await response.json()) as { version?: string; fingerprint?: string };
+          const nextVersion = payload.version ?? payload.fingerprint;
+          if (!nextVersion) return;
+
+          if (!buildVersion) {
+            buildVersion = nextVersion;
+            try {
+              localStorage.setItem(buildVersionStorageKey, nextVersion);
+            } catch {
+              // Ignore storage write failures (private mode, quota, etc.).
+            }
+            return;
+          }
+
+          if (nextVersion !== buildVersion) {
+            buildVersion = nextVersion;
+            try {
+              localStorage.setItem(buildVersionStorageKey, nextVersion);
+            } catch {
+              // Ignore storage write failures (private mode, quota, etc.).
+            }
+            showUpdateToast();
+          }
+        } catch (error) {
+          console.warn('Build fingerprint check failed', error);
+        } finally {
+          buildFingerprintCheckInFlight = null;
+        }
+      })();
+
+      return buildFingerprintCheckInFlight;
     };
 
     void installPwaUpdateFlow();
-    void checkBuildFingerprint();
+    void checkBuildFingerprint({ force: true });
 
     const onVisible = () => {
       if (document.visibilityState === 'visible') {
@@ -177,7 +206,7 @@
 
     const fingerprintInterval = setInterval(() => {
       void checkBuildFingerprint();
-    }, 60_000);
+    }, UPDATE_CHECK_INTERVAL_MS);
     const anchorObserver = new MutationObserver((entries) => {
       for (const entry of entries) {
         for (const node of entry.addedNodes) {

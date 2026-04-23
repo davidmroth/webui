@@ -118,10 +118,13 @@
   const TIME_FORMAT_24H_LOCALSTORAGE_KEY = 'LlamaCppWebui.timeFormat24Hour';
   const NOTIFICATIONS_ENABLED_LOCALSTORAGE_KEY = 'LlamaCppWebui.notificationsEnabled';
   const NOTIFICATION_BODY_MAX_LENGTH = 180;
+  const SLASH_COMMANDS_REFRESH_INTERVAL_MS = 5 * 60_000;
   const notificationsSupported = $derived(
     typeof window !== 'undefined' && typeof Notification !== 'undefined'
   );
   let streamedAssistantSeqByMessageId: Record<string, number> = {};
+  let lastSlashCommandsLoadAt = 0;
+  let slashCommandsLoadInFlight: Promise<void> | null = null;
 
   function loadTimeFormatPreference() {
     if (typeof window === 'undefined') {
@@ -1240,73 +1243,92 @@
     }
   }
 
-  async function loadSlashCommands() {
-    try {
-      const response = await fetch('/api/slash-commands');
-      if (!response.ok) {
-        return;
-      }
-
-      const payload = await response.json();
-      const commands: Array<{
-        command: string;
-        description?: string;
-        argsHint?: string;
-        aliases?: string[];
-      }> = Array.isArray(payload?.commands) ? payload.commands : [];
-
-      const normalized = commands
-        .filter(
-          (entry): entry is {
-            command: string;
-            description?: string;
-            argsHint?: string;
-            aliases?: string[];
-          } => Boolean(entry) && typeof entry.command === 'string' && entry.command.startsWith('/')
-        )
-        .map((entry) => ({
-          command: entry.command,
-          description:
-            typeof entry.description === 'string' && entry.description.trim()
-              ? entry.description.trim()
-              : 'Hermes command',
-          argsHint:
-            typeof entry.argsHint === 'string' && entry.argsHint.trim()
-              ? entry.argsHint.trim()
-              : undefined,
-          aliases: Array.isArray(entry.aliases)
-            ? entry.aliases.filter((alias): alias is string => typeof alias === 'string' && alias.startsWith('/'))
-            : undefined
-        }));
-
-      const expanded: SlashCommand[] = [];
-      for (const command of normalized) {
-        expanded.push(command);
-        for (const alias of command.aliases ?? []) {
-          expanded.push({
-            command: alias,
-            description: `${command.description} (alias for ${command.command})`,
-            argsHint: command.argsHint
-          });
-        }
-      }
-
-      const deduped: SlashCommand[] = [];
-      const seen = new Set<string>();
-      for (const command of expanded) {
-        if (seen.has(command.command)) {
-          continue;
-        }
-        seen.add(command.command);
-        deduped.push(command);
-      }
-
-      if (deduped.length > 0) {
-        slashCommands = deduped;
-      }
-    } catch {
-      // Keep fallback commands when Hermes command metadata is unavailable.
+  async function loadSlashCommands(options: { force?: boolean } = {}) {
+    const force = options.force ?? false;
+    const now = Date.now();
+    if (!force && now - lastSlashCommandsLoadAt < SLASH_COMMANDS_REFRESH_INTERVAL_MS) {
+      return;
     }
+
+    if (slashCommandsLoadInFlight) {
+      return slashCommandsLoadInFlight;
+    }
+
+    slashCommandsLoadInFlight = (async () => {
+      try {
+        const response = await fetch('/api/slash-commands');
+        if (!response.ok) {
+          return;
+        }
+
+        const payload = await response.json();
+        const commands: Array<{
+          command: string;
+          description?: string;
+          argsHint?: string;
+          aliases?: string[];
+        }> = Array.isArray(payload?.commands) ? payload.commands : [];
+
+        const normalized = commands
+          .filter(
+            (entry): entry is {
+              command: string;
+              description?: string;
+              argsHint?: string;
+              aliases?: string[];
+            } => Boolean(entry) && typeof entry.command === 'string' && entry.command.startsWith('/')
+          )
+          .map((entry) => ({
+            command: entry.command,
+            description:
+              typeof entry.description === 'string' && entry.description.trim()
+                ? entry.description.trim()
+                : 'Hermes command',
+            argsHint:
+              typeof entry.argsHint === 'string' && entry.argsHint.trim()
+                ? entry.argsHint.trim()
+                : undefined,
+            aliases: Array.isArray(entry.aliases)
+              ? entry.aliases.filter(
+                  (alias): alias is string => typeof alias === 'string' && alias.startsWith('/')
+                )
+              : undefined
+          }));
+
+        const expanded: SlashCommand[] = [];
+        for (const command of normalized) {
+          expanded.push(command);
+          for (const alias of command.aliases ?? []) {
+            expanded.push({
+              command: alias,
+              description: `${command.description} (alias for ${command.command})`,
+              argsHint: command.argsHint
+            });
+          }
+        }
+
+        const deduped: SlashCommand[] = [];
+        const seen = new Set<string>();
+        for (const command of expanded) {
+          if (seen.has(command.command)) {
+            continue;
+          }
+          seen.add(command.command);
+          deduped.push(command);
+        }
+
+        if (deduped.length > 0) {
+          slashCommands = deduped;
+        }
+        lastSlashCommandsLoadAt = Date.now();
+      } catch {
+        // Keep fallback commands when Hermes command metadata is unavailable.
+      } finally {
+        slashCommandsLoadInFlight = null;
+      }
+    })();
+
+    return slashCommandsLoadInFlight;
   }
 
   function handleSubmit(event: SubmitEvent) {
@@ -1468,10 +1490,7 @@
     loadTimeFormatPreference();
     loadNotificationsPreference();
     rememberAssistantMessages(messages);
-    void loadSlashCommands();
-    const slashCommandsRefreshInterval = window.setInterval(() => {
-      void loadSlashCommands();
-    }, 15000);
+    void loadSlashCommands({ force: true });
 
     syncMobileViewport();
     const mediaQuery = window.matchMedia('(max-width: 768px)');
@@ -1498,12 +1517,19 @@
 
     const onVisibilityChange = () => {
       if (typeof Notification === 'undefined') {
+        if (document.visibilityState === 'visible') {
+          void loadSlashCommands();
+        }
         return;
       }
 
       notificationPermission = Notification.permission;
       if (notificationPermission !== 'granted' && notificationsEnabled) {
         setNotificationsPreference(false);
+      }
+
+      if (document.visibilityState === 'visible') {
+        void loadSlashCommands();
       }
     };
     document.addEventListener('visibilitychange', onVisibilityChange);
@@ -1521,7 +1547,6 @@
       bodyElement.classList.remove('chat-route');
       rootElement.style.removeProperty('--chat-viewport-height');
       rootElement.style.removeProperty('--chat-viewport-offset-top');
-      window.clearInterval(slashCommandsRefreshInterval);
       window.removeEventListener('popstate', handlePopState);
       window.removeEventListener('keydown', onKeydown);
       document.removeEventListener('visibilitychange', onVisibilityChange);

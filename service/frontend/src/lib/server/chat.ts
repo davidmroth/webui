@@ -1496,6 +1496,7 @@ export async function storeAssistantMessage(
     timings?: unknown;
     role?: 'assistant' | 'system';
     userMessageId?: string | null;
+    publishDoneEvent?: boolean;
   } = {}
 ) {
   const ownerId = await getConversationOwnerId(conversationId);
@@ -1529,12 +1530,14 @@ export async function storeAssistantMessage(
     }
   );
   await updateConversationState(conversationId, { currNode: messageId });
-  publishConversationStreamEvent({
-    type: 'done',
-    conversationId,
-    messageId,
-    status: 'complete'
-  });
+  if (options.publishDoneEvent !== false) {
+    publishConversationStreamEvent({
+      type: 'done',
+      conversationId,
+      messageId,
+      status: 'complete'
+    });
+  }
 
   return messageId;
 }
@@ -1579,8 +1582,17 @@ export async function storeAssistantMessageWithAttachments(
     throw new Error(`Conversation not found: ${conversationId}`);
   }
 
-  const messageId = await storeAssistantMessage(conversationId, content, options);
+  const messageId = await storeAssistantMessage(conversationId, content, {
+    ...options,
+    publishDoneEvent: false
+  });
   await saveAttachmentsForMessage(ownerId, conversationId, messageId, files);
+  publishConversationStreamEvent({
+    type: 'done',
+    conversationId,
+    messageId,
+    status: 'complete'
+  });
   return messageId;
 }
 
