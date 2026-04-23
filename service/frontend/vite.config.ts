@@ -43,7 +43,10 @@ export default defineConfig({
         navigateFallbackDenylist: [/^\/api\//]
       },
       devOptions: {
-        enabled: true
+        // The generated Workbox service worker expects build output that does
+        // not exist under the SvelteKit dev server, which makes /sw.js fail
+        // with a 500 overlay in development.
+        enabled: false
       }
     })
   ],

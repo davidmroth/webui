@@ -10,6 +10,7 @@
   const LINK_WINDOW_FEATURES = 'noopener,noreferrer';
   const MOBILE_VIEWPORT_MEDIA_QUERY = '(max-width: 768px)';
   const UPDATE_CHECK_INTERVAL_MS = 5 * 60_000;
+  const SHOULD_USE_PWA_UPDATER = import.meta.env.PROD;
 
   function shouldOpenAnchorInNewWindow(anchor: HTMLAnchorElement) {
     if (!anchor.href || anchor.hasAttribute('download')) {
@@ -194,12 +195,18 @@
       return buildFingerprintCheckInFlight;
     };
 
-    void installPwaUpdateFlow();
+    if (SHOULD_USE_PWA_UPDATER) {
+      void installPwaUpdateFlow();
+    }
     void checkBuildFingerprint({ force: true });
 
     const onVisible = () => {
       if (document.visibilityState === 'visible') {
-        void navigator.serviceWorker?.getRegistration()?.then((registration) => registration?.update());
+        if (SHOULD_USE_PWA_UPDATER) {
+          void navigator.serviceWorker
+            ?.getRegistration()
+            ?.then((registration) => registration?.update());
+        }
         void checkBuildFingerprint();
       }
     };
