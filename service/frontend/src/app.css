@@ -2036,7 +2036,8 @@ a {
   align-items: center;
   gap: 0.45rem 0.5rem;
   min-width: 0;
-  margin-top: 0.1rem;
+  margin-top: 1.25rem;
+  margin-bottom: .5rem;
 }
 
 .assistant-meta-cluster,
@@ -2059,11 +2060,19 @@ a {
   padding: 0.12rem 0.45rem;
   border: none;
   border-radius: var(--app-radius);
-  background: rgba(31, 31, 28, 0.11);
   color: #66655f;
   font-size: 0.72rem;
   line-height: 1;
   white-space: nowrap;
+}
+
+.assistant-model-badge {
+  background: rgba(31, 31, 28, 0.11);
+}
+
+.assistant-stat-chip {
+  padding-inline: 0;
+  background: transparent;
 }
 
 .assistant-model-badge span,
