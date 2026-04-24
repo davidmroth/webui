@@ -7,6 +7,7 @@ import { migration as llamacppParityMigration } from './migrations/004_llamacpp_
 import { migration as streamingSupportMigration } from './migrations/005_streaming_support';
 import { migration as deliveryTracesMigration } from './migrations/006_delivery_traces';
 import { migration as branchRootsMigration } from './migrations/007_branch_roots';
+import { migration as messageUpdatedAtMigration } from './migrations/008_message_updated_at';
 
 interface SchemaMigrationRow {
   id: string;
@@ -30,7 +31,8 @@ const migrations: Migration[] = [
   llamacppParityMigration,
   streamingSupportMigration,
   deliveryTracesMigration,
-  branchRootsMigration
+  branchRootsMigration,
+  messageUpdatedAtMigration
 ];
 
 export async function runDatabaseMigrations(): Promise<MigrationResult> {

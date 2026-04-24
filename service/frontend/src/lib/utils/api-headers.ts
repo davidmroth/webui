@@ -1,4 +1,4 @@
-import { config } from '$lib/stores/settings.svelte';
+import { config } from '../stores/settings.svelte';
 import { REDACTED_HEADERS } from '$lib/constants';
 import { redactValue } from './redact';
 

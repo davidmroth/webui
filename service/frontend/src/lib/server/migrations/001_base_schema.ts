@@ -56,6 +56,7 @@ export const migration: Migration = {
         source ENUM('browser', 'hermes') NOT NULL,
         status ENUM('complete', 'streaming', 'error') NOT NULL DEFAULT 'complete',
         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         CONSTRAINT fk_messages_conversation FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
       )
     `);

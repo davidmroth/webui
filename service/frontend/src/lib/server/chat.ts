@@ -28,11 +28,29 @@ interface MessageRow {
   role: 'user' | 'assistant' | 'system';
   content: string;
   created_at: Date | string;
+  updated_at: Date | string;
   status: 'complete' | 'streaming' | 'error';
   extra?: string | object | null;
   timings?: string | object | null;
   type?: 'text' | 'root';
   msg_timestamp?: number | string;
+}
+
+interface ConversationRecordRow {
+  id: string;
+  title: string;
+  created_at: Date | string;
+  updated_at: Date | string;
+  last_modified: number | string;
+  curr_node: string | null;
+  forked_from_conversation_id: string | null;
+}
+
+interface ExportMessageRow extends MessageRow {
+  source: 'browser' | 'hermes';
+  reasoning_content?: string | null;
+  tool_calls?: string | object | null;
+  model?: string | null;
 }
 
 interface AttachmentCloneRow {
@@ -140,6 +158,41 @@ export interface RecordHermesDeliveryTraceInput {
   errorText?: string | null;
 }
 
+interface ConversationExportMessage {
+  id: string;
+  parentId: string | null;
+  childIds: string[];
+  role: 'user' | 'assistant' | 'system';
+  source: 'browser' | 'hermes';
+  type: 'text' | 'root';
+  content: string;
+  status: 'complete' | 'streaming' | 'error';
+  createdAt: string;
+  timestamp: number;
+  reasoningContent: string | null;
+  toolCalls: unknown;
+  extra: unknown;
+  timings: ChatMessage['timings'];
+  model: string | null;
+  attachments: MessageAttachment[];
+}
+
+export interface ConversationExportPayload {
+  schemaVersion: 1;
+  exportedAt: string;
+  conversation: {
+    id: string;
+    title: string;
+    createdAt: string;
+    updatedAt: string;
+    lastModified: number;
+    currNode: string | null;
+    forkedFromConversationId: string | null;
+  };
+  visibleMessageIds: string[];
+  messages: ConversationExportMessage[];
+}
+
 function toIsoString(value: Date | string): string {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
 }
@@ -177,6 +230,11 @@ function deriveConversationTitle(content: string): string {
     .find((line) => line.length > 0);
 
   const normalized = (firstNonEmptyLine ?? content.trim().replace(/\s+/g, ' ') ?? '').trim();
+  return (normalized || 'New conversation').slice(0, 200);
+}
+
+function normalizeConversationTitle(title: string): string {
+  const normalized = title.trim();
   return (normalized || 'New conversation').slice(0, 200);
 }
 
@@ -220,6 +278,26 @@ function serializeMessageExtra(input: Record<string, unknown> | null | undefined
     return JSON.stringify(input);
   } catch {
     return null;
+  }
+}
+
+function parseJsonColumn(raw: string | object | null | undefined): unknown {
+  if (raw == null) {
+    return null;
+  }
+
+  if (typeof raw === 'object') {
+    return raw;
+  }
+
+  if (typeof raw !== 'string' || !raw.trim()) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(raw) as unknown;
+  } catch {
+    return raw;
   }
 }
 
@@ -729,6 +807,28 @@ async function getConversationOwnerId(conversationId: string): Promise<string | 
   return rows[0]?.user_id ?? null;
 }
 
+async function getConversationRecordForUser(
+  userId: string,
+  conversationId: string
+): Promise<ConversationRecordRow | null> {
+  const rows = await query<ConversationRecordRow>(
+    `SELECT id,
+            title,
+            created_at,
+            updated_at,
+            last_modified,
+            curr_node,
+            forked_from_conversation_id
+     FROM conversations
+     WHERE id = :conversation_id
+       AND user_id = :user_id
+     LIMIT 1`,
+    { conversation_id: conversationId, user_id: userId }
+  );
+
+  return rows[0] ?? null;
+}
+
 async function saveAttachmentsForMessage(
   userId: string,
   conversationId: string,
@@ -852,6 +952,125 @@ export async function createConversation(userId: string, title = 'New conversati
   return id;
 }
 
+export async function renameConversationForUser(
+  userId: string,
+  conversationId: string,
+  title: string
+): Promise<boolean> {
+  const conversation = await getConversationRecordForUser(userId, conversationId);
+  if (!conversation) {
+    return false;
+  }
+
+  await updateConversationState(conversationId, { title: normalizeConversationTitle(title) });
+  return true;
+}
+
+export async function deleteConversationForUser(
+  userId: string,
+  conversationId: string
+): Promise<boolean> {
+  const conversation = await getConversationRecordForUser(userId, conversationId);
+  if (!conversation) {
+    return false;
+  }
+
+  await execute(
+    `DELETE attachments
+     FROM attachments
+     INNER JOIN conversations ON conversations.id = attachments.conversation_id
+     WHERE attachments.conversation_id = :conversation_id
+       AND conversations.user_id = :user_id`,
+    { conversation_id: conversationId, user_id: userId }
+  );
+
+  await execute(
+    `DELETE FROM conversations
+     WHERE id = :conversation_id
+       AND user_id = :user_id`,
+    { conversation_id: conversationId, user_id: userId }
+  );
+
+  return true;
+}
+
+export async function exportConversationForUser(
+  userId: string,
+  conversationId: string
+): Promise<ConversationExportPayload | null> {
+  const conversation = await getConversationRecordForUser(userId, conversationId);
+  if (!conversation) {
+    return null;
+  }
+
+  const rows = await query<ExportMessageRow>(
+    `SELECT messages.id,
+            messages.parent_id,
+            messages.role,
+            messages.content,
+            messages.created_at,
+            messages.status,
+            messages.extra,
+            messages.timings,
+            messages.type,
+            messages.msg_timestamp,
+            messages.source,
+            messages.reasoning_content,
+            messages.tool_calls,
+            messages.model
+     FROM messages
+     INNER JOIN conversations ON conversations.id = messages.conversation_id
+     WHERE messages.conversation_id = :conversation_id
+       AND conversations.user_id = :user_id
+     ORDER BY messages.msg_timestamp ASC, messages.created_at ASC, messages.id ASC`,
+    { conversation_id: conversationId, user_id: userId }
+  );
+
+  const messageTree = buildMessageTree(rows);
+  const nonRootRows = rows.filter((row) => row.type !== 'root');
+  const nonRootIds = new Set(nonRootRows.map((row) => row.id));
+  const attachmentsByMessageId = await listAttachmentsByMessageIds(nonRootRows.map((row) => row.id));
+  const visibleMessageIds = resolveVisibleConversationRows(messageTree, conversation.curr_node)
+    .filter((row) => row.type !== 'root')
+    .map((row) => row.id);
+
+  return {
+    schemaVersion: 1,
+    exportedAt: new Date().toISOString(),
+    conversation: {
+      id: conversation.id,
+      title: conversation.title,
+      createdAt: toIsoString(conversation.created_at),
+      updatedAt: toIsoString(conversation.updated_at),
+      lastModified: Number(conversation.last_modified ?? 0),
+      currNode:
+        conversation.curr_node && nonRootIds.has(conversation.curr_node)
+          ? conversation.curr_node
+          : null,
+      forkedFromConversationId: conversation.forked_from_conversation_id ?? null
+    },
+    visibleMessageIds,
+    messages: nonRootRows.map((row) => ({
+      id: row.id,
+      parentId: row.parent_id && nonRootIds.has(row.parent_id) ? row.parent_id : null,
+      childIds: (messageTree.get(row.id)?.children ?? []).filter((childId) => nonRootIds.has(childId)),
+      role: row.role,
+      source: row.source,
+      type: row.type ?? 'text',
+      content: row.content,
+      status: row.status,
+      createdAt: toIsoString(row.created_at),
+      timestamp: normalizeMessageTimestamp(row),
+      reasoningContent: row.reasoning_content ?? null,
+      toolCalls: parseJsonColumn(row.tool_calls),
+      extra: parseJsonColumn(row.extra),
+      timings: parseTimings(row.timings),
+      model: row.model ?? null,
+      attachments: attachmentsByMessageId.get(row.id) ?? []
+    }))
+  };
+}
+
 export async function listMessages(userId: string, conversationId: string): Promise<ChatMessage[]> {
   const conversationRows = await query<ConversationStateRow>(
     `SELECT conversations.id, conversations.created_at, conversations.curr_node, conversations.title
@@ -873,6 +1092,7 @@ export async function listMessages(userId: string, conversationId: string): Prom
             messages.role,
             messages.content,
             messages.created_at,
+            messages.updated_at,
             messages.status,
             messages.extra,
             messages.timings,
@@ -908,6 +1128,7 @@ export async function listMessages(userId: string, conversationId: string): Prom
     role: row.role,
     content: row.content,
     createdAt: toIsoString(row.created_at),
+    updatedAt: toIsoString(row.updated_at),
     status: row.status,
     attachments: attachmentsByMessageId.get(row.id) ?? [],
     timings: parseTimings(row.timings),

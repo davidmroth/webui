@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, tick } from 'svelte';
+  import { onMount, tick, untrack } from 'svelte';
   import {
     ArrowDown,
     ArrowUp,
@@ -22,6 +22,11 @@
   import { mode, toggleMode } from 'mode-watcher';
   import ConversationList from '$components/chat/ConversationList.svelte';
   import MessagePane from '$components/chat/MessagePane.svelte';
+  import {
+    deleteConversation as deleteConversationRequest,
+    exportConversation as exportConversationRequest,
+    renameConversation as renameConversationRequest
+  } from '$lib/services/conversation-actions';
   import type { ChatMessage, ConversationSummary } from '$lib/types-legacy';
   import {
     deliverBrowserNotification,
@@ -40,6 +45,8 @@
     rememberSeenAssistantMessages,
     shouldNotifyAssistantReply
   } from '$lib/utils/chat-notification-policy';
+  import { getAuthHeaders } from '$lib/utils/api-headers';
+  import { readTimingSummary } from '$lib/utils/chat-timings';
 
   type PendingAttachment = {
     id: string;
@@ -60,10 +67,19 @@
     aliases?: string[];
   };
 
+  type ComposerStatsStrip = {
+    contextLabel: string | null;
+    outputLabel: string | null;
+    speedLabel: string | null;
+    isFading: boolean;
+  };
+
   let { data, form } = $props();
-  let currentConversationId = $state<string | null>(data.currentConversationId ?? null);
-  let messages = $state<ChatMessage[]>(data.messages ?? []);
-  let conversations = $state<ConversationSummary[]>(data.conversations ?? []);
+  let currentConversationId = $state<string | null>(
+    untrack(() => data.currentConversationId ?? null)
+  );
+  let messages = $state<ChatMessage[]>(untrack(() => data.messages ?? []));
+  let conversations = $state<ConversationSummary[]>(untrack(() => data.conversations ?? []));
   let pendingFiles = $state<PendingAttachment[]>([]);
   let pendingAssistantByConversation = $state<Record<string, PendingAssistantState>>({});
   let serverAssistantBusyByConversation = $state<Record<string, boolean>>({});
@@ -76,6 +92,13 @@
   let editingMessageId = $state<string | null>(null);
   let editingDraft = $state('');
   let errorMessage = $state<string | null>(null);
+  let conversationActionError = $state<string | null>(null);
+  let conversationActionBusyId = $state<string | null>(null);
+  let renameConversationOpen = $state(false);
+  let deleteConversationOpen = $state(false);
+  let conversationBeingRenamed = $state<ConversationSummary | null>(null);
+  let conversationBeingDeleted = $state<ConversationSummary | null>(null);
+  let conversationTitleDraft = $state('');
   let busyMessageIds = $state<Set<string>>(new Set());
   let isDragActive = $state(false);
   let settingsOpen = $state(false);
@@ -84,12 +107,8 @@
   let notificationPermission = $state<NotificationPermission>('default');
   let seenAssistantMessageIds = $state<Set<string>>(new Set());
   let loadedMessagesConversationId = $state<string | null>(null);
-  let lastKnownConversationUpdatedAtById = $state<Record<string, string>>(
-    indexConversationUpdatedAt(data.conversations ?? [])
-  );
-  let lastKnownAssistantBusyById = $state<Record<string, boolean>>(
-    indexConversationAssistantBusy(data.conversations ?? [])
-  );
+  let lastKnownConversationUpdatedAtById = $state<Record<string, string>>({});
+  let lastKnownAssistantBusyById = $state<Record<string, boolean>>({});
   let slashCommands = $state<SlashCommand[]>([
     {
       command: '/new',
@@ -108,7 +127,12 @@
   let composerElement = $state<HTMLTextAreaElement | null>(null);
   let messageScrollElement = $state<HTMLDivElement | null>(null);
   let attachmentInput = $state<HTMLInputElement | null>(null);
+  let renameConversationInput = $state<HTMLInputElement | null>(null);
   let shouldAutoScroll = $state(true);
+  let composerStatsContextTotal = $state<number | null>(null);
+  let composerStatsOutputMax = $state<number | null>(null);
+  let composerStatsMessageId = $state<string | null>(null);
+  let composerStatsPhase = $state<'hidden' | 'visible' | 'fading'>('hidden');
   // Initial sidebar / mobile state is seeded from the boot-time class set by
   // app.html so hydration matches the final layout (no visible "ghost"
   // sidebar collapse on mobile load).
@@ -137,11 +161,18 @@
   const TIME_FORMAT_24H_LOCALSTORAGE_KEY = 'LlamaCppWebui.timeFormat24Hour';
   const NOTIFICATION_BODY_MAX_LENGTH = 180;
   const SLASH_COMMANDS_REFRESH_INTERVAL_MS = 5 * 60_000;
+  const COMPOSER_STATS_VISIBLE_MS = 1_500;
+  const COMPOSER_STATS_FADE_MS = 450;
+  const COMPOSER_STATS_CAPS_REFRESH_INTERVAL_MS = 30_000;
   const notificationsSupported = $derived(isNotificationApiSupported());
   let latestTerminalAssistantMessageIdByConversation: Record<string, string | null> = {};
   let streamedAssistantSeqByMessageId: Record<string, number> = {};
   let lastSlashCommandsLoadAt = 0;
   let slashCommandsLoadInFlight: Promise<void> | null = null;
+  let composerStatsFadeTimer: ReturnType<typeof setTimeout> | null = null;
+  let composerStatsHideTimer: ReturnType<typeof setTimeout> | null = null;
+  let composerStatsCapsLoadInFlight: Promise<void> | null = null;
+  let lastComposerStatsCapsLoadAt = 0;
 
   function loadTimeFormatPreference() {
     if (typeof window === 'undefined') {
@@ -364,6 +395,8 @@
         return;
       }
 
+      resetComposerStatsCycle();
+      void loadComposerStatsCaps();
       ensureStreamingAssistantMessage(conversationId, messageId);
       void refreshConversations();
     };
@@ -405,7 +438,21 @@
 
       clearPendingAssistant(conversationId);
       setConversationBusyState(conversationId, false);
-      void Promise.all([refreshConversations(), loadMessages(conversationId)]);
+
+      const refreshTask = Promise.all([refreshConversations(), loadMessages(conversationId)]);
+      if (status === 'complete' && messageId) {
+        void refreshTask.then(() => {
+          if (currentConversationId !== conversationId) {
+            return;
+          }
+
+          revealComposerStats(messageId);
+        });
+        return;
+      }
+
+      resetComposerStatsCycle();
+      void refreshTask;
     };
 
     stream.addEventListener('message', handleMessageEvent);
@@ -451,6 +498,48 @@
   );
 
   const showJumpToBottom = $derived(displayMessages.length > 0 && !shouldAutoScroll);
+  const composerStatsMessage = $derived.by(() => {
+    if (!composerStatsMessageId) {
+      return null;
+    }
+
+    return (
+      messages.find(
+        (message) =>
+          message.id === composerStatsMessageId &&
+          message.role === 'assistant' &&
+          message.status === 'complete' &&
+          message.timings
+      ) ?? null
+    );
+  });
+  const composerStatsStrip = $derived.by((): ComposerStatsStrip | null => {
+    if (composerStatsPhase === 'hidden' || !composerStatsMessage?.timings) {
+      return null;
+    }
+
+    const summary = readTimingSummary(composerStatsMessage.timings);
+    const contextLabel = formatContextStatsLabel(
+      summary.contextUsed,
+      composerStatsContextTotal ?? summary.contextTotal
+    );
+    const outputLabel = formatOutputStatsLabel(
+      summary.generatedTokens,
+      composerStatsOutputMax ?? summary.outputMax
+    );
+    const speedLabel = formatSpeedStatsLabel(summary.generatedTokensPerSecond);
+
+    if (!contextLabel && !outputLabel && !speedLabel) {
+      return null;
+    }
+
+    return {
+      contextLabel,
+      outputLabel,
+      speedLabel,
+      isFading: composerStatsPhase === 'fading'
+    };
+  });
   const currentConversationSummary = $derived.by(() =>
     conversations.find((conversation) => conversation.id === currentConversationId) ?? null
   );
@@ -488,8 +577,150 @@
     );
   });
 
+  $effect(() => {
+    currentConversationId;
+    resetComposerStatsCycle();
+  });
+
   function activeConversationTitle() {
     return conversations.find((conversation) => conversation.id === currentConversationId)?.title ?? 'New chat';
+  }
+
+  function formatStatsCount(value: number) {
+    return Math.max(0, Math.round(value)).toLocaleString();
+  }
+
+  function formatStatsPercent(value: number) {
+    if (!Number.isFinite(value) || value <= 0) {
+      return '0%';
+    }
+
+    if (value < 1) {
+      return `${value.toFixed(1)}%`;
+    }
+
+    return `${Math.round(value)}%`;
+  }
+
+  function formatContextStatsLabel(contextUsed: number | null, contextTotal: number | null) {
+    if (contextUsed == null || contextUsed <= 0) {
+      return null;
+    }
+
+    if (contextTotal != null && contextTotal > 0) {
+      return `${formatStatsCount(contextUsed)}/${formatStatsCount(contextTotal)} (${formatStatsPercent((contextUsed / contextTotal) * 100)})`;
+    }
+
+    return `${formatStatsCount(contextUsed)} tokens`;
+  }
+
+  function formatOutputStatsLabel(outputUsed: number | null, outputMax: number | null) {
+    if (outputUsed == null || outputUsed <= 0) {
+      return null;
+    }
+
+    if (outputMax != null) {
+      const normalizedMax = outputMax < 0 ? '∞' : formatStatsCount(outputMax);
+      return `${formatStatsCount(outputUsed)}/${normalizedMax}`;
+    }
+
+    return `${formatStatsCount(outputUsed)} tokens`;
+  }
+
+  function formatSpeedStatsLabel(tokensPerSecond: number | null) {
+    if (tokensPerSecond == null || !Number.isFinite(tokensPerSecond) || tokensPerSecond <= 0) {
+      return null;
+    }
+
+    return `${tokensPerSecond.toFixed(1)} t/s`;
+  }
+
+  function clearComposerStatsTimers() {
+    if (composerStatsFadeTimer) {
+      clearTimeout(composerStatsFadeTimer);
+      composerStatsFadeTimer = null;
+    }
+
+    if (composerStatsHideTimer) {
+      clearTimeout(composerStatsHideTimer);
+      composerStatsHideTimer = null;
+    }
+  }
+
+  function resetComposerStatsCycle() {
+    clearComposerStatsTimers();
+    composerStatsPhase = 'hidden';
+    composerStatsMessageId = null;
+  }
+
+  async function loadComposerStatsCaps(options: { force?: boolean } = {}) {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const force = options.force ?? false;
+    const now = Date.now();
+    if (
+      !force &&
+      now - lastComposerStatsCapsLoadAt < COMPOSER_STATS_CAPS_REFRESH_INTERVAL_MS &&
+      (composerStatsContextTotal != null || composerStatsOutputMax != null)
+    ) {
+      return;
+    }
+
+    if (composerStatsCapsLoadInFlight) {
+      return composerStatsCapsLoadInFlight;
+    }
+
+    composerStatsCapsLoadInFlight = (async () => {
+      try {
+        const response = await fetch('/props', {
+          headers: getAuthHeaders()
+        });
+        if (!response.ok) {
+          return;
+        }
+
+        const payload = (await response.json()) as ApiLlamaCppServerProps;
+        const nextContextTotal = Number(payload?.default_generation_settings?.n_ctx ?? NaN);
+        const nextOutputMax = Number(payload?.default_generation_settings?.params?.max_tokens ?? NaN);
+
+        if (Number.isFinite(nextContextTotal) && nextContextTotal > 0) {
+          composerStatsContextTotal = nextContextTotal;
+        }
+
+        if (Number.isFinite(nextOutputMax)) {
+          composerStatsOutputMax = nextOutputMax;
+        }
+
+        lastComposerStatsCapsLoadAt = Date.now();
+      } catch {
+        // Fall back to any totals embedded in stored timings when /props is unavailable.
+      } finally {
+        composerStatsCapsLoadInFlight = null;
+      }
+    })();
+
+    return composerStatsCapsLoadInFlight;
+  }
+
+  function revealComposerStats(messageId: string) {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    clearComposerStatsTimers();
+    composerStatsMessageId = messageId;
+    composerStatsPhase = 'visible';
+
+    composerStatsFadeTimer = window.setTimeout(() => {
+      composerStatsPhase = 'fading';
+    }, COMPOSER_STATS_VISIBLE_MS);
+
+    composerStatsHideTimer = window.setTimeout(() => {
+      composerStatsPhase = 'hidden';
+      composerStatsMessageId = null;
+    }, COMPOSER_STATS_VISIBLE_MS + COMPOSER_STATS_FADE_MS);
   }
 
   function isNearBottom() {
@@ -838,6 +1069,110 @@
     }
   }
 
+  function closeRenameConversationDialog() {
+    if (conversationActionBusyId && conversationBeingRenamed?.id === conversationActionBusyId) {
+      return;
+    }
+
+    renameConversationOpen = false;
+    conversationBeingRenamed = null;
+    conversationTitleDraft = '';
+    conversationActionError = null;
+  }
+
+  function openRenameConversationDialog(conversation: ConversationSummary) {
+    conversationBeingRenamed = conversation;
+    conversationTitleDraft = conversation.title;
+    renameConversationOpen = true;
+    conversationActionError = null;
+    errorMessage = null;
+
+    void tick().then(() => {
+      renameConversationInput?.focus();
+      renameConversationInput?.select();
+    });
+  }
+
+  async function saveConversationTitle() {
+    if (!conversationBeingRenamed) {
+      return;
+    }
+
+    const nextTitle = conversationTitleDraft.trim();
+    if (!nextTitle) {
+      conversationActionError = 'Conversation title is required.';
+      return;
+    }
+
+    conversationActionBusyId = conversationBeingRenamed.id;
+    conversationActionError = null;
+
+    try {
+      await renameConversationRequest(conversationBeingRenamed.id, nextTitle);
+      await refreshConversations();
+      conversationActionBusyId = null;
+      closeRenameConversationDialog();
+    } catch (error) {
+      conversationActionError = error instanceof Error ? error.message : 'Unable to rename conversation.';
+    } finally {
+      conversationActionBusyId = null;
+    }
+  }
+
+  function closeDeleteConversationDialog() {
+    if (conversationActionBusyId && conversationBeingDeleted?.id === conversationActionBusyId) {
+      return;
+    }
+
+    deleteConversationOpen = false;
+    conversationBeingDeleted = null;
+    conversationActionError = null;
+  }
+
+  function openDeleteConversationDialog(conversation: ConversationSummary) {
+    conversationBeingDeleted = conversation;
+    deleteConversationOpen = true;
+    conversationActionError = null;
+    errorMessage = null;
+  }
+
+  async function confirmConversationDelete() {
+    if (!conversationBeingDeleted) {
+      return;
+    }
+
+    conversationActionBusyId = conversationBeingDeleted.id;
+    conversationActionError = null;
+
+    try {
+      await deleteConversationRequest(conversationBeingDeleted.id);
+      const deletedCurrentConversation = currentConversationId === conversationBeingDeleted.id;
+      conversationActionBusyId = null;
+      closeDeleteConversationDialog();
+      if (deletedCurrentConversation) {
+        startNewChat();
+      }
+      await refreshConversations();
+    } catch (error) {
+      conversationActionError = error instanceof Error ? error.message : 'Unable to delete conversation.';
+    } finally {
+      conversationActionBusyId = null;
+    }
+  }
+
+  async function exportConversation(conversation: ConversationSummary) {
+    conversationActionBusyId = conversation.id;
+    errorMessage = null;
+
+    try {
+      await exportConversationRequest(conversation);
+    } catch (error) {
+      errorMessage = error instanceof Error ? error.message : 'Unable to export conversation.';
+    } finally {
+      conversationActionBusyId = null;
+    }
+  }
+
   async function selectConversation(conversationId: string) {
     if (conversationId === currentConversationId) {
       if (isMobileViewport) sidebarCollapsed = true;
@@ -848,6 +1183,8 @@
     editingMessageId = null;
     editingDraft = '';
     errorMessage = null;
+    closeRenameConversationDialog();
+    closeDeleteConversationDialog();
     setChatUrl(conversationId);
     if (isMobileViewport) sidebarCollapsed = true;
     await loadMessages(conversationId, { forceScroll: true });
@@ -861,6 +1198,8 @@
     draftMessage = '';
     editingMessageId = null;
     editingDraft = '';
+    closeRenameConversationDialog();
+    closeDeleteConversationDialog();
     clearPendingFiles();
     errorMessage = null;
     setChatUrl(null);
@@ -1439,6 +1778,7 @@
     loadTimeFormatPreference();
     loadNotificationsPreference();
     rememberAssistantMessages(messages);
+    void loadComposerStatsCaps({ force: true });
     void loadSlashCommands({ force: true });
 
     syncMobileViewport();
@@ -1509,6 +1849,7 @@
       } else {
         mediaQuery.removeListener(onMediaChange);
       }
+      clearComposerStatsTimers();
       clearPendingFiles();
     };
   });
@@ -1561,6 +1902,10 @@
         currentConversationId={currentConversationId}
         use24HourTime={use24HourTime}
         onSelect={selectConversation}
+        onEdit={openRenameConversationDialog}
+        onExport={exportConversation}
+        onDelete={openDeleteConversationDialog}
+        busyConversationId={conversationActionBusyId}
       />
 
       <div class="llama-sidebar-footer">
@@ -1706,6 +2051,34 @@
 
             <form class="llama-composer-form" onsubmit={handleSubmit}>
               <input type="hidden" name="conversationId" value={currentConversationId ?? ''} />
+
+              {#if composerStatsStrip}
+                <div
+                  class="llama-composer-stats"
+                  class:is-fading={composerStatsStrip.isFading}
+                  aria-label="Latest assistant generation stats"
+                >
+                  {#if composerStatsStrip.contextLabel}
+                    <div class="llama-composer-stat">
+                      <span class="llama-composer-stat-label">Context:</span>
+                      <span class="llama-composer-stat-value">{composerStatsStrip.contextLabel}</span>
+                    </div>
+                  {/if}
+
+                  {#if composerStatsStrip.outputLabel}
+                    <div class="llama-composer-stat">
+                      <span class="llama-composer-stat-label">Output:</span>
+                      <span class="llama-composer-stat-value">{composerStatsStrip.outputLabel}</span>
+                    </div>
+                  {/if}
+
+                  {#if composerStatsStrip.speedLabel}
+                    <div class="llama-composer-stat">
+                      <span class="llama-composer-stat-value">{composerStatsStrip.speedLabel}</span>
+                    </div>
+                  {/if}
+                </div>
+              {/if}
 
               <div class="llama-composer">
                 {#if pendingFiles.length > 0}
@@ -1927,6 +2300,114 @@
 
         <footer class="llama-settings-modal-footer">
           <button class="secondary-button" type="button" onclick={() => (settingsOpen = false)}>Done</button>
+        </footer>
+      </div>
+    </div>
+  {/if}
+
+  {#if renameConversationOpen}
+    <div
+      class="llama-settings-modal-layer"
+      role="presentation"
+      onclick={(event: MouseEvent) => {
+        if (event.currentTarget === event.target) {
+          closeRenameConversationDialog();
+        }
+      }}
+    >
+      <div
+        class="llama-settings-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Rename conversation"
+      >
+        <header class="llama-settings-modal-header">
+          <h2>Rename conversation</h2>
+        </header>
+
+        <div class="llama-settings-modal-body">
+          <div class="llama-conversation-dialog-copy">
+            Update the label shown in the sidebar for this conversation.
+          </div>
+
+          <input
+            bind:this={renameConversationInput}
+            class="llama-conversation-dialog-input"
+            bind:value={conversationTitleDraft}
+            maxlength="200"
+            placeholder="Conversation title"
+            onkeydown={(event) => {
+              if (event.key === 'Enter') {
+                event.preventDefault();
+                void saveConversationTitle();
+              }
+            }}
+          />
+
+          {#if conversationActionError}
+            <div class="error-banner">{conversationActionError}</div>
+          {/if}
+        </div>
+
+        <footer class="llama-settings-modal-footer llama-conversation-dialog-footer">
+          <button class="secondary-button" type="button" onclick={closeRenameConversationDialog}>
+            Cancel
+          </button>
+          <button
+            class="primary-button"
+            type="button"
+            disabled={conversationActionBusyId === conversationBeingRenamed?.id || !conversationTitleDraft.trim()}
+            onclick={() => void saveConversationTitle()}
+          >
+            Save
+          </button>
+        </footer>
+      </div>
+    </div>
+  {/if}
+
+  {#if deleteConversationOpen}
+    <div
+      class="llama-settings-modal-layer"
+      role="presentation"
+      onclick={(event: MouseEvent) => {
+        if (event.currentTarget === event.target) {
+          closeDeleteConversationDialog();
+        }
+      }}
+    >
+      <div
+        class="llama-settings-modal"
+        role="alertdialog"
+        aria-modal="true"
+        aria-label="Delete conversation"
+      >
+        <header class="llama-settings-modal-header">
+          <h2>Delete conversation?</h2>
+        </header>
+
+        <div class="llama-settings-modal-body">
+          <div class="llama-conversation-dialog-copy">
+            “{conversationBeingDeleted?.title ?? 'This conversation'}” and its messages will be removed from this workspace.
+          </div>
+
+          {#if conversationActionError}
+            <div class="error-banner">{conversationActionError}</div>
+          {/if}
+        </div>
+
+        <footer class="llama-settings-modal-footer llama-conversation-dialog-footer">
+          <button class="secondary-button" type="button" onclick={closeDeleteConversationDialog}>
+            Cancel
+          </button>
+          <button
+            class="primary-button llama-danger-button"
+            type="button"
+            disabled={conversationActionBusyId === conversationBeingDeleted?.id}
+            onclick={() => void confirmConversationDelete()}
+          >
+            Delete
+          </button>
         </footer>
       </div>
     </div>

@@ -1,7 +1,7 @@
 import { base } from '$app/paths';
 import { error } from '@sveltejs/kit';
 import { browser } from '$app/environment';
-import { config } from '$lib/stores/settings.svelte';
+import { config } from '../stores/settings.svelte';
 
 /**
  * Validates API key by making a request to the server props endpoint

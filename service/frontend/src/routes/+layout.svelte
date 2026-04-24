@@ -11,6 +11,7 @@
   const MOBILE_VIEWPORT_MEDIA_QUERY = '(max-width: 768px)';
   const UPDATE_CHECK_INTERVAL_MS = 5 * 60_000;
   const SHOULD_USE_PWA_UPDATER = import.meta.env.PROD;
+  const DEV_SERVICE_WORKER_PATHS = new Set(['/dev-sw.js', '/sw.js']);
 
   function shouldOpenAnchorInNewWindow(anchor: HTMLAnchorElement) {
     if (!anchor.href || anchor.hasAttribute('download')) {
@@ -108,6 +109,38 @@
       });
     };
 
+    const unregisterStaleDevServiceWorkers = async () => {
+      if (SHOULD_USE_PWA_UPDATER || !('serviceWorker' in navigator)) {
+        return;
+      }
+
+      try {
+        const registrations = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(
+          registrations
+            .filter((registration) => {
+              const scriptUrl =
+                registration.active?.scriptURL ??
+                registration.waiting?.scriptURL ??
+                registration.installing?.scriptURL;
+
+              if (!scriptUrl) {
+                return false;
+              }
+
+              const script = new URL(scriptUrl);
+              return (
+                script.origin === window.location.origin &&
+                DEV_SERVICE_WORKER_PATHS.has(script.pathname)
+              );
+            })
+            .map((registration) => registration.unregister())
+        );
+      } catch (error) {
+        console.warn('Failed to clear stale development service workers', error);
+      }
+    };
+
     const installPwaUpdateFlow = async () => {
       try {
         const { registerSW } = await import('virtual:pwa-register');
@@ -194,6 +227,8 @@
 
       return buildFingerprintCheckInFlight;
     };
+
+    void unregisterStaleDevServiceWorkers();
 
     if (SHOULD_USE_PWA_UPDATER) {
       void installPwaUpdateFlow();

@@ -28,6 +28,7 @@ export interface ChatMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
   createdAt: string;
+  updatedAt?: string;
   status: 'complete' | 'streaming' | 'error';
   attachments: MessageAttachment[];
   revisionSiblingIds?: string[];

@@ -16,10 +16,11 @@
   } from '@lucide/svelte';
   import { env as publicEnv } from '$env/dynamic/public';
   import type { ChatMessage, MessageAttachment } from '$lib/types-legacy';
+  import { readTimingSummary } from '$lib/utils/chat-timings';
   import { isHermesSystemStatusContent } from '$lib/utils/hermes-system-status';
   import { renderMarkdown } from '$lib/utils/markdown';
 
-  type StatsView = 'reading' | 'generation';
+  type StatsView = 'reading' | 'generation' | 'completion';
 
   interface MessageStats {
     promptTokens: number | null;
@@ -118,117 +119,6 @@
     return message.role === 'assistant' && message.status === 'streaming';
   }
 
-  function toFiniteNumber(value: unknown): number | null {
-    if (typeof value === 'number' && Number.isFinite(value)) {
-      return value;
-    }
-    if (typeof value === 'string' && value.trim() !== '') {
-      const parsed = Number(value);
-      return Number.isFinite(parsed) ? parsed : null;
-    }
-    return null;
-  }
-
-  function toRecord(value: unknown): Record<string, unknown> | null {
-    if (!value || typeof value !== 'object' || Array.isArray(value)) {
-      return null;
-    }
-    return value as Record<string, unknown>;
-  }
-
-  function collectTimingScopes(value: unknown): Array<Record<string, unknown>> {
-    const scopes: Array<Record<string, unknown>> = [];
-    const seen = new Set<Record<string, unknown>>();
-    const push = (candidate: unknown) => {
-      const record = toRecord(candidate);
-      if (!record || seen.has(record)) {
-        return;
-      }
-      seen.add(record);
-      scopes.push(record);
-    };
-
-    const root = toRecord(value);
-    if (!root) {
-      return scopes;
-    }
-
-    push(root);
-    push(root.timings);
-    push(root.usage);
-
-    const verbose = toRecord(root.__verbose);
-    if (verbose) {
-      push(verbose.timings);
-      push(verbose.usage);
-    }
-
-    const response = toRecord(root.response);
-    if (response) {
-      push(response.timings);
-      push(response.usage);
-    }
-
-    const data = toRecord(root.data);
-    if (data) {
-      const dataResponse = toRecord(data.response);
-      if (dataResponse) {
-        push(dataResponse.timings);
-        push(dataResponse.usage);
-      }
-    }
-
-    const agentic = toRecord(root.agentic);
-    if (agentic) {
-      push(agentic.llm);
-
-      const perTurn = Array.isArray(agentic.perTurn) ? agentic.perTurn : [];
-      const lastTurn = perTurn.length > 0 ? toRecord(perTurn[perTurn.length - 1]) : null;
-      if (lastTurn) {
-        push(lastTurn.llm);
-      }
-    }
-
-    return scopes;
-  }
-
-  function readTimingNumber(value: unknown, keys: string[]): number | null {
-    for (const scope of collectTimingScopes(value)) {
-      for (const key of keys) {
-        const numeric = toFiniteNumber(scope[key]);
-        if (numeric != null) {
-          return numeric;
-        }
-      }
-    }
-
-    return null;
-  }
-
-  function readTimingDurationMs(value: unknown, keys: string[]): number | null {
-    for (const scope of collectTimingScopes(value)) {
-      for (const key of keys) {
-        const numeric = toFiniteNumber(scope[key]);
-        if (numeric == null) {
-          continue;
-        }
-
-        if (key.endsWith('_duration') || key === 'duration') {
-          if (numeric >= 1_000_000_000) {
-            return numeric / 1_000_000;
-          }
-          if (numeric >= 100_000) {
-            return numeric / 1_000;
-          }
-        }
-
-        return numeric;
-      }
-    }
-
-    return null;
-  }
-
   function buildMessageStats(message: ChatMessage, _index: number): MessageStats | null {
     if (message.role !== 'assistant') {
       return null;
@@ -242,47 +132,11 @@
       return null;
     }
 
-    const promptTokens = readTimingNumber(timings, [
-      'prompt_n',
-      'prompt_tokens',
-      'prompt_eval_count',
-      'input_tokens'
-    ]);
-    let promptMs = readTimingDurationMs(timings, [
-      'prompt_ms',
-      'prompt_duration_ms',
-      'prompt_eval_ms',
-      'prompt_eval_duration',
-      'prompt_duration'
-    ]);
-    const promptPerSecond = readTimingNumber(timings, ['prompt_per_second']);
-    if (promptMs == null && promptTokens != null && promptPerSecond != null && promptPerSecond > 0) {
-      promptMs = (promptTokens / promptPerSecond) * 1000;
-    }
-
-    const generatedTokens = readTimingNumber(timings, [
-      'predicted_n',
-      'completion_tokens',
-      'eval_count',
-      'output_tokens'
-    ]);
-    let generatedMs = readTimingDurationMs(timings, [
-      'predicted_ms',
-      'completion_ms',
-      'output_duration_ms',
-      'eval_ms',
-      'eval_duration',
-      'completion_duration'
-    ]);
-    const generatedPerSecond = readTimingNumber(timings, [
-      'predicted_per_second',
-      'tokens_per_second',
-      'completion_tokens_per_second',
-      'output_tokens_per_second'
-    ]);
-    if (generatedMs == null && generatedTokens != null && generatedPerSecond != null && generatedPerSecond > 0) {
-      generatedMs = (generatedTokens / generatedPerSecond) * 1000;
-    }
+    const summary = readTimingSummary(timings);
+    const promptTokens = summary.promptTokens;
+    const promptMs = summary.promptMs;
+    const generatedTokens = summary.generatedTokens;
+    const generatedMs = summary.generatedMs;
 
     // Need at least the generation side to surface anything meaningful.
     if (generatedTokens == null || generatedMs == null || generatedMs <= 0) {
@@ -295,14 +149,10 @@
     return {
       promptTokens,
       promptSeconds,
-      promptTokensPerSecond:
-        promptTokens != null && promptSeconds != null && promptSeconds > 0
-          ? promptTokens / promptSeconds
-          : null,
+      promptTokensPerSecond: summary.promptTokensPerSecond,
       generatedTokens,
       generatedSeconds,
-      generatedTokensPerSecond:
-        generatedSeconds > 0 ? generatedTokens / generatedSeconds : 0
+      generatedTokensPerSecond: summary.generatedTokensPerSecond ?? 0
     };
   }
 
@@ -335,6 +185,14 @@
       minute: '2-digit',
       hour12: !use24HourTime
     });
+  }
+
+  function completedMessageTime(message: ChatMessage) {
+    if (message.status !== 'complete') {
+      return null;
+    }
+
+    return formatMessageTime(message.updatedAt ?? message.createdAt);
   }
 
   function formatAttachmentSize(sizeBytes: number) {
@@ -529,6 +387,7 @@
 
               {#if stats}
                 {@const view = activeStatsView(message.id)}
+                {@const completedAt = completedMessageTime(message)}
                 <div class="assistant-meta-cluster assistant-stats-row">
                   <div class="assistant-stats-toggle">
                     <button
@@ -550,34 +409,50 @@
                     >
                       <Sparkles class="h-3 w-3" />
                     </button>
+                    <button
+                      type="button"
+                      class:active={view === 'completion'}
+                      class="stats-toggle-button"
+                      disabled={!completedAt}
+                      title={completedAt ? 'Completion time' : 'Completion time unavailable'}
+                      onclick={() => setStatsView(message.id, 'completion')}
+                    >
+                      <Clock3 class="h-3 w-3" />
+                    </button>
                   </div>
 
-                  <div class="assistant-stat-chip" title={view === 'reading' ? 'Prompt tokens' : 'Generated tokens'}>
-                    <WholeWord class="h-3 w-3" />
-                    <span>
-                      {view === 'reading'
-                        ? `${stats.promptTokens?.toLocaleString() ?? 0} tokens`
-                        : `${stats.generatedTokens.toLocaleString()} tokens`}
-                    </span>
-                  </div>
+                  {#if view === 'completion' && completedAt}
+                    <div class="assistant-stat-chip" title="Completed in your local time">
+                      <span>Completed {completedAt}</span>
+                    </div>
+                  {:else}
+                    <div class="assistant-stat-chip" title={view === 'reading' ? 'Prompt tokens' : 'Generated tokens'}>
+                      <WholeWord class="h-3 w-3" />
+                      <span>
+                        {view === 'reading'
+                          ? `${stats.promptTokens?.toLocaleString() ?? 0} tokens`
+                          : `${stats.generatedTokens.toLocaleString()} tokens`}
+                      </span>
+                    </div>
 
-                  <div class="assistant-stat-chip" title={view === 'reading' ? 'Prompt processing time' : 'Generation time'}>
-                    <Clock3 class="h-3 w-3" />
-                    <span>
-                      {view === 'reading'
-                        ? formatDuration(stats.promptSeconds)
-                        : formatDuration(stats.generatedSeconds)}
-                    </span>
-                  </div>
+                    <div class="assistant-stat-chip" title={view === 'reading' ? 'Prompt processing time' : 'Generation time'}>
+                      <Clock3 class="h-3 w-3" />
+                      <span>
+                        {view === 'reading'
+                          ? formatDuration(stats.promptSeconds)
+                          : formatDuration(stats.generatedSeconds)}
+                      </span>
+                    </div>
 
-                  <div class="assistant-stat-chip" title={view === 'reading' ? 'Prompt processing speed' : 'Generation speed'}>
-                    <Gauge class="h-3 w-3" />
-                    <span>
-                      {view === 'reading'
-                        ? `${(stats.promptTokensPerSecond ?? 0).toFixed(2)} t/s`
-                        : `${stats.generatedTokensPerSecond.toFixed(2)} t/s`}
-                    </span>
-                  </div>
+                    <div class="assistant-stat-chip" title={view === 'reading' ? 'Prompt processing speed' : 'Generation speed'}>
+                      <Gauge class="h-3 w-3" />
+                      <span>
+                        {view === 'reading'
+                          ? `${(stats.promptTokensPerSecond ?? 0).toFixed(2)} t/s`
+                          : `${stats.generatedTokensPerSecond.toFixed(2)} t/s`}
+                      </span>
+                    </div>
+                  {/if}
                 </div>
               {/if}
             </div>

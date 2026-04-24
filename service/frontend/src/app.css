@@ -434,6 +434,12 @@ body {
   background: var(--panel-strong);
   border-color: var(--border-strong);
 }
+:root.dark .llama-conversation-menu-trigger:hover,
+:root.dark .llama-conversation-menu-trigger[data-state='open'],
+:root.dark .llama-conversation-row.active .llama-conversation-menu-trigger {
+  background: var(--accent-soft);
+  color: var(--text);
+}
 :root.dark .llama-toolbar-button,
 :root.dark .secondary-button,
 :root.dark .llama-secondary-button {
@@ -679,8 +685,14 @@ a {
   padding-right: 0.15rem;
 }
 
+.llama-conversation-row {
+  position: relative;
+  min-width: 0;
+}
+
 .llama-conversation-link {
   display: grid;
+  width: 100%;
   gap: 0.3rem;
   padding: 0.7rem 0.8rem;
   border: 1px solid transparent;
@@ -689,7 +701,65 @@ a {
   transition: background 160ms ease, border-color 160ms ease;
 }
 
-.llama-conversation-link:hover {
+.llama-conversation-link--with-actions {
+  padding-right: 4rem;
+}
+
+.llama-conversation-actions {
+  display: flex;
+  position: absolute;
+  top: 0.35rem;
+  right: 0.35rem;
+  bottom: 0.35rem;
+  align-items: center;
+  z-index: 1;
+}
+
+.llama-conversation-menu-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.35rem;
+  min-width: 2.35rem;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: calc(var(--app-radius) - 0.15rem);
+  background: transparent;
+  color: var(--text-muted);
+  transition: background 160ms ease, color 160ms ease;
+}
+
+.llama-conversation-menu-trigger:hover,
+.llama-conversation-menu-trigger[data-state='open'],
+.llama-conversation-row.active .llama-conversation-menu-trigger {
+  background: rgba(255, 255, 255, 0.68);
+  color: var(--text);
+}
+
+.llama-conversation-menu-trigger:disabled {
+  opacity: 0.56;
+  cursor: not-allowed;
+}
+
+.llama-conversation-menu {
+  min-width: 11rem;
+}
+
+.llama-conversation-menu-item {
+  gap: 0.65rem;
+}
+
+.llama-conversation-menu-item--danger {
+  color: #dc2626;
+}
+
+.llama-conversation-menu-item--danger:focus {
+  color: #dc2626;
+}
+
+.llama-conversation-link:hover,
+.llama-conversation-row:hover .llama-conversation-link {
   background: rgba(255, 255, 255, 0.74);
 }
 
@@ -969,6 +1039,35 @@ a {
   border-top: 1px solid var(--border);
   display: flex;
   justify-content: flex-end;
+}
+
+.llama-conversation-dialog-copy {
+  margin-bottom: 0.85rem;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.llama-conversation-dialog-input {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--app-radius) - 0.15rem);
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--text);
+  padding: 0.8rem 0.9rem;
+}
+
+.llama-conversation-dialog-input:focus {
+  outline: 2px solid rgba(15, 118, 110, 0.18);
+  outline-offset: 1px;
+}
+
+.llama-conversation-dialog-footer {
+  gap: 0.7rem;
+}
+
+.llama-danger-button {
+  border-color: #dc2626;
+  background: #dc2626;
 }
 
 .llama-chat-stage {
@@ -1683,6 +1782,42 @@ a {
 .llama-composer-form {
   display: grid;
   gap: 0.65rem;
+}
+
+.llama-composer-stats {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem 2rem;
+  padding: 0 0.35rem;
+  color: #75716b;
+  font-family: 'IBM Plex Mono', 'SFMono-Regular', Consolas, monospace;
+  font-size: 0.78rem;
+  line-height: 1.2;
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity 220ms ease, transform 220ms ease;
+}
+
+.llama-composer-stats.is-fading {
+  opacity: 0;
+  transform: translateY(-0.18rem);
+}
+
+.llama-composer-stat {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.45rem;
+  white-space: nowrap;
+}
+
+.llama-composer-stat-label {
+  color: #7a766f;
+}
+
+.llama-composer-stat-value {
+  color: #5e5b56;
 }
 
 .llama-composer {
@@ -2543,6 +2678,12 @@ a {
 @media (max-width: 480px) {
   .llama-sidebar {
     padding: 0.9rem 0.75rem;
+  }
+
+  .llama-composer-stats {
+    justify-content: flex-start;
+    gap: 0.4rem 1rem;
+    font-size: 0.74rem;
   }
 
   .llama-jump-to-bottom {

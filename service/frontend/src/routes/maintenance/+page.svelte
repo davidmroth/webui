@@ -10,6 +10,7 @@
   } from '$lib/utils/notifications';
 
   let { data, form } = $props();
+  const SHOULD_ALLOW_SERVICE_WORKER_REGISTRATION = import.meta.env.PROD;
 
   type NotificationDiagnostic = {
     timestamp: string;
@@ -49,6 +50,14 @@
       return;
     }
 
+    if (!SHOULD_ALLOW_SERVICE_WORKER_REGISTRATION) {
+      logNotificationDiagnostic(
+        'sw.register.skipped',
+        'Service-worker registration is disabled in development for this app. Use a production build to test /sw.js registration.'
+      );
+      return;
+    }
+
     // Dump every existing registration on this origin so we can see whether
     // the auto-registration ran but landed on a different scope.
     try {
@@ -72,8 +81,7 @@
 
     // Try every plausible SW URL so we can tell prod-build vs vite-dev.
     const candidates: { url: string; type: 'classic' | 'module' }[] = [
-      { url: '/sw.js', type: 'classic' },
-      { url: '/dev-sw.js?dev-sw', type: 'module' }
+      { url: '/sw.js', type: 'classic' }
     ];
 
     for (const candidate of candidates) {
@@ -384,8 +392,9 @@
               <code>showNotification</code> + page <code>Notification</code> fallback). On Android,
               page-level <code>Notification</code> is essentially a no-op — only service-worker
               notifications surface in the system tray. If <em>Inspect environment</em> shows
-              <code>existingScope: null</code>, click <em>Register service worker</em> first and watch the log
-              for the failure reason.
+              <code>existingScope: null</code>, click <em>Register service worker</em> in a production build and
+              watch the log for the failure reason. Development mode keeps service-worker registration
+              disabled.
             </p>
           </div>
         </div>
@@ -407,7 +416,13 @@
           </button>
           <button
             type="button"
-            class="inline-flex items-center rounded-md border border-border bg-background px-3 py-2 text-sm font-medium hover:bg-accent hover:text-accent-foreground"
+            class="inline-flex items-center rounded-md border border-border bg-background px-3 py-2 text-sm font-medium hover:bg-accent hover:text-accent-foreground disabled:opacity-60"
+            disabled={!SHOULD_ALLOW_SERVICE_WORKER_REGISTRATION}
+            title={
+              SHOULD_ALLOW_SERVICE_WORKER_REGISTRATION
+                ? 'Register /sw.js for this origin'
+                : 'Service-worker registration is only available in production builds'
+            }
             onclick={registerServiceWorkerManually}
           >
             Register service worker
