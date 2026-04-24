@@ -202,7 +202,7 @@
 
   function openHtmlAttachment(attachment: MessageAttachment) {
     selectedHtmlAttachment = attachment;
-    isHtmlAttachmentFullscreen = false;
+    isHtmlAttachmentFullscreen = true;
   }
 
   function closeHtmlAttachment() {
