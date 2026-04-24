@@ -1,6 +1,7 @@
 <script lang="ts">
   import {
     BookOpenText,
+    Check,
     Clock3,
     Copy,
     Download,
@@ -423,7 +424,7 @@
 
                   {#if view === 'completion' && completedAt}
                     <div class="assistant-stat-chip" title="Completed in your local time">
-                      <Clock3 class="h-3 w-3" />
+                      <Check class="h-3 w-3" />
                       <span>{completedAt}</span>
                     </div>
                   {:else}

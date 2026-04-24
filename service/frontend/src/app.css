@@ -1627,10 +1627,10 @@ a {
 .llama-attachment-modal.fullscreen {
   position: fixed;
   inset: 0;
-  width: 100vw;
+  width: auto;
   max-width: none;
-  height: 100dvh;
-  max-height: 100dvh;
+  height: auto;
+  max-height: none;
   border: 0;
   border-radius: 0;
 }
@@ -1671,7 +1671,7 @@ a {
 }
 
 .llama-attachment-modal-floating-actions {
-  position: absolute;
+  position: fixed;
   top: max(1rem, env(safe-area-inset-top, 0px) + 0.75rem);
   right: max(1rem, env(safe-area-inset-right, 0px) + 0.75rem);
   z-index: 2;
@@ -1751,10 +1751,10 @@ a {
   }
 
   .llama-attachment-modal.fullscreen {
-    width: 100vw;
+    width: auto;
     max-width: none;
-    height: 100dvh;
-    max-height: 100dvh;
+    height: auto;
+    max-height: none;
   }
 
   .llama-attachment-modal-floating-actions {
