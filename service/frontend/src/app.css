@@ -2277,6 +2277,11 @@ a {
   color: var(--text);
 }
 
+:root.dark .stats-toggle-button.active {
+  background: rgba(255, 255, 255, 0.14);
+  color: var(--accent-strong);
+}
+
 .stats-toggle-button:disabled {
   opacity: 0.45;
   cursor: not-allowed;
