@@ -2,9 +2,14 @@ import { error } from '@sveltejs/kit';
 import { requireSession } from '$server/auth';
 import {
   findActiveAssistantMessage,
+  findLatestAssistantMessage,
   getMessageStatus,
   listAssistantChunks
 } from '$server/chat';
+import {
+  getAssistantCatchupDoneEvent,
+  resolveConversationStreamCursor
+} from '$server/conversation-stream-recovery';
 import {
   subscribeConversationStream,
   type ConversationStreamEvent
@@ -13,8 +18,10 @@ import {
 const HEARTBEAT_INTERVAL_MS = 15_000;
 const MAX_STREAM_DURATION_MS = 5 * 60_000;
 
-function sse(event: string, data: unknown): string {
-  return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+function sse(event: string, data: unknown, options: { id?: string } = {}): string {
+  const eventId = options.id?.trim();
+  const idLine = eventId ? `id: ${eventId}\n` : '';
+  return `${idLine}event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
 }
 
 export async function GET(event) {
@@ -23,6 +30,11 @@ export async function GET(event) {
   if (!conversationId) {
     throw error(400, 'conversationId required');
   }
+
+  const streamCursor = resolveConversationStreamCursor({
+    lastEventId: event.request.headers.get('last-event-id'),
+    lastAssistantMessageId: event.url.searchParams.get('lastAssistantMessageId')
+  });
 
   const encoder = new TextEncoder();
   let cancelled = false;
@@ -114,9 +126,32 @@ export async function GET(event) {
 
           const status = await getMessageStatus(activeMessageId);
           if (!status || status.status !== 'streaming') {
-            send(sse('done', { messageId: activeMessageId, status: status?.status ?? 'complete' }));
+            send(
+              sse(
+                'done',
+                { messageId: activeMessageId, status: status?.status ?? 'complete' },
+                { id: activeMessageId }
+              )
+            );
             activeMessageId = null;
             lastSeq = -1;
+          }
+        }
+
+        if (!activeMessageId) {
+          const latestAssistantMessage = await findLatestAssistantMessage(session.userId, conversationId);
+          const catchupEvent = getAssistantCatchupDoneEvent(latestAssistantMessage, streamCursor);
+          if (catchupEvent) {
+            send(
+              sse(
+                'done',
+                {
+                  messageId: catchupEvent.messageId,
+                  status: catchupEvent.status
+                },
+                { id: catchupEvent.messageId }
+              )
+            );
           }
         }
 
@@ -165,7 +200,7 @@ export async function GET(event) {
             sse('done', {
               messageId: streamEvent.messageId,
               status: streamEvent.status
-            })
+            }, { id: streamEvent.messageId })
           );
           activeMessageId = null;
           lastSeq = -1;
@@ -173,7 +208,7 @@ export async function GET(event) {
       } finally {
         unsubscribe();
         if (resolveNextEvent) {
-          const resolve = resolveNextEvent;
+          const resolve: (streamEvent: ConversationStreamEvent | null) => void = resolveNextEvent;
           resolveNextEvent = null;
           resolve(null);
         }

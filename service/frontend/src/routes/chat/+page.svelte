@@ -66,6 +66,7 @@
   let notificationsEnabled = $state(false);
   let notificationPermission = $state<NotificationPermission>('default');
   let seenAssistantMessageIds = $state<Set<string>>(new Set());
+  let loadedMessagesConversationId = $state<string | null>(null);
   let lastKnownConversationUpdatedAtById = $state<Record<string, string>>(
     indexConversationUpdatedAt(data.conversations ?? [])
   );
@@ -122,6 +123,7 @@
   const notificationsSupported = $derived(
     typeof window !== 'undefined' && typeof Notification !== 'undefined'
   );
+  let latestTerminalAssistantMessageIdByConversation: Record<string, string | null> = {};
   let streamedAssistantSeqByMessageId: Record<string, number> = {};
   let lastSlashCommandsLoadAt = 0;
   let slashCommandsLoadInFlight: Promise<void> | null = null;
@@ -181,6 +183,28 @@
       }
     }
     seenAssistantMessageIds = nextSeen;
+  }
+
+  function getLatestTerminalAssistantMessageId(nextMessages: ChatMessage[]): string | null {
+    for (let index = nextMessages.length - 1; index >= 0; index -= 1) {
+      const message = nextMessages[index];
+      if (message.role !== 'assistant' || message.id.startsWith('pending-')) {
+        continue;
+      }
+
+      if (message.status === 'complete' || message.status === 'error') {
+        return message.id;
+      }
+    }
+
+    return null;
+  }
+
+  function rememberConversationStreamCursor(conversationId: string, nextMessages: ChatMessage[]) {
+    latestTerminalAssistantMessageIdByConversation = {
+      ...latestTerminalAssistantMessageIdByConversation,
+      [conversationId]: getLatestTerminalAssistantMessageId(nextMessages)
+    };
   }
 
   function indexConversationUpdatedAt(nextConversations: ConversationSummary[]) {
@@ -396,17 +420,34 @@
     currentConversationId = data.currentConversationId;
     messages = data.messages;
     conversations = data.conversations;
+    loadedMessagesConversationId = data.currentConversationId;
+    if (data.currentConversationId) {
+      rememberConversationStreamCursor(data.currentConversationId, data.messages);
+    }
     lastKnownConversationUpdatedAtById = indexConversationUpdatedAt(data.conversations);
     lastKnownAssistantBusyById = indexConversationAssistantBusy(data.conversations);
   });
 
   $effect(() => {
-    if (typeof EventSource === 'undefined' || !currentConversationId) {
+    if (
+      typeof EventSource === 'undefined' ||
+      !currentConversationId ||
+      loadedMessagesConversationId !== currentConversationId
+    ) {
       return;
     }
 
     const conversationId = currentConversationId;
-    const stream = new EventSource(`/api/conversations/${conversationId}/messages/stream`);
+    const streamSearchParams = new URLSearchParams();
+    const lastAssistantMessageId = latestTerminalAssistantMessageIdByConversation[conversationId];
+    if (lastAssistantMessageId) {
+      streamSearchParams.set('lastAssistantMessageId', lastAssistantMessageId);
+    }
+
+    const streamPath = streamSearchParams.size > 0
+      ? `/api/conversations/${conversationId}/messages/stream?${streamSearchParams.toString()}`
+      : `/api/conversations/${conversationId}/messages/stream`;
+    const stream = new EventSource(streamPath);
 
     const handleMessageEvent = (event: Event) => {
       if (currentConversationId !== conversationId) {
@@ -858,6 +899,7 @@
 
     if (!conversationId) {
       messages = [];
+      loadedMessagesConversationId = null;
       return;
     }
 
@@ -868,6 +910,8 @@
 
     const payload = await response.json();
     syncPendingAssistant(conversationId, payload.messages);
+    rememberConversationStreamCursor(conversationId, payload.messages);
+    loadedMessagesConversationId = conversationId;
     messages = payload.messages;
     if (editingMessageId && !payload.messages.some((message: ChatMessage) => message.id === editingMessageId)) {
       editingMessageId = null;
@@ -908,6 +952,7 @@
 
   function startNewChat() {
     currentConversationId = null;
+    loadedMessagesConversationId = null;
     messages = [];
     draftMessage = '';
     editingMessageId = null;
