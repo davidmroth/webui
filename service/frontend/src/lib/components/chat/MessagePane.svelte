@@ -418,13 +418,13 @@
                       title={completedAt ? 'Completion time' : 'Completion time unavailable'}
                       onclick={() => setStatsView(message.id, 'completion')}
                     >
-                      <Clock3 class="h-3 w-3" />
+                      <Check class="h-3 w-3" />
                     </button>
                   </div>
 
                   {#if view === 'completion' && completedAt}
                     <div class="assistant-stat-chip" title="Completed in your local time">
-                      <Check class="h-3 w-3" />
+                      <Clock3 class="h-3 w-3" />
                       <span>{completedAt}</span>
                     </div>
                   {:else}

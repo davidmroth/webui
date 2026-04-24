@@ -435,11 +435,15 @@ body {
   border-color: var(--border-strong);
 }
 :root.dark .llama-conversation-menu-trigger:hover,
-:root.dark .llama-conversation-menu-trigger[data-state='open'],
-:root.dark .llama-conversation-row.active .llama-conversation-menu-trigger {
+:root.dark .llama-conversation-menu-trigger[data-state='open'] {
   background: var(--accent-soft);
   color: var(--text);
 }
+
+:root.dark .llama-conversation-row.active .llama-conversation-menu-trigger:not(:hover):not([data-state='open']) {
+  background: transparent;
+}
+
 :root.dark .llama-toolbar-button,
 :root.dark .secondary-button,
 :root.dark .llama-secondary-button {
@@ -731,10 +735,17 @@ a {
 }
 
 .llama-conversation-menu-trigger:hover,
-.llama-conversation-menu-trigger[data-state='open'],
-.llama-conversation-row.active .llama-conversation-menu-trigger {
-  background: rgba(255, 255, 255, 0.68);
+.llama-conversation-menu-trigger[data-state='open'] {
+  background: var(--accent-soft);
   color: var(--text);
+}
+
+.llama-conversation-row.active .llama-conversation-menu-trigger {
+  color: var(--text);
+}
+
+.llama-conversation-row.active .llama-conversation-menu-trigger:not(:hover):not([data-state='open']) {
+  background: transparent;
 }
 
 .llama-conversation-menu-trigger:disabled {
