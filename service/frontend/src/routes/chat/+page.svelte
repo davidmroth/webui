@@ -23,6 +23,23 @@
   import ConversationList from '$components/chat/ConversationList.svelte';
   import MessagePane from '$components/chat/MessagePane.svelte';
   import type { ChatMessage, ConversationSummary } from '$lib/types-legacy';
+  import {
+    deliverBrowserNotification,
+    getNotificationPermission,
+    isNotificationApiSupported,
+    readNotificationsEnabledPreference,
+    requestNotificationPermission,
+    writeNotificationsEnabledPreference
+  } from '$lib/utils/notifications';
+  import {
+    getChangedConversationIdsForReplyChecks,
+    getLatestTerminalAssistantMessageId,
+    getLatestUnseenAssistantReply,
+    indexConversationAssistantBusy,
+    indexConversationUpdatedAt,
+    rememberSeenAssistantMessages,
+    shouldNotifyAssistantReply
+  } from '$lib/utils/chat-notification-policy';
 
   type PendingAttachment = {
     id: string;
@@ -117,12 +134,9 @@
 
   const AUTO_SCROLL_AT_BOTTOM_THRESHOLD = 10;
   const TIME_FORMAT_24H_LOCALSTORAGE_KEY = 'LlamaCppWebui.timeFormat24Hour';
-  const NOTIFICATIONS_ENABLED_LOCALSTORAGE_KEY = 'LlamaCppWebui.notificationsEnabled';
   const NOTIFICATION_BODY_MAX_LENGTH = 180;
   const SLASH_COMMANDS_REFRESH_INTERVAL_MS = 5 * 60_000;
-  const notificationsSupported = $derived(
-    typeof window !== 'undefined' && typeof Notification !== 'undefined'
-  );
+  const notificationsSupported = $derived(isNotificationApiSupported());
   let latestTerminalAssistantMessageIdByConversation: Record<string, string | null> = {};
   let streamedAssistantSeqByMessageId: Record<string, number> = {};
   let lastSlashCommandsLoadAt = 0;
@@ -150,54 +164,18 @@
       return;
     }
 
-    if (typeof Notification === 'undefined') {
-      notificationPermission = 'denied';
-      notificationsEnabled = false;
-      return;
-    }
-
-    notificationPermission = Notification.permission;
-    notificationsEnabled =
-      window.localStorage.getItem(NOTIFICATIONS_ENABLED_LOCALSTORAGE_KEY) === '1' &&
-      notificationPermission === 'granted';
+    const permission = getNotificationPermission();
+    notificationPermission = permission ?? 'denied';
+    notificationsEnabled = permission === 'granted' && readNotificationsEnabledPreference();
   }
 
   function setNotificationsPreference(nextValue: boolean) {
     notificationsEnabled = nextValue;
-    if (typeof window === 'undefined') {
-      return;
-    }
-
-    window.localStorage.setItem(NOTIFICATIONS_ENABLED_LOCALSTORAGE_KEY, nextValue ? '1' : '0');
+    writeNotificationsEnabledPreference(nextValue);
   }
 
   function rememberAssistantMessages(nextMessages: ChatMessage[]) {
-    const nextSeen = new Set(seenAssistantMessageIds);
-    for (const message of nextMessages) {
-      if (
-        message.role === 'assistant' &&
-        message.status === 'complete' &&
-        !message.id.startsWith('pending-')
-      ) {
-        nextSeen.add(message.id);
-      }
-    }
-    seenAssistantMessageIds = nextSeen;
-  }
-
-  function getLatestTerminalAssistantMessageId(nextMessages: ChatMessage[]): string | null {
-    for (let index = nextMessages.length - 1; index >= 0; index -= 1) {
-      const message = nextMessages[index];
-      if (message.role !== 'assistant' || message.id.startsWith('pending-')) {
-        continue;
-      }
-
-      if (message.status === 'complete' || message.status === 'error') {
-        return message.id;
-      }
-    }
-
-    return null;
+    seenAssistantMessageIds = rememberSeenAssistantMessages(seenAssistantMessageIds, nextMessages);
   }
 
   function rememberConversationStreamCursor(conversationId: string, nextMessages: ChatMessage[]) {
@@ -205,16 +183,6 @@
       ...latestTerminalAssistantMessageIdByConversation,
       [conversationId]: getLatestTerminalAssistantMessageId(nextMessages)
     };
-  }
-
-  function indexConversationUpdatedAt(nextConversations: ConversationSummary[]) {
-    return Object.fromEntries(nextConversations.map((conversation) => [conversation.id, conversation.updatedAt]));
-  }
-
-  function indexConversationAssistantBusy(nextConversations: ConversationSummary[]) {
-    return Object.fromEntries(
-      nextConversations.map((conversation) => [conversation.id, Boolean(conversation.assistantBusy)])
-    );
   }
 
   function conversationTitle(conversationId: string) {
@@ -234,33 +202,8 @@
     return `${normalized.slice(0, NOTIFICATION_BODY_MAX_LENGTH - 3)}...`;
   }
 
-  async function getServiceWorkerNotificationRegistration() {
-    if (typeof window === 'undefined' || !('serviceWorker' in navigator)) {
-      return null;
-    }
-
-    try {
-      const existing = await navigator.serviceWorker.getRegistration();
-      if (existing && typeof existing.showNotification === 'function') {
-        return existing;
-      }
-
-      const registration = await Promise.race([
-        navigator.serviceWorker.ready,
-        new Promise<null>((resolve) => window.setTimeout(() => resolve(null), 1200))
-      ]);
-      if (registration && typeof registration.showNotification === 'function') {
-        return registration;
-      }
-    } catch {
-      // Ignore and fall back to the page Notification API.
-    }
-
-    return null;
-  }
-
   async function showAssistantReplyNotification(conversationId: string, message: ChatMessage) {
-    if (typeof window === 'undefined' || typeof Notification === 'undefined') {
+    if (typeof window === 'undefined') {
       return;
     }
 
@@ -269,44 +212,24 @@
     const body = formatNotificationBody(message);
     const tag = `assistant-${message.id}`;
 
-    const registration = await getServiceWorkerNotificationRegistration();
-    if (registration) {
-      await registration.showNotification(title, {
-        body,
-        tag,
-        data: { url: chatUrl }
-      });
-      return;
-    }
-
-    const notification = new Notification(title, { body, tag });
-    notification.onclick = () => {
-      notification.close();
-      window.focus();
-      window.location.assign(chatUrl);
-    };
+    await deliverBrowserNotification(
+      { title, body, tag, url: chatUrl },
+      { strategy: 'page-first', timeoutMs: 1200 }
+    );
   }
 
   async function maybeNotifyAssistantReply(conversationId: string, nextMessages: ChatMessage[]) {
-    const assistantMessages = nextMessages.filter(
-      (message) =>
-        message.role === 'assistant' &&
-        message.status === 'complete' &&
-        !message.id.startsWith('pending-')
-    );
-    const unseen = assistantMessages.filter((message) => !seenAssistantMessageIds.has(message.id));
+    const latest = getLatestUnseenAssistantReply(seenAssistantMessageIds, nextMessages);
+    const shouldNotify = shouldNotifyAssistantReply({
+      notificationsEnabled,
+      notificationPermission,
+      conversationId,
+      currentConversationId,
+      documentVisibility: typeof document === 'undefined' ? 'visible' : document.visibilityState,
+      documentHasFocus: typeof document === 'undefined' ? true : document.hasFocus()
+    });
 
-    const isInBackgroundOrUnfocused =
-      typeof document !== 'undefined' &&
-      (document.visibilityState !== 'visible' || !document.hasFocus());
-
-    const shouldNotify =
-      notificationsEnabled &&
-      notificationPermission === 'granted' &&
-      (isInBackgroundOrUnfocused || conversationId !== currentConversationId);
-
-    if (shouldNotify && unseen.length > 0) {
-      const latest = unseen[unseen.length - 1];
+    if (shouldNotify && latest) {
       await showAssistantReplyNotification(conversationId, latest);
     }
 
@@ -314,32 +237,12 @@
   }
 
   async function maybeNotifyOtherConversationReplies(nextConversations: ConversationSummary[]) {
-    const previousUpdatedAtById = lastKnownConversationUpdatedAtById;
-    const previousBusyById = lastKnownAssistantBusyById;
-
-    const changedConversationIds = nextConversations
-      .filter((conversation) => {
-        if (conversation.id === currentConversationId) {
-          return false;
-        }
-
-        const previousUpdatedAt = previousUpdatedAtById[conversation.id];
-        const updatedAtChanged = Boolean(
-          previousUpdatedAt && previousUpdatedAt !== conversation.updatedAt
-        );
-
-        // Fallback signal: if the assistant was previously busy on this
-        // conversation and is no longer busy, treat that as a completion
-        // event even if updated_at didn't change. Protects against any
-        // server-side path that finalizes a streaming message without
-        // bumping the parent conversation's updated_at.
-        const wasBusy = previousBusyById[conversation.id] === true;
-        const isBusy = Boolean(conversation.assistantBusy);
-        const becameIdle = wasBusy && !isBusy;
-
-        return updatedAtChanged || becameIdle;
-      })
-      .map((conversation) => conversation.id);
+    const changedConversationIds = getChangedConversationIdsForReplyChecks({
+      currentConversationId,
+      nextConversations,
+      previousUpdatedAtById: lastKnownConversationUpdatedAtById,
+      previousBusyById: lastKnownAssistantBusyById
+    });
 
     for (const conversationId of changedConversationIds) {
       try {
@@ -368,7 +271,7 @@
       return;
     }
 
-    if (typeof window === 'undefined' || typeof Notification === 'undefined') {
+    if (typeof window === 'undefined' || !isNotificationApiSupported()) {
       checkbox.checked = false;
       setNotificationsPreference(false);
       errorMessage = 'Notifications are not available in this browser.';
@@ -382,12 +285,12 @@
       return;
     }
 
-    let permission = Notification.permission;
+    let permission = getNotificationPermission();
     if (permission !== 'granted') {
-      permission = await Notification.requestPermission();
+      permission = await requestNotificationPermission();
     }
 
-    notificationPermission = permission;
+    notificationPermission = permission ?? 'denied';
 
     if (permission !== 'granted') {
       checkbox.checked = false;
@@ -1561,14 +1464,19 @@
     window.addEventListener('keydown', onKeydown);
 
     const onVisibilityChange = () => {
-      if (typeof Notification === 'undefined') {
+      const permission = getNotificationPermission();
+      if (permission == null) {
+        notificationPermission = 'denied';
+        if (notificationsEnabled) {
+          setNotificationsPreference(false);
+        }
         if (document.visibilityState === 'visible') {
           void loadSlashCommands();
         }
         return;
       }
 
-      notificationPermission = Notification.permission;
+      notificationPermission = permission;
       if (notificationPermission !== 'granted' && notificationsEnabled) {
         setNotificationsPreference(false);
       }

@@ -1,4 +1,14 @@
 <script lang="ts">
+  import {
+    describeNotificationServiceWorker,
+    getNotificationPermission,
+    getNotificationServiceWorkerRegistration,
+    readNotificationEnvironmentSnapshot,
+    requestNotificationPermission,
+    showPageNotification,
+    showServiceWorkerNotification
+  } from '$lib/utils/notifications';
+
   let { data, form } = $props();
 
   type NotificationDiagnostic = {
@@ -20,60 +30,11 @@
   }
 
   function readNotificationEnvironment() {
-    if (typeof window === 'undefined') {
-      return {
-        userAgent: 'n/a (SSR)',
-        secureContext: false,
-        notificationApiPresent: false,
-        notificationPermission: 'unsupported',
-        serviceWorkerSupported: false,
-        documentVisibility: 'n/a',
-        documentHasFocus: false,
-        notificationsEnabledPref: '0'
-      };
-    }
-    return {
-      userAgent: window.navigator.userAgent,
-      secureContext: window.isSecureContext,
-      notificationApiPresent: typeof Notification !== 'undefined',
-      notificationPermission:
-        typeof Notification === 'undefined' ? 'unsupported' : Notification.permission,
-      serviceWorkerSupported: 'serviceWorker' in navigator,
-      documentVisibility: document.visibilityState,
-      documentHasFocus: document.hasFocus(),
-      notificationsEnabledPref:
-        window.localStorage.getItem('LlamaCppWebui.notificationsEnabled') ?? '(unset)'
-    };
+    return readNotificationEnvironmentSnapshot();
   }
 
   async function describeServiceWorker() {
-    if (typeof window === 'undefined' || !('serviceWorker' in navigator)) {
-      return { supported: false };
-    }
-    try {
-      const existing = await navigator.serviceWorker.getRegistration();
-      const ready = await Promise.race([
-        navigator.serviceWorker.ready,
-        new Promise<null>((resolve) => window.setTimeout(() => resolve(null), 1500))
-      ]);
-      return {
-        supported: true,
-        existingScope: existing?.scope ?? null,
-        existingActive: existing?.active?.scriptURL ?? null,
-        existingState: existing?.active?.state ?? null,
-        readyResolved: Boolean(ready),
-        readyScope: ready?.scope ?? null,
-        readyActive: ready?.active?.scriptURL ?? null,
-        readyState: ready?.active?.state ?? null,
-        showNotificationAvailable:
-          typeof (existing ?? ready)?.showNotification === 'function'
-      };
-    } catch (error) {
-      return {
-        supported: true,
-        error: error instanceof Error ? error.message : String(error)
-      };
-    }
+    return describeNotificationServiceWorker(1500);
   }
 
   async function inspectNotificationEnvironment() {
@@ -187,13 +148,13 @@
   }
 
   async function requestNotificationPermissionFromMaintenance() {
-    if (typeof Notification === 'undefined') {
+    if (getNotificationPermission() == null) {
       logNotificationDiagnostic('permission.requestPermission', 'Notification API unavailable');
       return;
     }
     try {
-      const result = await Notification.requestPermission();
-      logNotificationDiagnostic('permission.requestPermission', result);
+      const result = await requestNotificationPermission();
+      logNotificationDiagnostic('permission.requestPermission', result ?? 'unsupported');
     } catch (error) {
       logNotificationDiagnostic(
         'permission.requestPermission.error',
@@ -211,15 +172,16 @@
     try {
       logNotificationDiagnostic('test.start', readNotificationEnvironment());
 
-      if (typeof Notification === 'undefined') {
+      const permission = getNotificationPermission();
+      if (permission == null) {
         logNotificationDiagnostic('test.error', 'Notification API not available in this browser.');
         return;
       }
 
-      if (Notification.permission !== 'granted') {
+      if (permission !== 'granted') {
         logNotificationDiagnostic(
           'test.permission',
-          `permission is "${Notification.permission}"; click "Request permission" first.`
+          `permission is "${permission}"; click "Request permission" first.`
         );
         return;
       }
@@ -227,50 +189,32 @@
       const title = 'Hermes notification test';
       const body = `Fired at ${new Date().toLocaleTimeString()} from /maintenance.`;
       const tag = `maintenance-test-${Date.now()}`;
-      const data = { url: '/maintenance' };
 
       // Try service-worker delivery first (Android-friendly).
       let serviceWorkerDelivered = false;
-      if ('serviceWorker' in navigator) {
-        try {
-          const existing = await navigator.serviceWorker.getRegistration();
-          const registration =
-            existing ??
-            (await Promise.race([
-              navigator.serviceWorker.ready,
-              new Promise<null>((resolve) => window.setTimeout(() => resolve(null), 1500))
-            ]));
-          if (registration && typeof registration.showNotification === 'function') {
-            await registration.showNotification(title, {
-              body,
-              tag,
-              data
-            });
-            logNotificationDiagnostic('test.sw.showNotification', 'resolved OK');
-            serviceWorkerDelivered = true;
-          } else {
-            logNotificationDiagnostic(
-              'test.sw.showNotification',
-              'no usable service worker registration; falling back to page Notification API'
-            );
-          }
-        } catch (error) {
+      try {
+        serviceWorkerDelivered = await showServiceWorkerNotification(
+          { title, body, tag, url: '/maintenance' },
+          { timeoutMs: 1500 }
+        );
+        if (serviceWorkerDelivered) {
+          logNotificationDiagnostic('test.sw.showNotification', 'resolved OK');
+        } else {
           logNotificationDiagnostic(
-            'test.sw.error',
-            error instanceof Error ? error.message : String(error)
+            'test.sw.showNotification',
+            'no usable service worker registration; falling back to page Notification API'
           );
         }
-      } else {
-        logNotificationDiagnostic('test.sw', 'serviceWorker not supported; using page Notification API');
+      } catch (error) {
+        logNotificationDiagnostic(
+          'test.sw.error',
+          error instanceof Error ? error.message : String(error)
+        );
       }
 
       // Always fire the page-level Notification too — useful for desktop diagnosis.
       try {
-        const notification = new Notification(title + ' (page)', { body, tag: `${tag}-page` });
-        notification.onclick = () => {
-          notification.close();
-          window.focus();
-        };
+        showPageNotification({ title: title + ' (page)', body, tag: `${tag}-page` });
         logNotificationDiagnostic(
           'test.page.Notification',
           serviceWorkerDelivered ? 'fired (alongside SW notification)' : 'fired (SW unavailable)'
@@ -287,7 +231,7 @@
       // the browser API succeeded — any "I don't see a banner" problem is
       // then 100% an OS / Focus / Notification Center issue.
       try {
-        const reg = await navigator.serviceWorker?.getRegistration();
+        const reg = await getNotificationServiceWorkerRegistration(1500);
         if (reg) {
           const live = await reg.getNotifications();
           logNotificationDiagnostic(
