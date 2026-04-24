@@ -921,6 +921,14 @@ a {
   min-width: 0;
   min-height: 0;
   overflow: hidden;
+  transform-origin: 50% 0;
+  transition: opacity 220ms ease, transform 220ms ease;
+}
+
+.llama-main.is-removing-conversation {
+  opacity: 0;
+  transform: translateY(10px) scale(0.995);
+  pointer-events: none;
 }
 
 .llama-topbar {
@@ -1078,6 +1086,23 @@ a {
   justify-content: flex-end;
   position: relative;
   overflow: hidden;
+}
+
+.llama-chat-stage::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  opacity: 0;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--panel-strong) 28%, transparent);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  transition: opacity 220ms ease;
+}
+
+.llama-main.is-removing-conversation .llama-chat-stage::after {
+  opacity: 1;
 }
 
 .llama-stalled-banner {

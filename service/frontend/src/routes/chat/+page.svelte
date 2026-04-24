@@ -99,6 +99,7 @@
   let conversationBeingRenamed = $state<ConversationSummary | null>(null);
   let conversationBeingDeleted = $state<ConversationSummary | null>(null);
   let conversationTitleDraft = $state('');
+  let isRemovingConversationView = $state(false);
   let busyMessageIds = $state<Set<string>>(new Set());
   let isDragActive = $state(false);
   let settingsOpen = $state(false);
@@ -161,6 +162,7 @@
   const TIME_FORMAT_24H_LOCALSTORAGE_KEY = 'LlamaCppWebui.timeFormat24Hour';
   const NOTIFICATION_BODY_MAX_LENGTH = 180;
   const SLASH_COMMANDS_REFRESH_INTERVAL_MS = 5 * 60_000;
+  const CONVERSATION_DELETE_EXIT_MS = 220;
   const COMPOSER_STATS_VISIBLE_MS = 1_500;
   const COMPOSER_STATS_FADE_MS = 450;
   const COMPOSER_STATS_CAPS_REFRESH_INTERVAL_MS = 30_000;
@@ -1136,6 +1138,14 @@
     errorMessage = null;
   }
 
+  async function fadeOutDeletedConversationView() {
+    isRemovingConversationView = true;
+    await tick();
+    await new Promise<void>((resolve) => {
+      window.setTimeout(resolve, CONVERSATION_DELETE_EXIT_MS);
+    });
+  }
+
   async function confirmConversationDelete() {
     if (!conversationBeingDeleted) {
       return;
@@ -1150,6 +1160,7 @@
       conversationActionBusyId = null;
       closeDeleteConversationDialog();
       if (deletedCurrentConversation) {
+        await fadeOutDeletedConversationView();
         startNewChat();
       }
       await refreshConversations();
@@ -1174,6 +1185,8 @@
   }
 
   async function selectConversation(conversationId: string) {
+    isRemovingConversationView = false;
+
     if (conversationId === currentConversationId) {
       if (isMobileViewport) sidebarCollapsed = true;
       return;
@@ -1192,6 +1205,7 @@
   }
 
   function startNewChat() {
+    isRemovingConversationView = false;
     currentConversationId = null;
     loadedMessagesConversationId = null;
     messages = [];
@@ -1938,7 +1952,7 @@
       </div>
     </aside>
 
-    <section class="llama-main">
+    <section class:is-removing-conversation={isRemovingConversationView} class="llama-main">
       <div class="llama-topbar">
         <button
           class="llama-toolbar-button"

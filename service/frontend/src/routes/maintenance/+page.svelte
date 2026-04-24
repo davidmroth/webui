@@ -731,7 +731,7 @@
                       <div class="mt-1 text-muted-foreground break-all">id: {msg.id}</div>
                       <div class="text-muted-foreground break-all">conversation: {msg.conversationId}</div>
                     </div>
-                    <span class={`rounded-full px-2 py-1 text-xs font-medium ${msg.timings ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300' : 'bg-muted text-muted-foreground'}`}>
+                    <span class={`shrink-0 whitespace-nowrap rounded-full px-2 py-1 text-xs font-medium ${msg.timings ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300' : 'bg-muted text-muted-foreground'}`}>
                       {msg.timings ? 'has timings' : 'no timings'}
                     </span>
                   </div>
