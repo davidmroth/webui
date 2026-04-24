@@ -423,7 +423,8 @@
 
                   {#if view === 'completion' && completedAt}
                     <div class="assistant-stat-chip" title="Completed in your local time">
-                      <span>Completed {completedAt}</span>
+                      <Clock3 class="h-3 w-3" />
+                      <span>{completedAt}</span>
                     </div>
                   {:else}
                     <div class="assistant-stat-chip" title={view === 'reading' ? 'Prompt tokens' : 'Generated tokens'}>
