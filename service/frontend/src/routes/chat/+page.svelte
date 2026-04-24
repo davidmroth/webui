@@ -122,6 +122,7 @@
   const sidebarBuildLabel = $derived.by(() => {
     const buildInfo = data.buildInfo;
     const version = String(buildInfo?.frontend ?? '0.0.0');
+    const versionLabel = version.startsWith('v') ? version : `v${version}`;
     const branch = buildInfo?.gitBranch ? String(buildInfo.gitBranch) : 'n/a';
     const commit = buildInfo?.gitCommitShort
       ? String(buildInfo.gitCommitShort)
@@ -129,7 +130,7 @@
         ? String(buildInfo.gitCommit).slice(0, 7)
         : 'n/a';
 
-    return `v${version} · ${branch} · ${commit}`;
+    return `${versionLabel} · ${branch} · ${commit}`;
   });
 
   const AUTO_SCROLL_AT_BOTTOM_THRESHOLD = 10;

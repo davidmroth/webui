@@ -319,7 +319,7 @@
       </div>
 
       {#if data.authorized}
-        <div class="flex items-center gap-3">
+        <div class="flex flex-wrap items-center gap-3">
           <button
             type="button"
             class="inline-flex items-center rounded-md border border-border px-3 py-2 text-sm font-medium text-foreground hover:bg-accent hover:text-accent-foreground"
@@ -461,7 +461,7 @@
               {#each notificationLog as entry}
                 <li class="rounded-md bg-background p-2">
                   <div class="text-muted-foreground">[{entry.timestamp}] {entry.label}</div>
-                  <pre class="mt-1 overflow-x-auto whitespace-pre-wrap break-words">{entry.value}</pre>
+                  <pre class="mt-1 max-w-full overflow-x-auto whitespace-pre-wrap [overflow-wrap:anywhere]">{entry.value}</pre>
                 </li>
               {/each}
             </ol>
@@ -470,11 +470,11 @@
       </section>
 
       <section class="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <div class="rounded-xl border border-border bg-card p-5 shadow-sm">
+        <div class="min-w-0 rounded-xl border border-border bg-card p-5 shadow-sm">
           <div class="text-xs font-medium uppercase tracking-[0.22em] text-muted-foreground">Build</div>
-          <div class="mt-3 text-2xl font-semibold">{snapshot.build.frontend}</div>
+          <div class="mt-3 text-2xl font-semibold [overflow-wrap:anywhere]">{snapshot.build.frontend}</div>
           <div class="mt-2 text-sm text-muted-foreground">Source: {snapshot.build.source}</div>
-          <div class="mt-3 space-y-1 text-sm">
+          <div class="mt-3 space-y-1 text-sm [overflow-wrap:anywhere]">
             <div>Tag: {snapshot.build.gitTag ?? 'n/a'}</div>
             <div>Branch: {snapshot.build.gitBranch ?? 'n/a'}</div>
             <div>Commit: {snapshot.build.gitCommit ?? 'n/a'}</div>
@@ -483,22 +483,22 @@
           </div>
         </div>
 
-        <div class="rounded-xl border border-border bg-card p-5 shadow-sm">
+        <div class="min-w-0 rounded-xl border border-border bg-card p-5 shadow-sm">
           <div class="text-xs font-medium uppercase tracking-[0.22em] text-muted-foreground">Runtime</div>
-          <div class="mt-3 text-2xl font-semibold">{snapshot.runtime.env}</div>
+          <div class="mt-3 text-2xl font-semibold [overflow-wrap:anywhere]">{snapshot.runtime.env}</div>
           <div class="mt-2 text-sm text-muted-foreground">Node {snapshot.runtime.nodeVersion}</div>
-          <div class="mt-3 space-y-1 text-sm">
+          <div class="mt-3 space-y-1 text-sm [overflow-wrap:anywhere]">
             <div>Uptime: {formatDuration(snapshot.runtime.uptimeSeconds)}</div>
             <div>PID: {snapshot.runtime.pid}</div>
             <div>Host: {snapshot.runtime.hostname}</div>
           </div>
         </div>
 
-        <div class="rounded-xl border border-border bg-card p-5 shadow-sm">
+        <div class="min-w-0 rounded-xl border border-border bg-card p-5 shadow-sm">
           <div class="text-xs font-medium uppercase tracking-[0.22em] text-muted-foreground">Hermes Queue</div>
           <div class="mt-3 text-2xl font-semibold">{snapshot.queue.queued}</div>
           <div class="mt-2 text-sm text-muted-foreground">queued events</div>
-          <div class="mt-3 space-y-1 text-sm">
+          <div class="mt-3 space-y-1 text-sm [overflow-wrap:anywhere]">
             <div>Processing: {snapshot.queue.processing}</div>
             <div>Stale: {snapshot.queue.staleProcessing}</div>
             <div>Acked: {snapshot.queue.acked}</div>
@@ -511,11 +511,11 @@
           </div>
         </div>
 
-        <div class="rounded-xl border border-border bg-card p-5 shadow-sm">
+        <div class="min-w-0 rounded-xl border border-border bg-card p-5 shadow-sm">
           <div class="text-xs font-medium uppercase tracking-[0.22em] text-muted-foreground">Memory</div>
           <div class="mt-3 text-2xl font-semibold">{formatBytes(snapshot.runtime.memory.heapUsed)}</div>
           <div class="mt-2 text-sm text-muted-foreground">heap used</div>
-          <div class="mt-3 space-y-1 text-sm">
+          <div class="mt-3 space-y-1 text-sm [overflow-wrap:anywhere]">
             <div>Heap total: {formatBytes(snapshot.runtime.memory.heapTotal)}</div>
             <div>RSS: {formatBytes(snapshot.runtime.memory.rss)}</div>
             <div>External: {formatBytes(snapshot.runtime.memory.external)}</div>
@@ -527,14 +527,14 @@
         <div class="rounded-xl border border-border bg-card p-5 shadow-sm xl:col-span-2">
           <h2 class="text-lg font-semibold">System checks</h2>
           <div class="mt-4 grid gap-4 md:grid-cols-2">
-            <div class="rounded-lg border border-border bg-muted/40 p-4">
+            <div class="min-w-0 rounded-lg border border-border bg-muted/40 p-4">
               <div class="flex items-center justify-between gap-3">
                 <h3 class="font-medium">Database</h3>
                 <span class={`rounded-full px-2 py-1 text-xs font-medium ${snapshot.database.ok ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300' : 'bg-destructive/15 text-destructive'}`}>
                   {snapshot.database.ok ? 'OK' : 'Error'}
                 </span>
               </div>
-              <dl class="mt-3 space-y-1 text-sm">
+              <dl class="mt-3 space-y-1 text-sm [overflow-wrap:anywhere]">
                 <div>Version: {snapshot.database.version ?? 'n/a'}</div>
                 <div>Server time: {snapshot.database.serverTime ?? 'n/a'}</div>
                 <div>Users: {snapshot.database.counts?.users ?? 'n/a'}</div>
@@ -548,14 +548,14 @@
               {/if}
             </div>
 
-            <div class="rounded-lg border border-border bg-muted/40 p-4">
+            <div class="min-w-0 rounded-lg border border-border bg-muted/40 p-4">
               <div class="flex items-center justify-between gap-3">
                 <h3 class="font-medium">Object storage</h3>
                 <span class={`rounded-full px-2 py-1 text-xs font-medium ${snapshot.storage.ok ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300' : 'bg-destructive/15 text-destructive'}`}>
                   {snapshot.storage.ok ? 'OK' : 'Error'}
                 </span>
               </div>
-              <dl class="mt-3 space-y-1 text-sm">
+              <dl class="mt-3 space-y-1 text-sm [overflow-wrap:anywhere]">
                 <div>Endpoint: {snapshot.storage.endpoint}:{snapshot.storage.port}</div>
                 <div>Bucket: {snapshot.storage.bucket}</div>
                 <div>SSL: {snapshot.storage.useSsl ? 'enabled' : 'disabled'}</div>
@@ -587,13 +587,13 @@
             </div>
 
             <div class="mt-4 grid gap-3 md:grid-cols-2">
-              <div class="rounded-md bg-background p-3 text-sm">
+              <div class="min-w-0 rounded-md bg-background p-3 text-sm [overflow-wrap:anywhere]">
                 <div><span class="font-medium">Metadata mode:</span> {snapshot.build.metadataMode}</div>
                 <div><span class="font-medium">Last attachment:</span> {snapshot.database.attachmentStats.lastAttachmentAt ?? 'never'}</div>
                 <div><span class="font-medium">Last assistant attachment:</span> {snapshot.database.attachmentStats.lastAssistantAttachmentAt ?? 'never'}</div>
                 <div><span class="font-medium">Assistant attachment signal:</span> {snapshot.database.attachmentStats.assistantAttachmentSignal}</div>
               </div>
-              <div class="rounded-md bg-background p-3 text-sm">
+              <div class="min-w-0 rounded-md bg-background p-3 text-sm [overflow-wrap:anywhere]">
                 <div><span class="font-medium">Total attachments:</span> {snapshot.database.attachmentStats.totalCount}</div>
                 <div><span class="font-medium">Assistant attachments:</span> {snapshot.database.attachmentStats.assistantCount}</div>
                 <div><span class="font-medium">User attachments:</span> {snapshot.database.attachmentStats.userCount}</div>
@@ -601,7 +601,7 @@
               </div>
             </div>
 
-            <div class="mt-4 grid gap-2 text-sm">
+            <div class="mt-4 grid gap-2 text-sm [overflow-wrap:anywhere]">
               <div><span class="font-medium">Database OK:</span> {snapshot.fileDeliveryDiagnosis.checks.databaseOk ? 'yes' : 'no'}</div>
               <div><span class="font-medium">Storage OK:</span> {snapshot.fileDeliveryDiagnosis.checks.storageOk ? 'yes' : 'no'}</div>
               <div><span class="font-medium">Bucket exists:</span> {snapshot.fileDeliveryDiagnosis.checks.bucketExists ? 'yes' : 'no'}</div>
@@ -649,9 +649,9 @@
           {#if snapshot.deliveryTraces.recent.length > 0}
             <div class="mt-4 space-y-3">
               {#each snapshot.deliveryTraces.recent as trace}
-                <div class="rounded-lg border border-border bg-muted/30 p-4 text-sm">
-                  <div class="flex items-start justify-between gap-3">
-                    <div>
+                <div class="min-w-0 rounded-lg border border-border bg-muted/30 p-4 text-sm">
+                  <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div class="min-w-0 [overflow-wrap:anywhere]">
                       <div class="font-medium">{trace.route} at {trace.createdAt}</div>
                       <div class="mt-1 text-muted-foreground">Target: {trace.senderTargetUrl ?? 'n/a'}</div>
                     </div>
@@ -660,7 +660,7 @@
                     </span>
                   </div>
 
-                  <div class="mt-3 grid gap-2 md:grid-cols-2">
+                  <div class="mt-3 grid gap-2 md:grid-cols-2 [overflow-wrap:anywhere]">
                     <div>Conversation: {trace.conversationId}</div>
                     <div>Receiver message: {trace.receiverMessageId ?? 'n/a'}</div>
                     <div>Trace id: {trace.senderTraceId ?? 'n/a'}</div>
@@ -709,9 +709,9 @@
           {#if snapshot.recentAssistantTimings.recent.length > 0}
             <div class="mt-4 space-y-3">
               {#each snapshot.recentAssistantTimings.recent as msg}
-                <div class="rounded-lg border border-border bg-muted/30 p-4 text-sm">
-                  <div class="flex items-start justify-between gap-3">
-                    <div>
+                <div class="min-w-0 rounded-lg border border-border bg-muted/30 p-4 text-sm">
+                  <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div class="min-w-0">
                       <div class="font-medium">{msg.createdAt ?? 'unknown time'}</div>
                       <div class="mt-1 text-muted-foreground break-all">id: {msg.id}</div>
                       <div class="text-muted-foreground break-all">conversation: {msg.conversationId}</div>
@@ -720,11 +720,11 @@
                       {msg.timings ? 'has timings' : 'no timings'}
                     </span>
                   </div>
-                  <div class="mt-2 text-muted-foreground">
+                  <div class="mt-2 text-muted-foreground [overflow-wrap:anywhere]">
                     Content ({msg.contentLength} chars): <span class="text-foreground">{msg.contentSnippet || '(empty)'}{msg.contentLength > msg.contentSnippet.length ? '\u2026' : ''}</span>
                   </div>
                   {#if msg.timingsRaw}
-                    <pre class="mt-3 overflow-x-auto rounded-md bg-background/60 p-3 text-xs">{msg.timingsRaw}</pre>
+                    <pre class="mt-3 max-w-full overflow-x-auto whitespace-pre-wrap rounded-md bg-background/60 p-3 text-xs [overflow-wrap:anywhere]">{msg.timingsRaw}</pre>
                   {/if}
                 </div>
               {/each}
@@ -734,9 +734,9 @@
           {/if}
         </div>
 
-        <div class="rounded-xl border border-border bg-card p-5 shadow-sm">
+        <div class="min-w-0 rounded-xl border border-border bg-card p-5 shadow-sm">
           <h2 class="text-lg font-semibold">Request and config</h2>
-          <dl class="mt-4 space-y-2 text-sm">
+          <dl class="mt-4 space-y-2 text-sm [overflow-wrap:anywhere]">
             <div><span class="font-medium">Collected at:</span> {snapshot.collectedAt}</div>
             <div><span class="font-medium">Origin:</span> {snapshot.request.origin}</div>
             <div><span class="font-medium">Host:</span> {snapshot.request.forwardedHost ?? snapshot.request.host ?? 'n/a'}</div>
@@ -756,7 +756,7 @@
         <p class="mt-2 text-sm text-muted-foreground">
           Copy this block when debugging deployment mismatches, stale containers, queue issues, or missing build metadata.
         </p>
-        <pre class="mt-4 overflow-x-auto rounded-lg bg-muted p-4 text-xs leading-5">{pretty(snapshot)}</pre>
+        <pre class="mt-4 max-w-full overflow-x-auto whitespace-pre-wrap rounded-lg bg-muted p-4 text-[11px] leading-5 [overflow-wrap:anywhere] sm:text-xs">{pretty(snapshot)}</pre>
       </section>
     {:else}
       <section class="rounded-xl border border-border bg-card p-6 shadow-sm">

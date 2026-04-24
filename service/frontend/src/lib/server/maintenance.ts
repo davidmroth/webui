@@ -284,6 +284,16 @@ async function readJsonFile<T>(filePath: string): Promise<T | null> {
   }
 }
 
+function resolveBuildVersion(build: { frontend?: unknown; gitTag?: unknown } | null): string {
+  const gitTag = build?.gitTag ? String(build.gitTag).trim() : '';
+  if (gitTag && gitTag !== 'no-tag') {
+    return gitTag;
+  }
+
+  const frontend = build?.frontend ? String(build.frontend).trim() : '';
+  return frontend || '0.0.0';
+}
+
 export async function getBuildInfo(): Promise<BuildInfo> {
   const cwd = process.cwd();
   const versionJson = await readJsonFile<Partial<BuildInfo>>(
@@ -293,7 +303,7 @@ export async function getBuildInfo(): Promise<BuildInfo> {
     return {
       source: 'version.json',
       metadataMode: 'image-baked',
-      frontend: String(versionJson.frontend ?? '0.0.0'),
+      frontend: resolveBuildVersion(versionJson),
       gitTag: versionJson.gitTag ? String(versionJson.gitTag) : null,
       gitCommit: versionJson.gitCommit ? String(versionJson.gitCommit) : null,
       gitCommitShort: versionJson.gitCommitShort ? String(versionJson.gitCommitShort) : null,
@@ -309,7 +319,7 @@ export async function getBuildInfo(): Promise<BuildInfo> {
     return {
       source: '.build.json',
       metadataMode: 'image-baked',
-      frontend: String(buildJson.frontend ?? '0.0.0'),
+      frontend: resolveBuildVersion(buildJson),
       gitTag: buildJson.gitTag ? String(buildJson.gitTag) : null,
       gitCommit: buildJson.gitCommit ? String(buildJson.gitCommit) : null,
       gitCommitShort: buildJson.gitCommitShort ? String(buildJson.gitCommitShort) : null,

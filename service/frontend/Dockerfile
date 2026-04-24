@@ -13,8 +13,10 @@ COPY ./service/frontend/package.json ./
 # Generate version.json in the final stage (fast, no cache invalidation of earlier layers)
 RUN \
     BUILD_TIME=$(TZ='America/Chicago' date -Iseconds) && \
-    FRONTEND_VERSION=$(node -p "require('/git/package.json').version" 2>/dev/null || echo "0.0.0") && \
-    GIT_TAG=$(git describe --abbrev=0 --tags --match="v[0-9]*" 2>/dev/null || echo "no-tag") && \
+    GIT_TAG=$(git describe --abbrev=0 --tags --match="v[0-9]*" 2>/dev/null || true) && \
+    PACKAGE_VERSION=$(node -p "require('/git/package.json').version" 2>/dev/null || echo "0.0.0") && \
+    FRONTEND_VERSION=${GIT_TAG:-$PACKAGE_VERSION} && \
+    GIT_TAG=${GIT_TAG:-no-tag} && \
     GIT_COMMIT=$(git rev-parse HEAD 2>/dev/null || echo "unknown") && \
     GIT_COMMIT_SHORT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown") && \
     GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown") && \
