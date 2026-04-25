@@ -368,6 +368,19 @@ function resolveBuildVersion(build: { frontend?: unknown; gitTag?: unknown } | n
   return frontend || '0.0.0';
 }
 
+export function resolveBuildFingerprint(
+  build: { frontend?: unknown; gitTag?: unknown; gitCommit?: unknown } | null
+): string {
+  const version = resolveBuildVersion(build);
+  const gitCommit = build?.gitCommit ? String(build.gitCommit).trim() : '';
+
+  if (!gitCommit || gitCommit === 'unknown') {
+    return version;
+  }
+
+  return `${version}@${gitCommit}`;
+}
+
 export async function getBuildInfo(): Promise<BuildInfo> {
   const cwd = process.cwd();
   const versionJson = await readJsonFile<Partial<BuildInfo>>(

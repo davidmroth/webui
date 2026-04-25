@@ -72,15 +72,15 @@
     let updateToastVisible = false;
     let updateServiceWorker: ((reloadPage?: boolean) => Promise<void>) | undefined;
     let refreshInterval: ReturnType<typeof setInterval> | undefined;
-    const buildVersionStorageKey = 'hermes_webui_last_seen_build_version';
-    let buildVersion: string | undefined;
+    const buildFingerprintStorageKey = 'hermes_webui_last_seen_build_fingerprint';
+    let buildFingerprint: string | undefined;
     let lastBuildFingerprintCheckAt = 0;
     let buildFingerprintCheckInFlight: Promise<void> | null = null;
 
     try {
-      buildVersion = localStorage.getItem(buildVersionStorageKey) ?? undefined;
+      buildFingerprint = localStorage.getItem(buildFingerprintStorageKey) ?? undefined;
     } catch {
-      buildVersion = undefined;
+      buildFingerprint = undefined;
     }
 
     const showUpdateToast = () => {
@@ -196,23 +196,23 @@
           if (!response.ok) return;
 
           const payload = (await response.json()) as { version?: string; fingerprint?: string };
-          const nextVersion = payload.version ?? payload.fingerprint;
-          if (!nextVersion) return;
+          const nextFingerprint = payload.fingerprint ?? payload.version;
+          if (!nextFingerprint) return;
 
-          if (!buildVersion) {
-            buildVersion = nextVersion;
+          if (!buildFingerprint) {
+            buildFingerprint = nextFingerprint;
             try {
-              localStorage.setItem(buildVersionStorageKey, nextVersion);
+              localStorage.setItem(buildFingerprintStorageKey, nextFingerprint);
             } catch {
               // Ignore storage write failures (private mode, quota, etc.).
             }
             return;
           }
 
-          if (nextVersion !== buildVersion) {
-            buildVersion = nextVersion;
+          if (nextFingerprint !== buildFingerprint) {
+            buildFingerprint = nextFingerprint;
             try {
-              localStorage.setItem(buildVersionStorageKey, nextVersion);
+              localStorage.setItem(buildFingerprintStorageKey, nextFingerprint);
             } catch {
               // Ignore storage write failures (private mode, quota, etc.).
             }

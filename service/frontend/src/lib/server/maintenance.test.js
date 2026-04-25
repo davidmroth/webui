@@ -3,7 +3,11 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { buildHermesInboxContractPreview, getBuildInfo } from './maintenance.ts';
+import {
+  buildHermesInboxContractPreview,
+  getBuildInfo,
+  resolveBuildFingerprint
+} from './maintenance.ts';
 
 async function createTempBuildDirectory() {
   return mkdtemp(join(tmpdir(), 'hermes-webui-build-info-'));
@@ -59,6 +63,26 @@ test('getBuildInfo falls back to the baked frontend version when no git tag exis
   assert.equal(build.source, '.build.json');
   assert.equal(build.frontend, '0.2.9.6');
   assert.equal(build.gitTag, 'no-tag');
+});
+
+test('resolveBuildFingerprint includes the git commit when present', () => {
+  const fingerprint = resolveBuildFingerprint({
+    frontend: '0.2.9.6',
+    gitTag: 'v0.2.10',
+    gitCommit: 'abc123def456'
+  });
+
+  assert.equal(fingerprint, 'v0.2.10@abc123def456');
+});
+
+test('resolveBuildFingerprint falls back to the version when commit metadata is unavailable', () => {
+  const fingerprint = resolveBuildFingerprint({
+    frontend: '0.2.9.6',
+    gitTag: 'no-tag',
+    gitCommit: 'unknown'
+  });
+
+  assert.equal(fingerprint, '0.2.9.6');
 });
 
 test('buildHermesInboxContractPreview derives the conversation-scoped session contract fields', () => {

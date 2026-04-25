@@ -1,14 +1,14 @@
 import { json } from '@sveltejs/kit';
-import { getBuildInfo } from '$server/maintenance';
+import { getBuildInfo, resolveBuildFingerprint } from '$server/maintenance';
 
 export async function GET() {
   const build = await getBuildInfo();
-  const version = String(build.frontend ?? '0.0.0');
+  const fingerprint = resolveBuildFingerprint(build);
 
   return json(
     {
-      version,
-      fingerprint: version,
+      version: fingerprint,
+      fingerprint,
       build
     },
     {
