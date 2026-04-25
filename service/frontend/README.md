@@ -52,10 +52,20 @@ Hermes uses the `webchat` adapter to poll:
 
 - `GET /api/internal/hermes/health`
 - `GET /api/internal/hermes/inbox/next`
+- `GET /api/internal/hermes/conversations/:id/context`
 - `POST /api/internal/hermes/events/:id/ack`
 - `POST /api/internal/hermes/conversations/:id/assistant`
 
 The browser never sees the Hermes service token.
+
+The inbox response is intentionally lightweight. It now includes conversation-scoped session metadata so Hermes can keep one model session per conversation or rebuild on demand after a restart:
+
+- `sessionPlatform`: receiver-declared session namespace, currently `webui-conversation`
+- `sessionChatId`: the WebUI conversation ID to use as the model-session key
+- `contextUrl`: authenticated internal route for fetching the current conversation export payload
+- `contextVersion`: lightweight change metadata with `currNode` and `lastModified`
+
+`GET /api/internal/hermes/conversations/:id/context` returns the same conversation export payload used by the authenticated browser export route, including the current visible branch markers. Hermes should fetch this when opening or rebuilding a conversation-scoped model session instead of relying on one global rolling history.
 
 The maintenance page is separate from the browser login flow and uses `MAINTENANCE_TOKEN`, not `BOOTSTRAP_USER_KEY` or `HERMES_WEBCHAT_SERVICE_TOKEN`.
 
@@ -70,6 +80,8 @@ JSON attachment payloads support these fields per item:
 - `contentType`: optional MIME type. Defaults to `text/plain; charset=utf-8` for `text` and `application/octet-stream` for `base64Data`.
 - `text`: UTF-8 text file contents.
 - `base64Data`: binary file contents encoded as base64.
+
+Assistant posts can also include optional sender trace metadata as `senderTrace`, including `route`, `sessionPlatform`, and `sessionChatId`. WebUI records these fields in Hermes delivery traces so you can verify which conversation-scoped sender session produced a reply.
 
 Example:
 

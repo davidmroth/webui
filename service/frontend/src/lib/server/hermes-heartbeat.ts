@@ -1,6 +1,6 @@
 import { getConfig } from './env';
 
-type HeartbeatSource = 'inbox-next' | 'event-ack' | 'assistant-post' | 'health';
+type HeartbeatSource = 'inbox-next' | 'event-ack' | 'assistant-post' | 'context' | 'health';
 
 let lastSeenAtMs: number | null = null;
 let lastSeenSource: HeartbeatSource | null = null;

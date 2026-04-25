@@ -161,6 +161,44 @@ interface HermesDeliveryTraceTelemetry {
   error: string | null;
 }
 
+interface HermesInboxContractRow {
+  event_id: string;
+  status: 'queued' | 'processing' | 'acked' | 'cancelled';
+  conversation_id: string;
+  conversation_title: string | null;
+  curr_node: string | null;
+  last_modified: number | string | null;
+  message_id: string;
+  content: string | null;
+  attachment_count: number | string | null;
+  created_at: Date | string;
+}
+
+interface HermesInboxContractEventPreview {
+  eventId: string;
+  status: 'queued' | 'processing' | 'acked' | 'cancelled';
+  conversationId: string;
+  conversationName: string | null;
+  messageId: string;
+  createdAt: string;
+  messagePreview: string;
+  attachmentCount: number;
+  sessionPlatform: 'webui-conversation';
+  sessionChatId: string;
+  contextUrl: string;
+  contextVersion: {
+    currNode: string | null;
+    lastModified: number;
+  };
+}
+
+interface HermesInboxContractTelemetry {
+  ok: boolean;
+  hasPendingEvent: boolean;
+  preview: HermesInboxContractEventPreview | null;
+  error: string | null;
+}
+
 interface CountRow {
   count: number | string;
 }
@@ -216,6 +254,42 @@ function parseAttachmentNames(value: string | string[] | null | undefined): stri
   } catch {
     return [];
   }
+}
+
+export function buildHermesInboxContractPreview(
+  row: HermesInboxContractRow | null | undefined
+): HermesInboxContractEventPreview | null {
+  if (!row?.event_id || !row.conversation_id || !row.message_id) {
+    return null;
+  }
+
+  const normalizedLastModified = Number(row.last_modified ?? 0);
+  const lastModified = Number.isFinite(normalizedLastModified) && normalizedLastModified > 0
+    ? normalizedLastModified
+    : 0;
+  const normalizedAttachmentCount = Number(row.attachment_count ?? 0);
+  const attachmentCount = Number.isFinite(normalizedAttachmentCount) && normalizedAttachmentCount > 0
+    ? normalizedAttachmentCount
+    : 0;
+  const messagePreview = typeof row.content === 'string' ? row.content.slice(0, 120) : '';
+
+  return {
+    eventId: row.event_id,
+    status: row.status,
+    conversationId: row.conversation_id,
+    conversationName: row.conversation_title,
+    messageId: row.message_id,
+    createdAt: toIsoString(row.created_at) ?? new Date(0).toISOString(),
+    messagePreview,
+    attachmentCount,
+    sessionPlatform: 'webui-conversation',
+    sessionChatId: row.conversation_id,
+    contextUrl: `/api/internal/hermes/conversations/${row.conversation_id}/context`,
+    contextVersion: {
+      currNode: row.curr_node?.trim() || null,
+      lastModified
+    }
+  };
 }
 
 function setMaintenanceCookie(event: RequestEvent) {
@@ -611,6 +685,58 @@ async function getHermesDeliveryTraceTelemetry(): Promise<HermesDeliveryTraceTel
   }
 }
 
+async function getHermesInboxContractTelemetry(): Promise<HermesInboxContractTelemetry> {
+  try {
+    const rows = await query<HermesInboxContractRow>(
+      `SELECT
+         hermes_events.id AS event_id,
+         hermes_events.status,
+         conversations.id AS conversation_id,
+         conversations.title AS conversation_title,
+         conversations.curr_node,
+         conversations.last_modified,
+         hermes_events.message_id,
+         messages.content,
+         COUNT(attachments.id) AS attachment_count,
+         hermes_events.created_at
+       FROM hermes_events
+       INNER JOIN conversations ON conversations.id = hermes_events.conversation_id
+       INNER JOIN messages ON messages.id = hermes_events.message_id
+       LEFT JOIN attachments ON attachments.message_id = hermes_events.message_id
+       WHERE hermes_events.status IN ('queued', 'processing')
+       GROUP BY
+         hermes_events.id,
+         hermes_events.status,
+         conversations.id,
+         conversations.title,
+         conversations.curr_node,
+         conversations.last_modified,
+         hermes_events.message_id,
+         messages.content,
+         hermes_events.created_at
+       ORDER BY
+         CASE WHEN hermes_events.status = 'queued' THEN 0 ELSE 1 END,
+         hermes_events.created_at DESC
+       LIMIT 1`
+    );
+
+    const preview = buildHermesInboxContractPreview(rows[0]);
+    return {
+      ok: true,
+      hasPendingEvent: Boolean(preview),
+      preview,
+      error: null
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      hasPendingEvent: false,
+      preview: null,
+      error: error instanceof Error ? error.message : 'Inbox contract query failed.'
+    };
+  }
+}
+
 function deriveFileDeliveryDiagnosis(params: {
   database: DatabaseTelemetry;
   storage: Awaited<ReturnType<typeof getStorageTelemetry>>;
@@ -754,11 +880,12 @@ export async function collectMaintenanceSnapshot(event: RequestEvent) {
   const config = getConfig();
   const memoryUsage = process.memoryUsage();
   const workerHeartbeat = getHermesWorkerHeartbeat();
-  const [build, database, storage, deliveryTraces, queue, recentAssistantTimings] = await Promise.all([
+  const [build, database, storage, deliveryTraces, inboxContract, queue, recentAssistantTimings] = await Promise.all([
     getBuildInfo(),
     getDatabaseTelemetry(),
     getStorageTelemetry(),
     getHermesDeliveryTraceTelemetry(),
+    getHermesInboxContractTelemetry(),
     getHermesQueueStats().catch((error) => ({
       queued: 0,
       processing: 0,
@@ -820,6 +947,7 @@ export async function collectMaintenanceSnapshot(event: RequestEvent) {
     database,
     storage,
     deliveryTraces,
+    inboxContract,
     queue,
     workerHeartbeat,
     recentAssistantTimings,

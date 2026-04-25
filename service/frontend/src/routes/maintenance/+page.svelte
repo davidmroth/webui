@@ -696,6 +696,61 @@
         </div>
 
         <div class="rounded-xl border border-border bg-card p-5 shadow-sm">
+          <h2 class="text-lg font-semibold">Webchat inbox contract</h2>
+          <p class="mt-2 text-sm text-muted-foreground">
+            Non-destructive preview of the next queue payload shape Hermes consumes. This does not dequeue work; it shows the conversation-scoped session key and context export route the sender should use.
+          </p>
+
+          <div class="mt-4 grid gap-3 md:grid-cols-2 text-sm">
+            <div class="rounded-md bg-muted/40 p-4">
+              <div><span class="font-medium">Query OK:</span> {snapshot.inboxContract.ok ? 'yes' : 'no'}</div>
+              <div><span class="font-medium">Pending event:</span> {snapshot.inboxContract.hasPendingEvent ? 'yes' : 'no'}</div>
+              {#if snapshot.inboxContract.error}
+                <div class="mt-2 text-destructive">{snapshot.inboxContract.error}</div>
+              {/if}
+              {#if !snapshot.inboxContract.hasPendingEvent}
+                <div class="mt-2 text-muted-foreground">No queued or processing inbox event is available to preview right now.</div>
+              {/if}
+            </div>
+
+            <div class="rounded-md bg-muted/40 p-4">
+              <div><span class="font-medium">Session scope:</span> `sessionChatId` is the per-conversation Hermes session key.</div>
+              <div class="mt-2"><span class="font-medium">Context source:</span> `contextUrl` points at the authoritative visible-branch export for that conversation.</div>
+              <div class="mt-2"><span class="font-medium">Expected sender behavior:</span> rebuild or resume from this conversation context before generating a reply.</div>
+            </div>
+          </div>
+
+          {#if snapshot.inboxContract.preview}
+            <div class="mt-4 min-w-0 rounded-lg border border-border bg-muted/30 p-4 text-sm [overflow-wrap:anywhere]">
+              <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div class="min-w-0">
+                  <div class="font-medium">{snapshot.inboxContract.preview.status} event {snapshot.inboxContract.preview.eventId}</div>
+                  <div class="mt-1 text-muted-foreground">Conversation: {snapshot.inboxContract.preview.conversationName ?? snapshot.inboxContract.preview.conversationId}</div>
+                </div>
+                <div class="rounded-full bg-muted px-2 py-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  {snapshot.inboxContract.preview.createdAt}
+                </div>
+              </div>
+
+              <div class="mt-3 grid gap-2 md:grid-cols-2">
+                <div>Conversation id: {snapshot.inboxContract.preview.conversationId}</div>
+                <div>Message id: {snapshot.inboxContract.preview.messageId}</div>
+                <div>Session platform: {snapshot.inboxContract.preview.sessionPlatform}</div>
+                <div>Session chat id: {snapshot.inboxContract.preview.sessionChatId}</div>
+                <div>Context URL: {snapshot.inboxContract.preview.contextUrl}</div>
+                <div>Context curr node: {snapshot.inboxContract.preview.contextVersion.currNode ?? 'n/a'}</div>
+                <div>Context last modified: {snapshot.inboxContract.preview.contextVersion.lastModified}</div>
+                <div>Attachment count: {snapshot.inboxContract.preview.attachmentCount}</div>
+              </div>
+
+              <div class="mt-3 text-muted-foreground">
+                Message preview: {snapshot.inboxContract.preview.messagePreview || '(empty)'}
+              </div>
+            </div>
+          {/if}
+        </div>
+
+        <div class="rounded-xl border border-border bg-card p-5 shadow-sm">
           <h2 class="text-lg font-semibold">Recent assistant timings</h2>
           <p class="mt-2 text-sm text-muted-foreground">
             llama.cpp-style inference timings as stored on the most-recent assistant messages. Used to verify that the upstream sender is forwarding <code>timings</code> and that they are being persisted into the <code>messages.timings</code> JSON column. Older messages predating the timings work will show <em>none</em>.

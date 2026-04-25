@@ -19,12 +19,26 @@ export interface HermesWebUIClientConfig {
   fetchImpl?: typeof fetch;
 }
 
+export interface HermesSenderTraceInput {
+  traceId?: string | null;
+  route?: string | null;
+  senderBaseUrl?: string | null;
+  senderTargetUrl?: string | null;
+  senderHostname?: string | null;
+  sessionPlatform?: string | null;
+  sessionChatId?: string | null;
+  attachmentCount?: number;
+  attachmentNames?: string[];
+  contentLength?: number;
+}
+
 export interface PostAssistantMessageInput {
   conversationId: string;
   userMessageId?: string | null;
   role?: 'assistant' | 'system';
   content?: string;
   attachments?: HermesAssistantAttachment[];
+  senderTrace?: HermesSenderTraceInput | null;
   /**
    * Optional llama.cpp-style timings captured by the agent for the final LLM
    * call this turn. Forwarded to the WebUI as a top-level field; absent for
@@ -152,6 +166,7 @@ export async function postAssistantMessage(
         content,
         attachments,
         ...(input.userMessageId ? { userMessageId: input.userMessageId } : {}),
+        ...(input.senderTrace ? { senderTrace: input.senderTrace } : {}),
         ...(input.timings ? { timings: input.timings } : {})
       })
     }

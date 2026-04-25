@@ -969,13 +969,20 @@ a {
 
 .llama-header-copy {
   display: grid;
+  flex: 1 1 auto;
   gap: 0.2rem;
   min-width: 0;
 }
 
 .llama-header-title {
+  display: -webkit-box;
   font-size: 0.875rem;
   font-weight: 600;
+  line-clamp: 2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .llama-header-subtitle {
@@ -2702,6 +2709,33 @@ a {
 
   .message-action-icon {
     padding: 0.55rem;
+  }
+
+  .assistant-meta-row {
+    margin-bottom: 0.85rem;
+  }
+
+  .assistant-stats-toggle {
+    gap: 0.1rem;
+    padding: 0.18rem;
+  }
+
+  .stats-toggle-button {
+    width: 2.1rem;
+    height: 2.1rem;
+  }
+
+  .stats-toggle-button svg {
+    width: 0.95rem;
+    height: 0.95rem;
+  }
+
+  .llama-message-actions {
+    gap: 0.45rem;
+  }
+
+  .assistant-actions {
+    margin-top: 0.2rem;
   }
 
   .user-actions {

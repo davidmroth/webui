@@ -49,6 +49,7 @@
     onDelete?: (message: ChatMessage) => void;
     busyMessageIds?: Set<string>;
     scrollContainer?: HTMLDivElement | null;
+    bottomSentinel?: HTMLDivElement | null;
     onScroll?: () => void;
   }
 
@@ -69,6 +70,7 @@
     onDelete,
     busyMessageIds,
     scrollContainer = $bindable(null),
+    bottomSentinel = $bindable(null),
     onScroll
   }: Props = $props();
   let statsViewByMessageId = $state<Record<string, StatsView>>({});
@@ -559,6 +561,8 @@
         {/if}
       </div>
     {/each}
+
+    <div bind:this={bottomSentinel} aria-hidden="true" style="height: 1px;"></div>
   </div>
 </div>
 

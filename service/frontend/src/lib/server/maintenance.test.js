@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { getBuildInfo } from './maintenance.ts';
+import { buildHermesInboxContractPreview, getBuildInfo } from './maintenance.ts';
 
 async function createTempBuildDirectory() {
   return mkdtemp(join(tmpdir(), 'hermes-webui-build-info-'));
@@ -59,4 +59,37 @@ test('getBuildInfo falls back to the baked frontend version when no git tag exis
   assert.equal(build.source, '.build.json');
   assert.equal(build.frontend, '0.2.9.6');
   assert.equal(build.gitTag, 'no-tag');
+});
+
+test('buildHermesInboxContractPreview derives the conversation-scoped session contract fields', () => {
+  const preview = buildHermesInboxContractPreview({
+    event_id: 'evt-1',
+    status: 'queued',
+    conversation_id: 'conv-1',
+    conversation_title: 'Alpha',
+    curr_node: 'msg-2',
+    last_modified: '42',
+    message_id: 'msg-3',
+    content: 'Latest browser turn',
+    attachment_count: '2',
+    created_at: '2026-04-25T12:34:56.000Z'
+  });
+
+  assert.deepEqual(preview, {
+    eventId: 'evt-1',
+    status: 'queued',
+    conversationId: 'conv-1',
+    conversationName: 'Alpha',
+    messageId: 'msg-3',
+    createdAt: '2026-04-25T12:34:56.000Z',
+    messagePreview: 'Latest browser turn',
+    attachmentCount: 2,
+    sessionPlatform: 'webui-conversation',
+    sessionChatId: 'conv-1',
+    contextUrl: '/api/internal/hermes/conversations/conv-1/context',
+    contextVersion: {
+      currNode: 'msg-2',
+      lastModified: 42
+    }
+  });
 });

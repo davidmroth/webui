@@ -89,6 +89,8 @@ interface EventRow {
   id: string;
   conversation_id: string;
   conversation_title: string;
+  curr_node: string | null;
+  last_modified: number | string;
   user_id: string;
   display_name: string;
   message_id: string;
@@ -1071,6 +1073,17 @@ export async function exportConversationForUser(
   };
 }
 
+export async function exportConversationForHermes(
+  conversationId: string
+): Promise<ConversationExportPayload | null> {
+  const ownerId = await getConversationOwnerId(conversationId);
+  if (!ownerId) {
+    return null;
+  }
+
+  return exportConversationForUser(ownerId, conversationId);
+}
+
 export async function listMessages(userId: string, conversationId: string): Promise<ChatMessage[]> {
   const conversationRows = await query<ConversationStateRow>(
     `SELECT conversations.id, conversations.created_at, conversations.curr_node, conversations.title
@@ -1530,6 +1543,7 @@ export async function dequeueHermesEvent() {
     await connection.beginTransaction();
     const [rows] = await connection.query(
       `SELECT hermes_events.id, hermes_events.conversation_id, conversations.title AS conversation_title,
+              conversations.curr_node, conversations.last_modified,
               users.user_id, users.display_name, hermes_events.message_id,
               messages.content, hermes_events.created_at
        FROM hermes_events
@@ -1577,6 +1591,13 @@ export async function dequeueHermesEvent() {
       eventId: row.id,
       conversationId: row.conversation_id,
       conversationName: row.conversation_title,
+      sessionPlatform: 'webui-conversation',
+      sessionChatId: row.conversation_id,
+      contextUrl: `/api/internal/hermes/conversations/${row.conversation_id}/context`,
+      contextVersion: {
+        currNode: row.curr_node,
+        lastModified: Number(row.last_modified ?? 0)
+      },
       userId: row.user_id,
       userName: row.display_name,
       messageId: row.message_id,
