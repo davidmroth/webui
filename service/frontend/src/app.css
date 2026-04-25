@@ -1789,16 +1789,19 @@ a {
 }
 
 .llama-composer-shell {
-  position: relative;
+  display: grid;
+  gap: 0.45rem;
   width: min(600px, 100%);
   margin: 0 auto;
 }
 
+.llama-jump-to-bottom-slot {
+  display: flex;
+  justify-content: center;
+  padding-bottom: 0.1rem;
+}
+
 .llama-jump-to-bottom {
-  position: absolute;
-  top: 0;
-  left: 50%;
-  z-index: 2;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1808,7 +1811,6 @@ a {
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.94);
   color: var(--text);
-  transform: translate(-50%, calc(-100% - 0.45rem));
   backdrop-filter: blur(14px);
 }
 
@@ -2761,8 +2763,8 @@ a {
     font-size: 0.74rem;
   }
 
-  .llama-jump-to-bottom {
-    transform: translate(-50%, calc(-100% - 0.3rem));
+  .llama-jump-to-bottom-slot {
+    padding-bottom: 0;
   }
 
   .llama-composer-wrap {

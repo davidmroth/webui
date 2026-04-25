@@ -2303,15 +2303,17 @@
         <div class="llama-composer-wrap">
           <div class="llama-composer-shell">
             {#if showJumpToBottom}
-              <button
-                class="llama-jump-to-bottom"
-                type="button"
-                aria-label="Jump to latest message"
-                title="Jump to latest message"
-                onclick={() => scrollMessagesToBottom('smooth')}
-              >
-                <ArrowDown class="h-4 w-4" />
-              </button>
+              <div class="llama-jump-to-bottom-slot">
+                <button
+                  class="llama-jump-to-bottom"
+                  type="button"
+                  aria-label="Jump to latest message"
+                  title="Jump to latest message"
+                  onclick={() => scrollMessagesToBottom('smooth')}
+                >
+                  <ArrowDown class="h-4 w-4" />
+                </button>
+              </div>
             {/if}
 
             <form class="llama-composer-form" onsubmit={handleSubmit}>
