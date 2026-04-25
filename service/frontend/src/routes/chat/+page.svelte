@@ -12,6 +12,7 @@
     Moon,
     PanelLeft,
     Paperclip,
+    Pen,
     PlugZap,
     Search,
     Settings,
@@ -673,7 +674,7 @@
   });
 
   function activeConversationTitle() {
-    return conversations.find((conversation) => conversation.id === currentConversationId)?.title ?? 'New chat';
+    return currentConversationSummary?.title ?? 'New chat';
   }
 
   function formatStatsCount(value: number) {
@@ -2214,7 +2215,21 @@
         </button>
 
         <div class="llama-header-copy">
-          <div class="llama-header-title">{activeConversationTitle()}</div>
+          <div class="llama-header-title-row">
+            <div class="llama-header-title">{activeConversationTitle()}</div>
+            {#if currentConversationSummary}
+              <button
+                class="llama-header-edit-button"
+                type="button"
+                aria-label="Edit conversation title"
+                title="Edit title"
+                onclick={() => openRenameConversationDialog(currentConversationSummary)}
+                disabled={conversationActionBusyId === currentConversationSummary.id}
+              >
+                <Pen class="h-4 w-4" />
+              </button>
+            {/if}
+          </div>
         </div>
 
         <div class="llama-topbar-actions">

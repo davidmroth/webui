@@ -974,15 +974,56 @@ a {
   min-width: 0;
 }
 
+.llama-header-title-row {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 0.34rem;
+  justify-self: start;
+  max-width: 100%;
+  min-width: 0;
+  width: fit-content;
+}
+
 .llama-header-title {
   display: -webkit-box;
+  flex: 0 1 auto;
   font-size: 0.875rem;
   font-weight: 600;
   line-clamp: 2;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
+}
+
+.llama-header-edit-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  margin-top: 0.08rem;
+  padding: 0;
+  border: 0;
+  border-radius: 0.35rem;
+  background: transparent;
+  color: var(--text-muted);
+  line-height: 1;
+}
+
+.llama-header-edit-button:hover:not(:disabled) {
+  color: var(--text);
+}
+
+.llama-header-edit-button:focus-visible {
+  color: var(--text);
+  outline: 2px solid color-mix(in srgb, var(--text) 18%, transparent);
+  outline-offset: 2px;
+}
+
+.llama-header-edit-button:disabled {
+  color: var(--disabled-text);
+  background: transparent;
 }
 
 .llama-header-subtitle {
@@ -2632,6 +2673,7 @@ a {
 
   .llama-frame {
     height: var(--chat-viewport-height, 100dvh);
+    border: 0;
     border-radius: 0;
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: minmax(0, 1fr);
@@ -2699,6 +2741,15 @@ a {
     display: inline-flex;
   }
 
+  .llama-header-title-row {
+    gap: 0.14rem;
+  }
+
+  .llama-header-edit-button {
+    align-self: center;
+    margin-top: 0;
+  }
+
   /* Touch-friendly hit areas */
   .llama-toolbar-button,
   .compose-icon-button,
@@ -2755,6 +2806,10 @@ a {
 @media (max-width: 480px) {
   .llama-sidebar {
     padding: 0.9rem 0.75rem;
+  }
+
+  .llama-header-title-row {
+    gap: 0.1rem;
   }
 
   .llama-composer-stats {
