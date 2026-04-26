@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { env as publicEnv } from '$env/dynamic/public';
   import { onMount, tick, untrack } from 'svelte';
   import {
     ArrowDown,
@@ -31,8 +32,11 @@
   import type { ChatMessage, ConversationSummary } from '$lib/types-legacy';
   import {
     deliverBrowserNotification,
+    ensureBrowserPushSubscription,
+    getBrowserPushSubscription,
     getNotificationPermission,
     isNotificationApiSupported,
+    isPushManagerSupported,
     readNotificationsEnabledPreference,
     requestNotificationPermission,
     writeNotificationsEnabledPreference
@@ -75,6 +79,8 @@
     isFading: boolean;
   };
 
+  type PushRegistrationState = 'unknown' | 'active' | 'inactive' | 'unavailable' | 'error';
+
   let { data, form } = $props();
   let currentConversationId = $state<string | null>(
     untrack(() => data.currentConversationId ?? null)
@@ -107,6 +113,8 @@
   let use24HourTime = $state(false);
   let notificationsEnabled = $state(false);
   let notificationPermission = $state<NotificationPermission>('default');
+  let pushRegistrationState = $state<PushRegistrationState>('unknown');
+  let pushSubscriptionEndpoint = $state<string | null>(null);
   let seenAssistantMessageIds = $state<Set<string>>(new Set());
   let loadedMessagesConversationId = $state<string | null>(null);
   let lastKnownConversationUpdatedAtById = $state<Record<string, string>>({});
@@ -171,6 +179,12 @@
   const COMPOSER_STATS_CAPS_REFRESH_INTERVAL_MS = 30_000;
   const CHAT_SCROLL_DEBUG_PREFIX = '[chat-scroll]';
   const notificationsSupported = $derived(isNotificationApiSupported());
+  const pushNotificationsSupported = $derived(
+    notificationsSupported &&
+      isPushManagerSupported() &&
+      Boolean(publicEnv.PUBLIC_WEB_PUSH_VAPID_PUBLIC_KEY?.trim())
+  );
+  const usesServerPushNotifications = $derived(pushRegistrationState === 'active');
   let latestTerminalAssistantMessageIdByConversation: Record<string, string | null> = {};
   let streamedAssistantSeqByMessageId: Record<string, number> = {};
   let lastSlashCommandsLoadAt = 0;
@@ -257,11 +271,130 @@
     const permission = getNotificationPermission();
     notificationPermission = permission ?? 'denied';
     notificationsEnabled = permission === 'granted' && readNotificationsEnabledPreference();
+    pushRegistrationState = notificationsEnabled
+      ? pushNotificationsSupported
+        ? 'inactive'
+        : 'unavailable'
+      : 'inactive';
+    pushSubscriptionEndpoint = null;
   }
 
   function setNotificationsPreference(nextValue: boolean) {
     notificationsEnabled = nextValue;
     writeNotificationsEnabledPreference(nextValue);
+  }
+
+  async function registerPushSubscriptionOnServer(subscription: PushSubscription) {
+    const response = await fetch('/api/notifications/push-subscription', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json'
+      },
+      body: JSON.stringify({
+        subscription: subscription.toJSON()
+      })
+    });
+
+    if (response.ok) {
+      return;
+    }
+
+    const payload = await response.json().catch(() => null);
+    const reason =
+      typeof payload?.error === 'string' && payload.error.trim()
+        ? payload.error.trim()
+        : 'Failed to register background push notifications.';
+    throw new Error(reason);
+  }
+
+  async function removePushSubscriptionFromServer(endpoint: string) {
+    const response = await fetch('/api/notifications/push-subscription', {
+      method: 'DELETE',
+      headers: {
+        'content-type': 'application/json'
+      },
+      body: JSON.stringify({ endpoint })
+    });
+
+    if (response.ok) {
+      return;
+    }
+
+    const payload = await response.json().catch(() => null);
+    const reason =
+      typeof payload?.error === 'string' && payload.error.trim()
+        ? payload.error.trim()
+        : 'Failed to remove background push registration.';
+    throw new Error(reason);
+  }
+
+  async function syncPushSubscription(options: { subscribe?: boolean; silenceErrors?: boolean } = {}) {
+    const subscribe = options.subscribe ?? false;
+    if (typeof window === 'undefined' || !notificationsEnabled || notificationPermission !== 'granted') {
+      pushRegistrationState = 'inactive';
+      pushSubscriptionEndpoint = null;
+      return false;
+    }
+
+    const vapidPublicKey = publicEnv.PUBLIC_WEB_PUSH_VAPID_PUBLIC_KEY?.trim() ?? '';
+    if (!isPushManagerSupported() || !vapidPublicKey) {
+      pushRegistrationState = 'unavailable';
+      pushSubscriptionEndpoint = null;
+      return false;
+    }
+
+    try {
+      const subscription = subscribe
+        ? await ensureBrowserPushSubscription(vapidPublicKey, { timeoutMs: 2000 })
+        : await getBrowserPushSubscription(2000);
+      if (!subscription) {
+        pushRegistrationState = 'inactive';
+        pushSubscriptionEndpoint = null;
+        if (subscribe && !options.silenceErrors) {
+          errorMessage =
+            'Background push is unavailable right now. Notifications still depend on this tab staying alive.';
+        }
+        return false;
+      }
+
+      await registerPushSubscriptionOnServer(subscription);
+      pushRegistrationState = 'active';
+      pushSubscriptionEndpoint = subscription.endpoint;
+      if (!options.silenceErrors) {
+        errorMessage = null;
+      }
+      return true;
+    } catch (error) {
+      pushRegistrationState = 'error';
+      pushSubscriptionEndpoint = null;
+      if (!options.silenceErrors) {
+        errorMessage =
+          error instanceof Error && error.message.trim()
+            ? error.message.trim()
+            : 'Failed to register background push notifications.';
+      }
+      return false;
+    }
+  }
+
+  async function disablePushSubscription(options: { silenceErrors?: boolean } = {}) {
+    try {
+      const subscription = await getBrowserPushSubscription(1500);
+      const endpoint = subscription?.endpoint ?? pushSubscriptionEndpoint;
+      if (endpoint) {
+        await removePushSubscriptionFromServer(endpoint);
+      }
+      if (subscription) {
+        await subscription.unsubscribe();
+      }
+    } catch (error) {
+      if (!options.silenceErrors) {
+        console.warn('Failed to disable background push notifications', error);
+      }
+    } finally {
+      pushRegistrationState = 'inactive';
+      pushSubscriptionEndpoint = null;
+    }
   }
 
   function rememberAssistantMessages(nextMessages: ChatMessage[]) {
@@ -304,20 +437,22 @@
 
     await deliverBrowserNotification(
       { title, body, tag, url: chatUrl },
-      { strategy: 'page-first', timeoutMs: 1200 }
+      { strategy: 'service-worker-first', timeoutMs: 1200 }
     );
   }
 
   async function maybeNotifyAssistantReply(conversationId: string, nextMessages: ChatMessage[]) {
     const latest = getLatestUnseenAssistantReply(seenAssistantMessageIds, nextMessages);
-    const shouldNotify = shouldNotifyAssistantReply({
-      notificationsEnabled,
-      notificationPermission,
-      conversationId,
-      currentConversationId,
-      documentVisibility: typeof document === 'undefined' ? 'visible' : document.visibilityState,
-      documentHasFocus: typeof document === 'undefined' ? true : document.hasFocus()
-    });
+    const shouldNotify =
+      !usesServerPushNotifications &&
+      shouldNotifyAssistantReply({
+        notificationsEnabled,
+        notificationPermission,
+        conversationId,
+        currentConversationId,
+        documentVisibility: typeof document === 'undefined' ? 'visible' : document.visibilityState,
+        documentHasFocus: typeof document === 'undefined' ? true : document.hasFocus()
+      });
 
     if (shouldNotify && latest) {
       await showAssistantReplyNotification(conversationId, latest);
@@ -358,12 +493,14 @@
 
     if (!nextValue) {
       setNotificationsPreference(false);
+      void disablePushSubscription({ silenceErrors: true });
       return;
     }
 
     if (typeof window === 'undefined' || !isNotificationApiSupported()) {
       checkbox.checked = false;
       setNotificationsPreference(false);
+      void disablePushSubscription({ silenceErrors: true });
       errorMessage = 'Notifications are not available in this browser.';
       return;
     }
@@ -371,6 +508,7 @@
     if (!window.isSecureContext) {
       checkbox.checked = false;
       setNotificationsPreference(false);
+      void disablePushSubscription({ silenceErrors: true });
       errorMessage = 'Notifications require HTTPS (or localhost).';
       return;
     }
@@ -385,6 +523,7 @@
     if (permission !== 'granted') {
       checkbox.checked = false;
       setNotificationsPreference(false);
+      void disablePushSubscription({ silenceErrors: true });
       errorMessage =
         permission === 'denied'
           ? 'Notifications are blocked. Enable them in browser site settings.'
@@ -395,6 +534,13 @@
     setNotificationsPreference(true);
     rememberAssistantMessages(messages);
     errorMessage = null;
+    if (pushNotificationsSupported) {
+      await syncPushSubscription({ subscribe: true, silenceErrors: true });
+      if (pushRegistrationState !== 'active') {
+        errorMessage =
+          'Background push could not be enabled, so notifications still depend on this tab staying alive.';
+      }
+    }
   }
 
   function syncMobileViewport() {
@@ -2043,6 +2189,11 @@
     loadTimeFormatPreference();
     loadNotificationsPreference();
     rememberAssistantMessages(messages);
+    if (notificationsEnabled) {
+      void syncPushSubscription({ subscribe: true, silenceErrors: true });
+    } else {
+      void disablePushSubscription({ silenceErrors: true });
+    }
     void loadComposerStatsCaps({ force: true });
     void loadSlashCommands({ force: true });
 
@@ -2075,6 +2226,7 @@
         notificationPermission = 'denied';
         if (notificationsEnabled) {
           setNotificationsPreference(false);
+          void disablePushSubscription({ silenceErrors: true });
         }
         if (document.visibilityState === 'visible') {
           void loadSlashCommands();
@@ -2085,6 +2237,9 @@
       notificationPermission = permission;
       if (notificationPermission !== 'granted' && notificationsEnabled) {
         setNotificationsPreference(false);
+        void disablePushSubscription({ silenceErrors: true });
+      } else if (notificationPermission === 'granted' && notificationsEnabled) {
+        void syncPushSubscription({ subscribe: true, silenceErrors: true });
       }
 
       if (document.visibilityState === 'visible') {
@@ -2564,6 +2719,14 @@
                   Notifications are not supported in this browser.
                 {:else if notificationPermission === 'denied'}
                   Permission is blocked; allow notifications in site settings.
+                {:else if notificationsEnabled && usesServerPushNotifications}
+                  Background Web Push is active on this device.
+                {:else if notificationsEnabled && pushRegistrationState === 'error'}
+                  Background Web Push could not be enabled, so notifications depend on this tab staying alive.
+                {:else if notificationsEnabled && pushNotificationsSupported}
+                  Background Web Push is still registering on this device.
+                {:else if notificationsEnabled}
+                  Background Web Push is unavailable here; notifications depend on this tab staying alive.
                 {/if}
               </div>
             </div>

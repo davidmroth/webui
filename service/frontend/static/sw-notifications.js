@@ -1,3 +1,29 @@
+self.addEventListener('push', (event) => {
+  const payload = readPushPayload(event);
+  const title = payload.title || 'Hermes';
+  const body = payload.body || 'Assistant sent a new message.';
+  const tag = payload.tag || `assistant-${Date.now()}`;
+  const targetUrl = payload.url || '/chat';
+
+  event.waitUntil(
+    shouldSuppressPushNotification(targetUrl).then((shouldSuppress) => {
+      if (shouldSuppress) {
+        return null;
+      }
+
+      return self.registration.showNotification(title, {
+        body,
+        tag,
+        data: {
+          url: targetUrl,
+          conversationId: payload.conversationId || null,
+          messageId: payload.messageId || null
+        }
+      });
+    })
+  );
+});
+
 self.addEventListener('notificationclick', (event) => {
   const notification = event.notification;
   const targetUrl = (notification && notification.data && notification.data.url) || '/chat';
@@ -28,3 +54,55 @@ self.addEventListener('notificationclick', (event) => {
     })
   );
 });
+
+function readPushPayload(event) {
+  if (!event.data) {
+    return {};
+  }
+
+  try {
+    const payload = event.data.json();
+    return payload && typeof payload === 'object' ? payload : {};
+  } catch {
+    try {
+      const text = event.data.text();
+      const payload = JSON.parse(text);
+      return payload && typeof payload === 'object' ? payload : {};
+    } catch {
+      return {};
+    }
+  }
+}
+
+async function shouldSuppressPushNotification(targetUrl) {
+  const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+  const target = new URL(targetUrl, self.location.origin);
+
+  for (const client of clients) {
+    let clientUrl;
+    try {
+      clientUrl = new URL(client.url);
+    } catch {
+      continue;
+    }
+
+    if (clientUrl.origin !== target.origin) {
+      continue;
+    }
+
+    const isSameChatConversation =
+      target.pathname === '/chat' &&
+      clientUrl.pathname === target.pathname &&
+      clientUrl.searchParams.get('conversation') === target.searchParams.get('conversation');
+
+    if (!isSameChatConversation) {
+      continue;
+    }
+
+    if (client.focused || client.visibilityState === 'visible') {
+      return true;
+    }
+  }
+
+  return false;
+}

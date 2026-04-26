@@ -37,6 +37,14 @@ export function isNotificationApiSupported() {
   return typeof window !== 'undefined' && typeof Notification !== 'undefined';
 }
 
+export function isPushManagerSupported() {
+  return (
+    typeof window !== 'undefined' &&
+    'serviceWorker' in navigator &&
+    typeof PushManager !== 'undefined'
+  );
+}
+
 export function getNotificationPermission(): NotificationPermission | null {
   return isNotificationApiSupported() ? Notification.permission : null;
 }
@@ -110,6 +118,59 @@ export async function getNotificationServiceWorkerRegistration(timeoutMs = 1500)
   }
 
   return null;
+}
+
+function decodeUrlSafeBase64(value: string) {
+  const normalized = value.replace(/-/g, '+').replace(/_/g, '/');
+  const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
+  const raw = window.atob(padded);
+  const bytes = new Uint8Array(raw.length);
+  for (let index = 0; index < raw.length; index += 1) {
+    bytes[index] = raw.charCodeAt(index);
+  }
+  return bytes;
+}
+
+export async function getBrowserPushSubscription(timeoutMs = 1500) {
+  if (!isPushManagerSupported()) {
+    return null;
+  }
+
+  const registration = await getNotificationServiceWorkerRegistration(timeoutMs);
+  if (!registration) {
+    return null;
+  }
+
+  return registration.pushManager.getSubscription();
+}
+
+export async function ensureBrowserPushSubscription(
+  vapidPublicKey: string,
+  options: { timeoutMs?: number } = {}
+) {
+  if (!isPushManagerSupported()) {
+    return null;
+  }
+
+  const normalizedKey = vapidPublicKey.trim();
+  if (!normalizedKey) {
+    return null;
+  }
+
+  const registration = await getNotificationServiceWorkerRegistration(options.timeoutMs ?? 1500);
+  if (!registration) {
+    return null;
+  }
+
+  const existing = await registration.pushManager.getSubscription();
+  if (existing) {
+    return existing;
+  }
+
+  return registration.pushManager.subscribe({
+    userVisibleOnly: true,
+    applicationServerKey: decodeUrlSafeBase64(normalizedKey)
+  });
 }
 
 export async function describeNotificationServiceWorker(

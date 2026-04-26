@@ -8,6 +8,7 @@ import { migration as streamingSupportMigration } from './migrations/005_streami
 import { migration as deliveryTracesMigration } from './migrations/006_delivery_traces';
 import { migration as branchRootsMigration } from './migrations/007_branch_roots';
 import { migration as messageUpdatedAtMigration } from './migrations/008_message_updated_at';
+import { migration as pushSubscriptionsMigration } from './migrations/009_push_subscriptions';
 
 interface SchemaMigrationRow {
   id: string;
@@ -32,7 +33,8 @@ const migrations: Migration[] = [
   streamingSupportMigration,
   deliveryTracesMigration,
   branchRootsMigration,
-  messageUpdatedAtMigration
+  messageUpdatedAtMigration,
+  pushSubscriptionsMigration
 ];
 
 export async function runDatabaseMigrations(): Promise<MigrationResult> {

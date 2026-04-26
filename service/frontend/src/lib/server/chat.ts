@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { execute, pool, query } from './db';
 import { publishConversationStreamEvent } from './conversation-stream';
 import { getConfig } from './env';
+import { sendPushReplyNotification } from './push-notifications';
 import { getObjectBuffer, uploadObject } from './storage';
 import { getHermesWorkerHeartbeat } from './hermes-heartbeat';
 import type { ChatMessage, ConversationSummary, MessageAttachment } from '$lib/types-legacy';
@@ -831,6 +832,34 @@ async function getConversationRecordForUser(
   return rows[0] ?? null;
 }
 
+async function notifyAssistantReplyCompletion(options: {
+  conversationId: string;
+  messageId: string;
+  content: string;
+}) {
+  try {
+    const ownerId = await getConversationOwnerId(options.conversationId);
+    if (!ownerId) {
+      return;
+    }
+
+    const conversation = await getConversationRecordForUser(ownerId, options.conversationId);
+    await sendPushReplyNotification({
+      userId: ownerId,
+      conversationId: options.conversationId,
+      conversationTitle: conversation?.title ?? 'New chat',
+      messageId: options.messageId,
+      content: options.content
+    });
+  } catch (error) {
+    console.error('Failed to queue assistant push notification', {
+      conversationId: options.conversationId,
+      messageId: options.messageId,
+      error: error instanceof Error ? error.message : String(error)
+    });
+  }
+}
+
 async function saveAttachmentsForMessage(
   userId: string,
   conversationId: string,
@@ -1411,6 +1440,11 @@ export async function finalizeStreamingAssistantMessage(
     messageId,
     status: 'complete'
   });
+  void notifyAssistantReplyCompletion({
+    conversationId,
+    messageId,
+    content: finalContent
+  });
 }
 
 export async function updateAssistantMessage(
@@ -1442,6 +1476,11 @@ export async function updateAssistantMessage(
     conversationId,
     messageId,
     status: 'complete'
+  });
+  void notifyAssistantReplyCompletion({
+    conversationId,
+    messageId,
+    content
   });
 }
 
@@ -1754,6 +1793,7 @@ export async function storeAssistantMessage(
     role?: 'assistant' | 'system';
     userMessageId?: string | null;
     publishDoneEvent?: boolean;
+    notifyPush?: boolean;
   } = {}
 ) {
   const ownerId = await getConversationOwnerId(conversationId);
@@ -1794,6 +1834,14 @@ export async function storeAssistantMessage(
       conversationId,
       messageId,
       status: 'complete'
+    });
+  }
+
+  if (role === 'assistant' && options.notifyPush !== false) {
+    void notifyAssistantReplyCompletion({
+      conversationId,
+      messageId,
+      content
     });
   }
 
@@ -1842,7 +1890,8 @@ export async function storeAssistantMessageWithAttachments(
 
   const messageId = await storeAssistantMessage(conversationId, content, {
     ...options,
-    publishDoneEvent: false
+    publishDoneEvent: false,
+    notifyPush: false
   });
   await saveAttachmentsForMessage(ownerId, conversationId, messageId, files);
   publishConversationStreamEvent({
@@ -1851,6 +1900,13 @@ export async function storeAssistantMessageWithAttachments(
     messageId,
     status: 'complete'
   });
+  if ((options.role ?? 'assistant') === 'assistant') {
+    void notifyAssistantReplyCompletion({
+      conversationId,
+      messageId,
+      content
+    });
+  }
   return messageId;
 }
 

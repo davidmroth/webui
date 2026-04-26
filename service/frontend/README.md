@@ -25,9 +25,10 @@ Initial implementation of a browser-first Hermes channel using SvelteKit, MySQL,
 4. `HERMES_WORKER_HEARTBEAT_STALE_SECONDS` controls when webui considers the Hermes webchat worker offline. When queued work exists past this heartbeat threshold, conversations are marked as stalled instead of indefinitely showing working.
 5. The bootstrap owner record is kept in sync with `BOOTSTRAP_USER_NAME` and `BOOTSTRAP_USER_KEY`, so changing those values updates the bootstrap login instead of only applying on first database initialization.
 6. `BODY_SIZE_LIMIT` controls the max HTTP request payload accepted by the SvelteKit Node server (defaults to `10M` in this repo). Increase it if users upload larger files.
-7. Run `docker compose up --build` from this directory.
-8. Open `http://localhost:3000` by default, or use whatever value you set for `WEBUI_PORT` in `.env`. If you access the dev server through a custom hostname such as `ai.local`, add it to `__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS` in `.env`. The exposed MySQL and MinIO ports are also configurable there. `MYSQL_HOST_PORT` only changes the port published to your host machine; the `webui` container still connects to the `mysql` service on internal port `3306` so host-port changes do not break container-to-container traffic. Similarly, `MINIO_API_PORT` is host-facing only; `webui` should connect to MinIO on internal port `9000`.
-9. Sign in with the bootstrap key from `.env`.
+7. Set `WEB_PUSH_VAPID_SUBJECT`, `WEB_PUSH_VAPID_PRIVATE_KEY`, and `PUBLIC_WEB_PUSH_VAPID_PUBLIC_KEY` to enable background Web Push notifications. A practical way to generate the keys is `npx web-push generate-vapid-keys`.
+8. Run `docker compose up --build` from this directory.
+9. Open `http://localhost:3000` by default, or use whatever value you set for `WEBUI_PORT` in `.env`. If you access the dev server through a custom hostname such as `ai.local`, add it to `__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS` in `.env`. The exposed MySQL and MinIO ports are also configurable there. `MYSQL_HOST_PORT` only changes the port published to your host machine; the `webui` container still connects to the `mysql` service on internal port `3306` so host-port changes do not break container-to-container traffic. Similarly, `MINIO_API_PORT` is host-facing only; `webui` should connect to MinIO on internal port `9000`.
+10. Sign in with the bootstrap key from `.env`.
 
 For S3 or other managed object-storage providers, set `OBJECT_STORAGE_REGION` to the bucket region (for example `us-east-2`).
 If your bucket is shared across services, set `OBJECT_STORAGE_PREFIX` (for example `hermes-webui/prod`) so all webui uploads stay in a dedicated namespace folder.
@@ -82,6 +83,8 @@ JSON attachment payloads support these fields per item:
 - `base64Data`: binary file contents encoded as base64.
 
 Assistant posts can also include optional sender trace metadata as `senderTrace`, including `route`, `sessionPlatform`, and `sessionChatId`. WebUI records these fields in Hermes delivery traces so you can verify which conversation-scoped sender session produced a reply.
+
+When Web Push is configured, completed assistant replies can also fan out as browser push notifications so Android devices still receive updates after the tab is backgrounded or suspended.
 
 Example:
 

@@ -10,7 +10,7 @@ export default defineConfig({
     VitePWA({
       registerType: 'autoUpdate',
       injectRegister: 'auto',
-      includeAssets: ['favicon.svg', 'apple-touch-icon.svg', 'mask-icon.svg'],
+      includeAssets: ['favicon.png', 'apple-touch-icon.png', 'mask-icon.svg'],
       manifest: {
         name: 'Hermes WebUI',
         short_name: 'Hermes',
@@ -22,20 +22,20 @@ export default defineConfig({
         scope: '/',
         icons: [
           {
-            src: 'icon.svg',
-            sizes: 'any',
-            type: 'image/svg+xml'
+            src: 'icon.png',
+            sizes: '768x768',
+            type: 'image/png'
           },
           {
-            src: 'mask-icon.svg',
-            sizes: 'any',
-            type: 'image/svg+xml',
+            src: 'icon.png',
+            sizes: '768x768',
+            type: 'image/png',
             purpose: 'maskable any'
           }
         ]
       },
       workbox: {
-        globPatterns: ['**/*.{js,css,html,ico,png,svg,webp,woff2}'],
+        globPatterns: ['**/*.{js,css,html,ico,png,svg,webp,jpg,jpeg,woff2}'],
         importScripts: ['sw-notifications.js'],
         // This app is SSR-driven, so there is no precached app-shell index.html
         // for Workbox to serve as a navigation fallback.
