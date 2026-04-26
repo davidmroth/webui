@@ -10,7 +10,6 @@
     Image,
     MessageSquareText,
     Mic,
-    Moon,
     PanelLeft,
     Paperclip,
     Pen,
@@ -18,10 +17,9 @@
     Search,
     Settings,
     Square,
-    SquarePen,
-    Sun
+    SquarePen
   } from '@lucide/svelte';
-  import { mode, toggleMode } from 'mode-watcher';
+  import ThemeModeToggle from '$lib/components/ThemeModeToggle.svelte';
   import ConversationList from '$components/chat/ConversationList.svelte';
   import MessagePane from '$components/chat/MessagePane.svelte';
   import {
@@ -2335,19 +2333,7 @@
         </div>
 
         <div class="llama-footer-actions">
-          <button
-            type="button"
-            class="llama-toolbar-button llama-theme-toggle"
-            aria-label={mode.current === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-            title={mode.current === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-            onclick={toggleMode}
-          >
-            {#if mode.current === 'dark'}
-              <Sun class="h-4 w-4" />
-            {:else}
-              <Moon class="h-4 w-4" />
-            {/if}
-          </button>
+          <ThemeModeToggle compact={true} label="Chat color theme" />
 
           <form method="POST" action="/logout" style="flex: 1;">
             <button class="secondary-button" type="submit" style="width: 100%;">Sign out</button>

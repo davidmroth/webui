@@ -915,7 +915,7 @@ a {
 .primary-button {
   border-color: var(--accent);
   background: var(--accent);
-  color: white;
+  color: var(--accent-foreground);
   font-weight: 600;
 }
 
@@ -2598,26 +2598,50 @@ a {
   border: 0;
 }
 
+.theme-mode-toggle {
+  flex: 0 0 auto;
+  width: 2.6rem;
+  height: 2.6rem;
+  padding: 0;
+  box-shadow: var(--shadow-soft);
+}
+
+.theme-mode-toggle--compact {
+  width: 2.6rem;
+  height: 2.6rem;
+}
+
 .login-shell {
   min-height: 100vh;
   display: grid;
   place-items: center;
   padding: 1.4rem;
+  background:
+    radial-gradient(circle at top, color-mix(in srgb, var(--accent-soft) 60%, transparent), transparent 52%),
+    linear-gradient(180deg, color-mix(in srgb, var(--bg-accent) 82%, transparent), var(--bg));
 }
 
 .login-card {
   width: min(460px, 100%);
   padding: 1.55rem;
   border: 1px solid var(--border);
-  border-radius: var(--app-radius);
-  background: rgba(255, 255, 255, 0.9);
+  border-radius: calc(var(--app-radius) + 0.3rem);
+  background: color-mix(in srgb, var(--panel-strong) 94%, transparent);
   box-shadow: var(--shadow);
 }
 
+.login-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+}
+
 .login-title {
-  margin: 0;
+  margin: 1rem 0 0;
   font-size: 2.4rem;
   letter-spacing: -0.06em;
+  color: var(--text);
 }
 
 .login-copy {
@@ -2632,6 +2656,16 @@ a {
   margin-top: 1.35rem;
 }
 
+.login-label {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.login-label-text {
+  color: var(--text);
+  font-weight: 700;
+}
+
 .pill {
   display: inline-flex;
   align-items: center;
@@ -2642,6 +2676,25 @@ a {
   color: var(--text-muted);
   font-size: 0.78rem;
   font-weight: 600;
+}
+
+@media (max-width: 640px) {
+  .login-shell {
+    padding: 1rem;
+  }
+
+  .login-card {
+    padding: 1rem;
+  }
+
+  .login-card-top {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .login-card-top .theme-mode-toggle {
+    align-self: flex-end;
+  }
 }
 
 @media (max-width: 768px) {
