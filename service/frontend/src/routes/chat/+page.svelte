@@ -16,7 +16,6 @@
     PlugZap,
     Search,
     Settings,
-    Square,
     SquarePen
   } from '@lucide/svelte';
   import ThemeModeToggle from '$lib/components/ThemeModeToggle.svelte';
@@ -2632,11 +2631,16 @@
                     <button
                       class="send-button"
                       type="submit"
-                      aria-label="Send message"
+                      aria-label={isSending ? 'Sending message' : 'Send message'}
+                      aria-busy={isSending}
                       disabled={isSending}
                     >
                       {#if isSending}
-                        <Square class="h-3.5 w-3.5" />
+                        <span class="assistant-typing-loader assistant-typing-loader--compact send-button-loader" aria-hidden="true">
+                          {#each [0, 1, 2, 3, 4, 5, 6, 7, 8] as delayStep}
+                            <span class="assistant-typing-square" style={`--assistant-loader-delay: ${delayStep * 0.07}s`}></span>
+                          {/each}
+                        </span>
                       {:else}
                         <ArrowUp class="h-3.5 w-3.5" />
                       {/if}

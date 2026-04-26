@@ -1523,6 +1523,10 @@ a {
   --assistant-loader-gap: 0.05rem;
 }
 
+.send-button-loader {
+  color: currentColor;
+}
+
 .assistant-typing-square {
   width: var(--assistant-loader-cell-size);
   height: var(--assistant-loader-cell-size);
