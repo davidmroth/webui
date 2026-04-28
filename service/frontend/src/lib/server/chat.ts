@@ -31,6 +31,7 @@ interface MessageRow {
   created_at: Date | string;
   updated_at: Date | string;
   status: 'complete' | 'streaming' | 'error';
+  source?: 'browser' | 'hermes';
   extra?: string | object | null;
   timings?: string | object | null;
   type?: 'text' | 'root';
@@ -112,6 +113,15 @@ interface ResolveAssistantParentMessageIdDeps {
   queryFn?: ServerQueryFn;
   getConversationStateFn?: (conversationId: string) => Promise<ConversationStateRow | null>;
   ensureConversationRootMessageFn?: (conversationId: string) => Promise<string>;
+}
+
+interface UpdateAssistantMessageDeps {
+  queryFn?: ServerQueryFn;
+  executeFn?: typeof execute;
+  updateConversationStateFn?: typeof updateConversationState;
+  publishConversationStreamEventFn?: typeof publishConversationStreamEvent;
+  notifyAssistantReplyCompletionFn?: typeof notifyAssistantReplyCompletion;
+  getConversationStateFn?: (conversationId: string) => Promise<ConversationStateRow | null>;
 }
 
 interface HermesDeliveryTraceRow {
@@ -1462,22 +1472,80 @@ export async function finalizeStreamingAssistantMessage(
   });
 }
 
+async function resolveUpdatableAssistantMessage(
+  conversationId: string,
+  messageId: string,
+  deps: UpdateAssistantMessageDeps = {}
+): Promise<void> {
+  const queryFn = deps.queryFn ?? query;
+  const getConversationStateFn = deps.getConversationStateFn ?? getConversationState;
+  const conversation = await getConversationStateFn(conversationId);
+
+  if (!conversation) {
+    throw new Error(`Conversation not found: ${conversationId}`);
+  }
+
+  const rows = await queryFn<MessageRow>(
+    `SELECT messages.id,
+            messages.parent_id,
+            messages.role,
+            messages.content,
+            messages.created_at,
+            messages.updated_at,
+            messages.status,
+            messages.type,
+            messages.source,
+            messages.msg_timestamp
+     FROM messages
+     WHERE messages.conversation_id = :conversation_id
+       AND messages.source = 'hermes'
+       AND messages.role IN ('assistant', 'system')
+     ORDER BY messages.msg_timestamp ASC, messages.created_at ASC, messages.id ASC`,
+    { conversation_id: conversationId }
+  );
+
+  const target = rows.find((row) => row.id === messageId);
+  if (!target) {
+    throw new Error(`Assistant message not found for update: ${messageId}`);
+  }
+
+  if (target.status === 'streaming') {
+    return;
+  }
+
+  const messageTree = buildMessageTree(rows);
+  const latestVisible = resolveVisibleConversationRows(messageTree, conversation.curr_node).at(-1);
+  if (!latestVisible || latestVisible.id !== messageId) {
+    throw new Error(`Rejected stale assistant update target: ${messageId}`);
+  }
+}
+
 export async function updateAssistantMessage(
   conversationId: string,
   messageId: string,
   content: string,
-  options: { timings?: unknown } = {}
+  options: { timings?: unknown } = {},
+  deps: UpdateAssistantMessageDeps = {}
 ) {
+  const executeFn = deps.executeFn ?? execute;
+  const updateConversationStateFn = deps.updateConversationStateFn ?? updateConversationState;
+  const publishConversationStreamEventFn =
+    deps.publishConversationStreamEventFn ?? publishConversationStreamEvent;
+  const notifyAssistantReplyCompletionFn =
+    deps.notifyAssistantReplyCompletionFn ?? notifyAssistantReplyCompletion;
+
+  await resolveUpdatableAssistantMessage(conversationId, messageId, deps);
+
   const timingsJson = serializeTimingsForStorage(options.timings);
   if (timingsJson === null) {
-    await execute(
+    await executeFn(
       `UPDATE messages
        SET content = :content, status = 'complete'
        WHERE id = :id AND conversation_id = :conversation_id AND source = 'hermes' AND role IN ('assistant', 'system')`,
       { id: messageId, conversation_id: conversationId, content }
     );
   } else {
-    await execute(
+    await executeFn(
       `UPDATE messages
        SET content = :content, status = 'complete', timings = :timings
        WHERE id = :id AND conversation_id = :conversation_id AND source = 'hermes' AND role IN ('assistant', 'system')`,
@@ -1485,14 +1553,14 @@ export async function updateAssistantMessage(
     );
   }
 
-  await updateConversationState(conversationId, { currNode: messageId });
-  publishConversationStreamEvent({
+  await updateConversationStateFn(conversationId, { currNode: messageId });
+  publishConversationStreamEventFn({
     type: 'done',
     conversationId,
     messageId,
     status: 'complete'
   });
-  void notifyAssistantReplyCompletion({
+  void notifyAssistantReplyCompletionFn({
     conversationId,
     messageId,
     content
