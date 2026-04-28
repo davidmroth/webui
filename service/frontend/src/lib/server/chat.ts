@@ -106,6 +106,14 @@ interface HermesQueueStatsRow {
   stale_processing: number;
 }
 
+type ServerQueryFn = <T>(sql: string, params?: Record<string, unknown>) => Promise<T[]>;
+
+interface ResolveAssistantParentMessageIdDeps {
+  queryFn?: ServerQueryFn;
+  getConversationStateFn?: (conversationId: string) => Promise<ConversationStateRow | null>;
+  ensureConversationRootMessageFn?: (conversationId: string) => Promise<string>;
+}
+
 interface HermesDeliveryTraceRow {
   id: string;
   sender_trace_id: string | null;
@@ -548,12 +556,18 @@ async function resolveConversationParentMessageId(
   return rootId;
 }
 
-async function resolveAssistantParentMessageId(
+export async function resolveAssistantParentMessageId(
   conversationId: string,
-  preferredUserMessageId?: string | null
+  preferredUserMessageId?: string | null,
+  deps: ResolveAssistantParentMessageIdDeps = {}
 ): Promise<string> {
+  const queryFn = deps.queryFn ?? query;
+  const getConversationStateFn = deps.getConversationStateFn ?? getConversationState;
+  const ensureConversationRootMessageFn =
+    deps.ensureConversationRootMessageFn ?? ensureConversationRootMessage;
+
   if (preferredUserMessageId) {
-    const rows = await query<{ id: string }>(
+    const rows = await queryFn<{ id: string }>(
       `SELECT id
        FROM messages
        WHERE id = :id
@@ -567,13 +581,14 @@ async function resolveAssistantParentMessageId(
     }
   }
 
-  const conversation = await getConversationState(conversationId);
+  const conversation = await getConversationStateFn(conversationId);
   if (conversation?.curr_node) {
-    const currentRows = await query<{ id: string; type?: 'text' | 'root' }>(
+    const currentRows = await queryFn<{ id: string; type?: 'text' | 'root' }>(
       `SELECT id, type
        FROM messages
        WHERE id = :id
          AND conversation_id = :conversation_id
+         AND role = 'user'
        LIMIT 1`,
       { id: conversation.curr_node, conversation_id: conversationId }
     );
@@ -582,7 +597,7 @@ async function resolveAssistantParentMessageId(
     }
   }
 
-  const processingRows = await query<{ message_id: string }>(
+  const processingRows = await queryFn<{ message_id: string }>(
     `SELECT hermes_events.message_id
      FROM hermes_events
      INNER JOIN messages ON messages.id = hermes_events.message_id
@@ -597,7 +612,7 @@ async function resolveAssistantParentMessageId(
     return processingRows[0].message_id;
   }
 
-  const latestUserRows = await query<{ id: string }>(
+  const latestUserRows = await queryFn<{ id: string }>(
     `SELECT id
      FROM messages
      WHERE conversation_id = :conversation_id
@@ -610,7 +625,7 @@ async function resolveAssistantParentMessageId(
     return latestUserRows[0].id;
   }
 
-  return ensureConversationRootMessage(conversationId);
+  return ensureConversationRootMessageFn(conversationId);
 }
 
 async function updateConversationState(
