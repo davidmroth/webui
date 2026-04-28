@@ -4,12 +4,14 @@ export type HermesSlashCommand = {
   argsHint?: string;
   category?: string;
   aliases?: string[];
+  requiresConfirmation?: boolean;
 };
 
 const FALLBACK_COMMANDS: HermesSlashCommand[] = [
   {
     command: '/new',
-    description: 'Start a new session (fresh session ID + history).'
+    description: 'Start a new session (fresh session ID + history).',
+    requiresConfirmation: true
   },
   {
     command: '/retry',
@@ -51,13 +53,15 @@ function normalizeCommand(entry: unknown): HermesSlashCommand | null {
   const aliases = Array.isArray(candidate.aliases)
     ? candidate.aliases.filter((alias): alias is string => typeof alias === 'string' && alias.startsWith('/'))
     : undefined;
+  const requiresConfirmation = candidate.requiresConfirmation === true;
 
   return {
     command,
     description,
     ...(argsHint ? { argsHint } : {}),
     ...(category ? { category } : {}),
-    ...(aliases && aliases.length > 0 ? { aliases } : {})
+    ...(aliases && aliases.length > 0 ? { aliases } : {}),
+    ...(requiresConfirmation ? { requiresConfirmation } : {})
   };
 }
 

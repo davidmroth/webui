@@ -67,6 +67,7 @@
     description: string;
     argsHint?: string;
     aliases?: string[];
+    requiresConfirmation?: boolean;
   };
 
   type ComposerStatsStrip = {
@@ -119,7 +120,8 @@
   let slashCommands = $state<SlashCommand[]>([
     {
       command: '/new',
-      description: 'Start a new session (fresh session ID + history).'
+      description: 'Start a new session (fresh session ID + history).',
+      requiresConfirmation: true
     },
     {
       command: '/retry',
@@ -1905,12 +1907,23 @@
     await sendMessage();
   }
 
+  function getSlashCommandConfirmationMessage(slashCommand: SlashCommand) {
+    return `${slashCommand.command} will start a fresh Hermes session for this conversation. Continue?`;
+  }
+
   async function applySlashCommandSelection(slashCommand: SlashCommand) {
     const needsArgs = Boolean(slashCommand.argsHint?.trim());
     draftMessage = needsArgs ? `${slashCommand.command} ` : slashCommand.command;
     await tick();
     focusComposer();
     if (!needsArgs) {
+      if (
+        slashCommand.requiresConfirmation &&
+        typeof window !== 'undefined' &&
+        !window.confirm(getSlashCommandConfirmationMessage(slashCommand))
+      ) {
+        return;
+      }
       void submitComposer();
     }
   }
@@ -1939,6 +1952,7 @@
           description?: string;
           argsHint?: string;
           aliases?: string[];
+          requiresConfirmation?: boolean;
         }> = Array.isArray(payload?.commands) ? payload.commands : [];
 
         const normalized = commands
@@ -1948,6 +1962,7 @@
               description?: string;
               argsHint?: string;
               aliases?: string[];
+              requiresConfirmation?: boolean;
             } => Boolean(entry) && typeof entry.command === 'string' && entry.command.startsWith('/')
           )
           .map((entry) => ({
@@ -1964,7 +1979,8 @@
               ? entry.aliases.filter(
                   (alias): alias is string => typeof alias === 'string' && alias.startsWith('/')
                 )
-              : undefined
+              : undefined,
+            requiresConfirmation: entry.requiresConfirmation === true
           }));
 
         const expanded: SlashCommand[] = [];
@@ -1974,7 +1990,8 @@
             expanded.push({
               command: alias,
               description: `${command.description} (alias for ${command.command})`,
-              argsHint: command.argsHint
+              argsHint: command.argsHint,
+              requiresConfirmation: command.requiresConfirmation
             });
           }
         }
@@ -2604,10 +2621,7 @@
                             role="option"
                             aria-selected={index === selectedSlashCommandIndex}
                             onmousedown={(event) => event.preventDefault()}
-                            onclick={() => {
-                              draftMessage = slashCommand.command;
-                              void submitComposer();
-                            }}
+                            onclick={() => void applySlashCommandSelection(slashCommand)}
                           >
                             <div class="llama-slash-command-name">{slashCommand.command}</div>
                             <div class="llama-slash-command-description">{slashCommand.description}</div>
