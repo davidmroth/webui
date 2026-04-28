@@ -619,7 +619,36 @@ export async function resolveAssistantParentMessageId(
     { conversation_id: conversationId }
   );
   if (processingRows[0]?.message_id) {
-    return processingRows[0].message_id;
+    const processingUserMessageId = processingRows[0].message_id;
+    if (conversation?.curr_node) {
+      const rows = await queryFn<MessageRow>(
+        `SELECT id,
+                parent_id,
+                role,
+                content,
+                created_at,
+                updated_at,
+                status,
+                type,
+                msg_timestamp
+         FROM messages
+         WHERE conversation_id = :conversation_id
+         ORDER BY msg_timestamp ASC, created_at ASC, id ASC`,
+        { conversation_id: conversationId }
+      );
+      const messageTree = buildMessageTree(rows);
+      const currentRow = messageTree.get(conversation.curr_node)?.row;
+      const currentBranch = collectBranchRows(messageTree, conversation.curr_node);
+      const isCurrentTurnLeaf = currentBranch.some((row) => row.id === processingUserMessageId);
+      if (
+        isCurrentTurnLeaf &&
+        currentRow?.type !== 'root' &&
+        (currentRow?.role === 'assistant' || currentRow?.role === 'system')
+      ) {
+        return currentRow.id;
+      }
+    }
+    return processingUserMessageId;
   }
 
   const latestUserRows = await queryFn<{ id: string }>(

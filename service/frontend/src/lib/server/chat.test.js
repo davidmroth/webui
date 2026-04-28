@@ -81,6 +81,64 @@ test('resolveAssistantParentMessageId still prefers an explicit user message id'
   assert.equal(parentId, 'user-4');
 });
 
+test('resolveAssistantParentMessageId appends active Hermes output to the current turn leaf', async () => {
+  const parentId = await resolveAssistantParentMessageId('conv-1', null, {
+    getConversationStateFn: async () => createConversationState('assistant-progress-1'),
+    queryFn: async (sql, params = {}) => {
+      if (sql.includes("AND role = 'user'") && params.id === 'assistant-progress-1') {
+        return [];
+      }
+
+      if (sql.includes('FROM hermes_events')) {
+        return [{ message_id: 'user-1' }];
+      }
+
+      if (sql.includes('FROM messages') && sql.includes('ORDER BY msg_timestamp ASC')) {
+        return [
+          {
+            id: 'root-1',
+            parent_id: null,
+            role: 'system',
+            content: '',
+            created_at: '2026-04-27T00:00:00.000Z',
+            updated_at: '2026-04-27T00:00:00.000Z',
+            status: 'complete',
+            type: 'root',
+            msg_timestamp: 0
+          },
+          {
+            id: 'user-1',
+            parent_id: 'root-1',
+            role: 'user',
+            content: 'Yes',
+            created_at: '2026-04-27T00:00:01.000Z',
+            updated_at: '2026-04-27T00:00:01.000Z',
+            status: 'complete',
+            type: 'text',
+            msg_timestamp: 1
+          },
+          {
+            id: 'assistant-progress-1',
+            parent_id: 'user-1',
+            role: 'assistant',
+            content: 'I can see the repo.',
+            created_at: '2026-04-27T00:00:02.000Z',
+            updated_at: '2026-04-27T00:00:02.000Z',
+            status: 'complete',
+            type: 'text',
+            msg_timestamp: 2
+          }
+        ];
+      }
+
+      throw new Error(`Unexpected query: ${sql} ${JSON.stringify(params)}`);
+    },
+    ensureConversationRootMessageFn: async () => 'root-1'
+  });
+
+  assert.equal(parentId, 'assistant-progress-1');
+});
+
 test('updateAssistantMessage rejects stale Hermes targets outside the visible tail', async () => {
   const executeCalls = [];
 
