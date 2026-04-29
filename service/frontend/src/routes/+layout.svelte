@@ -52,7 +52,21 @@
   }
 
   function suppressContextMenu(event: MouseEvent) {
-    if (!window.matchMedia(MOBILE_VIEWPORT_MEDIA_QUERY).matches) {
+    if (event.defaultPrevented || !window.matchMedia(MOBILE_VIEWPORT_MEDIA_QUERY).matches) {
+      return;
+    }
+
+    const target = event.target;
+    if (!(target instanceof Element)) {
+      event.preventDefault();
+      return;
+    }
+
+    if (
+      target.closest(
+        'input, textarea, select, [contenteditable="true"], [contenteditable="plaintext-only"], .llama-message-body, .markdown-content, pre, code'
+      )
+    ) {
       return;
     }
 

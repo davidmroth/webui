@@ -49,6 +49,7 @@
   } from '$lib/utils/chat-notification-policy';
   import { getAuthHeaders } from '$lib/utils/api-headers';
   import { readTimingSummary } from '$lib/utils/chat-timings';
+  import { isCurrentConversationRequest } from '$lib/utils/current-conversation-request';
 
   type PendingAttachment = {
     id: string;
@@ -77,7 +78,14 @@
     isFading: boolean;
   };
 
+  const CHAT_BACK_SENTINEL_KEY = 'hermesChatBackSentinel';
+
   type PushRegistrationState = 'unknown' | 'active' | 'inactive' | 'unavailable' | 'error';
+
+  type ChatHistoryState = {
+    [CHAT_BACK_SENTINEL_KEY]?: true;
+    conversationId?: string | null;
+  };
 
   let { data, form } = $props();
   let currentConversationId = $state<string | null>(
@@ -118,6 +126,7 @@
   let loadedMessagesConversationId = $state<string | null>(null);
   let lastKnownConversationUpdatedAtById = $state<Record<string, string>>({});
   let lastKnownAssistantBusyById = $state<Record<string, boolean>>({});
+  let ignoreNextChatBackPopstate = false;
   let slashCommands = $state<SlashCommand[]>([
     {
       command: '/new',
@@ -550,8 +559,56 @@
       isMobileViewport = next;
       // On switching INTO mobile, default the drawer to closed.
       if (next) {
-        sidebarCollapsed = true;
+        setSidebarCollapsed(true);
       }
+    }
+    syncChatBackSentinel();
+  }
+
+  function currentHistoryState(): ChatHistoryState | null {
+    return typeof window === 'undefined' ? null : ((window.history.state ?? null) as ChatHistoryState | null);
+  }
+
+  function shouldInstallChatBackSentinel() {
+    return isMobileViewport && Boolean(currentConversationId) && sidebarCollapsed;
+  }
+
+  function syncChatBackSentinel() {
+    if (typeof window === 'undefined' || !shouldInstallChatBackSentinel()) {
+      return;
+    }
+
+    if (currentHistoryState()?.[CHAT_BACK_SENTINEL_KEY]) {
+      return;
+    }
+
+    window.history.pushState(
+      { [CHAT_BACK_SENTINEL_KEY]: true, conversationId: currentConversationId },
+      '',
+      window.location.href
+    );
+  }
+
+  function replaceChatHistoryState(conversationId: string | null, url: string) {
+    window.history.replaceState({ conversationId }, '', url);
+    syncChatBackSentinel();
+  }
+
+  function removeChatBackSentinel() {
+    if (typeof window === 'undefined' || !currentHistoryState()?.[CHAT_BACK_SENTINEL_KEY]) {
+      return;
+    }
+
+    ignoreNextChatBackPopstate = true;
+    window.history.back();
+  }
+
+  function setSidebarCollapsed(collapsed: boolean) {
+    sidebarCollapsed = collapsed;
+    if (collapsed) {
+      syncChatBackSentinel();
+    } else {
+      removeChatBackSentinel();
     }
   }
 
@@ -565,6 +622,13 @@
     }
     lastKnownConversationUpdatedAtById = indexConversationUpdatedAt(data.conversations);
     lastKnownAssistantBusyById = indexConversationAssistantBusy(data.conversations);
+  });
+
+  $effect(() => {
+    const shouldInstallSentinel = isMobileViewport && Boolean(currentConversationId) && sidebarCollapsed;
+    if (!shouldInstallSentinel) return;
+
+    untrack(() => syncChatBackSentinel());
   });
 
   $effect(() => {
@@ -1138,7 +1202,7 @@
 
   function setChatUrl(conversationId: string | null) {
     const nextUrl = conversationId ? `/chat?conversation=${conversationId}` : '/chat';
-    window.history.pushState({}, '', nextUrl);
+    replaceChatHistoryState(conversationId, nextUrl);
   }
 
   function focusComposer() {
@@ -1488,6 +1552,10 @@
     }
 
     const payload = await response.json();
+    if (!isCurrentConversationRequest(conversationId, currentConversationId)) {
+      return;
+    }
+
     syncPendingAssistant(conversationId, payload.messages);
     rememberConversationStreamCursor(conversationId, payload.messages);
     loadedMessagesConversationId = conversationId;
@@ -1638,7 +1706,7 @@
     isRemovingConversationView = false;
 
     if (conversationId === currentConversationId) {
-      if (isMobileViewport) sidebarCollapsed = true;
+      if (isMobileViewport) setSidebarCollapsed(true);
       return;
     }
 
@@ -1647,7 +1715,7 @@
     closeRenameConversationDialog();
     closeDeleteConversationDialog();
     setChatUrl(conversationId);
-    if (isMobileViewport) sidebarCollapsed = true;
+    if (isMobileViewport) setSidebarCollapsed(true);
     await loadMessages(conversationId, { forceScroll: true });
     focusComposer();
   }
@@ -1659,7 +1727,7 @@
     closeRenameConversationDialog();
     closeDeleteConversationDialog();
     setChatUrl(null);
-    if (isMobileViewport) sidebarCollapsed = true;
+    if (isMobileViewport) setSidebarCollapsed(true);
     tick().then(() => {
       resetComposerHeight();
       focusComposer();
@@ -2238,7 +2306,46 @@
 
     let resizeObserver: ResizeObserver | null = null;
 
+    const consumeAppBackNavigation = () => {
+      if (settingsOpen) {
+        settingsOpen = false;
+        return true;
+      }
+
+      if (attachmentMenuOpen) {
+        attachmentMenuOpen = false;
+        return true;
+      }
+
+      if (renameConversationOpen) {
+        closeRenameConversationDialog();
+        return true;
+      }
+
+      if (deleteConversationOpen) {
+        closeDeleteConversationDialog();
+        return true;
+      }
+
+      if (isMobileViewport && currentConversationId && sidebarCollapsed) {
+        setSidebarCollapsed(false);
+        return true;
+      }
+
+      return false;
+    };
+
     const handlePopState = async () => {
+      if (ignoreNextChatBackPopstate) {
+        ignoreNextChatBackPopstate = false;
+        return;
+      }
+
+      if (consumeAppBackNavigation()) {
+        syncChatBackSentinel();
+        return;
+      }
+
       const url = new URL(window.location.href);
       currentConversationId = url.searchParams.get('conversation');
       await loadMessages(currentConversationId, { forceScroll: true });
@@ -2298,7 +2405,7 @@
         }
 
         if (isMobileViewport && !sidebarCollapsed) {
-          sidebarCollapsed = true;
+          setSidebarCollapsed(true);
         }
       }
     };
@@ -2366,7 +2473,7 @@
         type="button"
         class="llama-mobile-backdrop"
         aria-label="Close sidebar"
-        onclick={() => (sidebarCollapsed = true)}
+        onclick={() => setSidebarCollapsed(true)}
       ></button>
     {/if}
     <aside class="llama-sidebar">
@@ -2377,7 +2484,7 @@
           class="llama-toolbar-button llama-sidebar-collapse"
           aria-label="Hide sidebar"
           title="Hide sidebar"
-          onclick={() => (sidebarCollapsed = true)}
+          onclick={() => setSidebarCollapsed(true)}
         >
           <ChevronsLeft class="h-4 w-4" />
         </button>
@@ -2436,7 +2543,7 @@
           class="llama-toolbar-button"
           type="button"
           aria-label={sidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'}
-          onclick={() => (sidebarCollapsed = !sidebarCollapsed)}
+          onclick={() => setSidebarCollapsed(!sidebarCollapsed)}
         >
           <PanelLeft class="h-4 w-4" />
         </button>
