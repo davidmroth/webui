@@ -162,6 +162,16 @@ export async function GET(event) {
             break;
           }
 
+          if (streamEvent.type === 'typing') {
+            send(sse('typing', { conversationId: streamEvent.conversationId }));
+            continue;
+          }
+
+          if (streamEvent.type === 'typing-stop') {
+            send(sse('typing-stop', { conversationId: streamEvent.conversationId }));
+            continue;
+          }
+
           if (streamEvent.type === 'message') {
             if (activeMessageId !== streamEvent.messageId) {
               activeMessageId = streamEvent.messageId;

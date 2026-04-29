@@ -1402,6 +1402,18 @@ export async function appendAssistantChunk(
   });
 }
 
+export function publishHermesTypingIndicator(conversationId: string, active: boolean) {
+  const normalizedConversationId = conversationId.trim();
+  if (!normalizedConversationId) {
+    throw new Error('conversationId required');
+  }
+
+  publishConversationStreamEvent({
+    type: active ? 'typing' : 'typing-stop',
+    conversationId: normalizedConversationId
+  });
+}
+
 /**
  * Read all chunks for a message above a given sequence number. Used by SSE.
  */

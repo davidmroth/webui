@@ -87,6 +87,7 @@
   let conversations = $state<ConversationSummary[]>(untrack(() => data.conversations ?? []));
   let pendingFiles = $state<PendingAttachment[]>([]);
   let pendingAssistantByConversation = $state<Record<string, PendingAssistantState>>({});
+  let hermesTypingPlaceholderByConversation = $state<Record<string, string>>({});
   let serverAssistantBusyByConversation = $state<Record<string, boolean>>({});
   let attachmentMenuOpen = $state(false);
   let searchQuery = $state('');
@@ -587,6 +588,25 @@
       : `/api/conversations/${conversationId}/messages/stream`;
     const stream = new EventSource(streamPath);
 
+    const handleTypingEvent = (_event: Event) => {
+      if (currentConversationId !== conversationId) {
+        return;
+      }
+
+      showHermesTypingIndicator(conversationId);
+      if (shouldFollowLatestMessages()) {
+        void scrollMessagesToBottom();
+      }
+    };
+
+    const handleTypingStopEvent = (_event: Event) => {
+      if (currentConversationId !== conversationId) {
+        return;
+      }
+
+      clearHermesTypingIndicator(conversationId);
+    };
+
     const handleMessageEvent = (event: Event) => {
       if (currentConversationId !== conversationId) {
         return;
@@ -600,6 +620,7 @@
 
       resetComposerStatsCycle();
       void loadComposerStatsCaps();
+      clearHermesTypingIndicator(conversationId, { updateBusy: false });
       ensureStreamingAssistantMessage(conversationId, messageId);
       logChatScroll('stream-message', { messageId });
       void refreshConversations();
@@ -618,6 +639,7 @@
         return;
       }
 
+      clearHermesTypingIndicator(conversationId, { updateBusy: false });
       applyStreamingAssistantDelta(conversationId, messageId, seq, delta);
       if (shouldFollowLatestMessages()) {
         void scrollMessagesToBottom();
@@ -633,6 +655,7 @@
       const messageId = typeof payload?.messageId === 'string' ? payload.messageId : null;
       const status: ChatMessage['status'] = payload?.status === 'error' ? 'error' : 'complete';
 
+      clearHermesTypingIndicator(conversationId, { updateBusy: false });
       if (messageId) {
         messages = messages.map((message): ChatMessage =>
           message.id === messageId ? { ...message, status } : message
@@ -660,11 +683,15 @@
       void refreshTask;
     };
 
+    stream.addEventListener('typing', handleTypingEvent);
+    stream.addEventListener('typing-stop', handleTypingStopEvent);
     stream.addEventListener('message', handleMessageEvent);
     stream.addEventListener('delta', handleDeltaEvent);
     stream.addEventListener('done', handleDoneEvent);
 
     return () => {
+      stream.removeEventListener('typing', handleTypingEvent);
+      stream.removeEventListener('typing-stop', handleTypingStopEvent);
       stream.removeEventListener('message', handleMessageEvent);
       stream.removeEventListener('delta', handleDeltaEvent);
       stream.removeEventListener('done', handleDoneEvent);
@@ -683,15 +710,20 @@
 
   const displayMessages = $derived.by(() => {
     const pendingAssistant = currentConversationId ? pendingAssistantByConversation[currentConversationId] : null;
-    if (!pendingAssistant) {
+    const typingPlaceholderId = currentConversationId
+      ? hermesTypingPlaceholderByConversation[currentConversationId]
+      : null;
+
+    if (!pendingAssistant && !typingPlaceholderId) {
       return messages;
     }
 
-    if (messages.some((message) => message.id === pendingAssistant.placeholderId)) {
+    const placeholderId = pendingAssistant?.placeholderId ?? typingPlaceholderId;
+    if (!placeholderId || messages.some((message) => message.id === placeholderId)) {
       return messages;
     }
 
-    return [...messages, createPendingAssistantMessage(pendingAssistant.placeholderId)];
+    return [...messages, createPendingAssistantMessage(placeholderId)];
   });
 
   const isAssistantBusy = $derived(
@@ -1201,6 +1233,44 @@
     const nextPending = { ...pendingAssistantByConversation };
     delete nextPending[conversationId];
     pendingAssistantByConversation = nextPending;
+  }
+
+  function hasStreamingAssistantMessage() {
+    return messages.some((message) => message.role === 'assistant' && message.status === 'streaming');
+  }
+
+  function showHermesTypingIndicator(conversationId: string) {
+    if (!hermesTypingPlaceholderByConversation[conversationId]) {
+      hermesTypingPlaceholderByConversation = {
+        ...hermesTypingPlaceholderByConversation,
+        [conversationId]: createClientId('typing-assistant-')
+      };
+    }
+
+    setConversationBusyState(conversationId, true);
+  }
+
+  function clearHermesTypingIndicator(
+    conversationId: string,
+    options: { updateBusy?: boolean } = {}
+  ) {
+    if (hermesTypingPlaceholderByConversation[conversationId]) {
+      const nextTyping = { ...hermesTypingPlaceholderByConversation };
+      delete nextTyping[conversationId];
+      hermesTypingPlaceholderByConversation = nextTyping;
+    }
+
+    if (options.updateBusy === false) {
+      return;
+    }
+
+    if (
+      currentConversationId === conversationId &&
+      !pendingAssistantByConversation[conversationId] &&
+      !hasStreamingAssistantMessage()
+    ) {
+      setConversationBusyState(conversationId, false);
+    }
   }
 
   function syncPendingAssistant(conversationId: string, nextMessages: ChatMessage[]) {

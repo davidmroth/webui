@@ -1,5 +1,13 @@
 export type ConversationStreamEvent =
   | {
+      type: 'typing';
+      conversationId: string;
+    }
+  | {
+      type: 'typing-stop';
+      conversationId: string;
+    }
+  | {
       type: 'message';
       conversationId: string;
       messageId: string;
