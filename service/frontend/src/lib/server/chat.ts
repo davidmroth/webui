@@ -468,6 +468,17 @@ function firstUserMessageInBranch(path: MessageRow[]): MessageRow | null {
   return path.find((row) => row.role === 'user' && row.type !== 'root') ?? null;
 }
 
+function latestUserMessageInBranch(path: MessageRow[]): MessageRow | null {
+  for (let index = path.length - 1; index >= 0; index -= 1) {
+    const row = path[index];
+    if (row?.role === 'user' && row.type !== 'root') {
+      return row;
+    }
+  }
+
+  return null;
+}
+
 async function getConversationState(conversationId: string): Promise<ConversationStateRow | null> {
   const rows = await query<ConversationStateRow>(
     `SELECT id, created_at, curr_node, title
@@ -593,6 +604,7 @@ export async function resolveAssistantParentMessageId(
   const getConversationStateFn = deps.getConversationStateFn ?? getConversationState;
   const ensureConversationRootMessageFn =
     deps.ensureConversationRootMessageFn ?? ensureConversationRootMessage;
+  const conversation = await getConversationStateFn(conversationId);
 
   if (preferredUserMessageId) {
     const rows = await queryFn<{ id: string }>(
@@ -605,11 +617,39 @@ export async function resolveAssistantParentMessageId(
       { id: preferredUserMessageId, conversation_id: conversationId }
     );
     if (rows[0]?.id) {
+      if (conversation?.curr_node) {
+        const conversationRows = await queryFn<MessageRow>(
+          `SELECT id,
+                  parent_id,
+                  role,
+                  content,
+                  created_at,
+                  updated_at,
+                  status,
+                  type,
+                  msg_timestamp
+           FROM messages
+           WHERE conversation_id = :conversation_id
+           ORDER BY msg_timestamp ASC, created_at ASC, id ASC`,
+          { conversation_id: conversationId }
+        );
+        const messageTree = buildMessageTree(conversationRows);
+        const currentRow = messageTree.get(conversation.curr_node)?.row;
+        const currentBranch = collectBranchRows(messageTree, conversation.curr_node);
+        const latestUserMessage = latestUserMessageInBranch(currentBranch);
+        if (
+          latestUserMessage?.id === preferredUserMessageId &&
+          currentRow?.type !== 'root' &&
+          (currentRow?.role === 'assistant' || currentRow?.role === 'system')
+        ) {
+          return currentRow.id;
+        }
+      }
+
       return rows[0].id;
     }
   }
 
-  const conversation = await getConversationStateFn(conversationId);
   if (conversation?.curr_node) {
     const currentRows = await queryFn<{ id: string; type?: 'text' | 'root' }>(
       `SELECT id, type
