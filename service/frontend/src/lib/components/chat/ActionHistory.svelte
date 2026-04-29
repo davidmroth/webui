@@ -21,9 +21,9 @@
   );
 </script>
 
-<Collapsible.Root bind:open>
-  <section class="action-history" aria-label="Assistant actions">
-    <Collapsible.Trigger class="action-history-trigger" type="button" aria-expanded={open}>
+<section class="action-history" aria-label="Assistant actions">
+  {#if actionLines.length <= 1}
+    <div class="action-history-single">
       <span class="action-history-icon" aria-hidden="true">
         <ListChecks class="h-4 w-4" />
       </span>
@@ -31,19 +31,31 @@
         <span class="action-history-title">Actions</span>
         <span class="action-history-latest">{latestAction}</span>
       </span>
-      <span class="action-history-count">{actionCountLabel}</span>
-      <ChevronDown class={`action-history-chevron h-4 w-4 ${open ? 'expanded' : ''}`} aria-hidden="true" />
-    </Collapsible.Trigger>
+    </div>
+  {:else}
+    <Collapsible.Root bind:open>
+      <Collapsible.Trigger class="action-history-trigger" type="button" aria-expanded={open}>
+        <span class="action-history-icon" aria-hidden="true">
+          <ListChecks class="h-4 w-4" />
+        </span>
+        <span class="action-history-summary">
+          <span class="action-history-title">Actions</span>
+          <span class="action-history-latest">{latestAction}</span>
+        </span>
+        <span class="action-history-count">{actionCountLabel}</span>
+        <ChevronDown class={`action-history-chevron h-4 w-4 ${open ? 'expanded' : ''}`} aria-hidden="true" />
+      </Collapsible.Trigger>
 
-    <Collapsible.Content>
-      <ol class="action-history-list">
-        {#each actionLines as actionLine}
-          <li class="action-history-item">{actionLine}</li>
-        {/each}
-      </ol>
-    </Collapsible.Content>
-  </section>
-</Collapsible.Root>
+      <Collapsible.Content>
+        <ol class="action-history-list">
+          {#each actionLines as actionLine}
+            <li class="action-history-item">{actionLine}</li>
+          {/each}
+        </ol>
+      </Collapsible.Content>
+    </Collapsible.Root>
+  {/if}
+</section>
 
 <style>
   .action-history {
@@ -51,6 +63,7 @@
     color: var(--text);
   }
 
+  .action-history-single,
   :global(.action-history-trigger) {
     display: grid;
     grid-template-columns: auto minmax(0, 1fr) auto auto;
@@ -63,6 +76,10 @@
     border-radius: calc(var(--app-radius) * 0.7);
     background: color-mix(in srgb, var(--panel-strong) 74%, transparent);
     text-align: left;
+  }
+
+  .action-history-single {
+    grid-template-columns: auto minmax(0, 1fr);
   }
 
   :global(.action-history-trigger:hover) {
@@ -142,8 +159,13 @@
   }
 
   @media (max-width: 640px) {
+    .action-history-single,
     :global(.action-history-trigger) {
       grid-template-columns: auto minmax(0, 1fr) auto;
+    }
+
+    .action-history-single {
+      grid-template-columns: auto minmax(0, 1fr);
     }
 
     .action-history-count {
