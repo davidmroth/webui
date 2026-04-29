@@ -1,6 +1,7 @@
 import { Client } from 'minio';
 import { randomUUID } from 'node:crypto';
 import { getConfig } from './env';
+import { DiagnosticEventType, DiagnosticHop, emitDiagnosticEvent } from './diagnostics';
 
 let initialized = false;
 
@@ -85,15 +86,36 @@ export async function uploadObject(params: {
   contentType: string;
   buffer: Buffer;
 }) {
+  const startedAt = Date.now();
   await ensureStorageBucket();
   const config = getConfig();
   const client = createStorageClient();
   const keyBase = `${params.conversationId}/${params.messageId}/${randomUUID()}-${params.fileName}`;
   const prefix = normalizeObjectStoragePrefix(config.objectStoragePrefix);
   const objectKey = prefix ? `${prefix}/${keyBase}` : keyBase;
-  await client.putObject(config.objectStorageBucket, objectKey, params.buffer, params.buffer.length, {
-    'Content-Type': params.contentType
-  });
+  try {
+    await client.putObject(config.objectStorageBucket, objectKey, params.buffer, params.buffer.length, {
+      'Content-Type': params.contentType
+    });
+  } catch (error) {
+    emitDiagnosticEvent(DiagnosticEventType.AttachmentUploadFailed, DiagnosticHop.ObjectStorage, {
+      conversationId: params.conversationId,
+      messageId: params.messageId,
+      sizeBytes: params.buffer.length,
+      durationMs: Date.now() - startedAt,
+      errorClass: error instanceof Error ? error.constructor.name : typeof error,
+      errorMessage: error instanceof Error ? error.message : 'Object upload failed.'
+    }, params.conversationId);
+    throw error;
+  }
+  emitDiagnosticEvent(DiagnosticEventType.AttachmentUploadSucceeded, DiagnosticHop.ObjectStorage, {
+    conversationId: params.conversationId,
+    messageId: params.messageId,
+    sizeBytes: params.buffer.length,
+    durationMs: Date.now() - startedAt,
+    bucket: config.objectStorageBucket,
+    prefixConfigured: Boolean(prefix)
+  }, params.conversationId);
   return {
     bucket: config.objectStorageBucket,
     key: objectKey,
@@ -102,9 +124,26 @@ export async function uploadObject(params: {
 }
 
 export async function getObjectBuffer(storageKey: string): Promise<Buffer> {
+  const startedAt = Date.now();
   await ensureStorageBucket();
   const config = getConfig();
   const client = createStorageClient();
-  const stream = await client.getObject(config.objectStorageBucket, storageKey);
-  return streamToBuffer(stream);
+  try {
+    const stream = await client.getObject(config.objectStorageBucket, storageKey);
+    const buffer = await streamToBuffer(stream);
+    emitDiagnosticEvent(DiagnosticEventType.AttachmentDownloadSucceeded, DiagnosticHop.ObjectStorage, {
+      sizeBytes: buffer.length,
+      durationMs: Date.now() - startedAt,
+      bucket: config.objectStorageBucket
+    });
+    return buffer;
+  } catch (error) {
+    emitDiagnosticEvent(DiagnosticEventType.AttachmentDownloadFailed, DiagnosticHop.ObjectStorage, {
+      durationMs: Date.now() - startedAt,
+      bucket: config.objectStorageBucket,
+      errorClass: error instanceof Error ? error.constructor.name : typeof error,
+      errorMessage: error instanceof Error ? error.message : 'Object download failed.'
+    });
+    throw error;
+  }
 }

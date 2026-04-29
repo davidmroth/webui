@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { execute, pool, query } from './db';
 import { publishConversationStreamEvent } from './conversation-stream';
 import { getConfig } from './env';
+import { DiagnosticEventType, DiagnosticHop, emitDiagnosticEvent } from './diagnostics';
 import { sendPushReplyNotification } from './push-notifications';
 import { getObjectBuffer, uploadObject } from './storage';
 import { getHermesWorkerHeartbeat } from './hermes-heartbeat';
@@ -1418,6 +1419,12 @@ export async function appendAssistantChunk(
     seq,
     delta
   });
+  emitDiagnosticEvent(
+    DiagnosticEventType.HermesStreamingDeltaReceived,
+    DiagnosticHop.WebuiApi,
+    { conversationId, messageId, seq, deltaLength: delta.length },
+    conversationId
+  );
 }
 
 export function publishHermesTypingIndicator(conversationId: string, active: boolean) {
@@ -1478,6 +1485,12 @@ export async function openStreamingAssistantMessage(
   );
   await updateConversationState(conversationId, { currNode: messageId });
   publishConversationStreamEvent({ type: 'message', conversationId, messageId });
+  emitDiagnosticEvent(
+    DiagnosticEventType.HermesStreamingMessageOpened,
+    DiagnosticHop.WebuiApi,
+    { conversationId, messageId, userMessageId: options.userMessageId ?? null },
+    conversationId
+  );
   return messageId;
 }
 
@@ -1522,6 +1535,12 @@ export async function finalizeStreamingAssistantMessage(
     messageId,
     status: 'complete'
   });
+  emitDiagnosticEvent(
+    DiagnosticEventType.HermesStreamingMessageFinalized,
+    DiagnosticHop.WebuiApi,
+    { conversationId, messageId, status: 'complete', contentLength: finalContent.length },
+    conversationId
+  );
   void notifyAssistantReplyCompletion({
     conversationId,
     messageId,
@@ -1711,6 +1730,18 @@ export async function enqueueUserMessage(
     currNode: messageId,
     ...(nextTitle ? { title: nextTitle } : {})
   });
+  emitDiagnosticEvent(
+    DiagnosticEventType.ClientMessageQueued,
+    DiagnosticHop.HermesQueue,
+    {
+      conversationId,
+      messageId,
+      eventId,
+      attachmentCount: files.length,
+      contentLength: content.length
+    },
+    conversationId
+  );
 
   return { messageId, eventId };
 }
@@ -1757,6 +1788,17 @@ export async function dequeueHermesEvent() {
       [row.id]
     );
     await connection.commit();
+    emitDiagnosticEvent(
+      DiagnosticEventType.HermesEventDequeued,
+      DiagnosticHop.HermesQueue,
+      {
+        conversationId: row.conversation_id,
+        messageId: row.message_id,
+        eventId: row.id,
+        createdAt: toIsoString(row.created_at)
+      },
+      row.conversation_id
+    );
 
     const attachments = await query<AttachmentRow>(
       `SELECT id, message_id, file_name, content_type, size_bytes, storage_key
@@ -1792,6 +1834,10 @@ export async function dequeueHermesEvent() {
     };
   } catch (error) {
     await connection.rollback();
+    emitDiagnosticEvent(DiagnosticEventType.HermesAssistantPostFailed, DiagnosticHop.HermesQueue, {
+      errorClass: error instanceof Error ? error.constructor.name : typeof error,
+      errorMessage: error instanceof Error ? error.message : 'Failed to dequeue Hermes event.'
+    });
     throw error;
   } finally {
     connection.release();
@@ -1805,6 +1851,7 @@ export async function ackHermesEvent(eventId: string) {
      WHERE id = :id`,
     { id: eventId }
   );
+  emitDiagnosticEvent(DiagnosticEventType.HermesEventAcked, DiagnosticHop.HermesQueue, { eventId });
 }
 
 export async function getHermesQueueStats() {

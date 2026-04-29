@@ -14,6 +14,7 @@ import {
   subscribeConversationStream,
   type ConversationStreamEvent
 } from '$server/conversation-stream';
+import { DiagnosticEventType, DiagnosticHop, emitDiagnosticEvent } from '$server/diagnostics';
 
 const HEARTBEAT_INTERVAL_MS = 15_000;
 const MAX_STREAM_DURATION_MS = 5 * 60_000;
@@ -40,6 +41,27 @@ export async function GET(event) {
   let cancelled = false;
   let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   const abortController = new AbortController();
+  const connectionId = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const startedAt = Date.now();
+  let disconnectEmitted = false;
+
+  const emitDisconnect = (reason: string) => {
+    if (disconnectEmitted) {
+      return;
+    }
+    disconnectEmitted = true;
+    emitDiagnosticEvent(
+      DiagnosticEventType.SseClientDisconnected,
+      DiagnosticHop.SseStream,
+      {
+        conversationId,
+        connectionId,
+        reason,
+        durationMs: Date.now() - startedAt
+      },
+      conversationId
+    );
+  };
 
   const stream = new ReadableStream({
     async start(controller) {
@@ -53,9 +75,14 @@ export async function GET(event) {
       };
 
       send(sse('open', { conversationId }));
+      emitDiagnosticEvent(
+        DiagnosticEventType.SseClientConnected,
+        DiagnosticHop.SseStream,
+        { conversationId, connectionId },
+        conversationId
+      );
       heartbeatTimer = setInterval(() => send(': keepalive\n\n'), HEARTBEAT_INTERVAL_MS);
 
-      const startedAt = Date.now();
       let lastSeq = -1;
       let activeMessageId: string | null = null;
       const queuedEvents: ConversationStreamEvent[] = [];
@@ -164,11 +191,21 @@ export async function GET(event) {
 
           if (streamEvent.type === 'typing') {
             send(sse('typing', { conversationId: streamEvent.conversationId }));
+            emitDiagnosticEvent(DiagnosticEventType.SseEventSent, DiagnosticHop.SseStream, {
+              conversationId,
+              connectionId,
+              streamEventType: 'typing'
+            }, conversationId);
             continue;
           }
 
           if (streamEvent.type === 'typing-stop') {
             send(sse('typing-stop', { conversationId: streamEvent.conversationId }));
+            emitDiagnosticEvent(DiagnosticEventType.SseEventSent, DiagnosticHop.SseStream, {
+              conversationId,
+              connectionId,
+              streamEventType: 'typing-stop'
+            }, conversationId);
             continue;
           }
 
@@ -177,6 +214,12 @@ export async function GET(event) {
               activeMessageId = streamEvent.messageId;
               lastSeq = -1;
               send(sse('message', { messageId: activeMessageId }));
+              emitDiagnosticEvent(DiagnosticEventType.SseEventSent, DiagnosticHop.SseStream, {
+                conversationId,
+                connectionId,
+                messageId: activeMessageId,
+                streamEventType: 'message'
+              }, conversationId);
               await flushChunks(activeMessageId);
             }
             continue;
@@ -197,6 +240,14 @@ export async function GET(event) {
                   delta: streamEvent.delta
                 })
               );
+              emitDiagnosticEvent(DiagnosticEventType.SseEventSent, DiagnosticHop.SseStream, {
+                conversationId,
+                connectionId,
+                messageId: streamEvent.messageId,
+                streamEventType: 'delta',
+                seq: streamEvent.seq,
+                deltaLength: streamEvent.delta.length
+              }, conversationId);
               lastSeq = streamEvent.seq;
             }
             continue;
@@ -212,6 +263,13 @@ export async function GET(event) {
               status: streamEvent.status
             }, { id: streamEvent.messageId })
           );
+          emitDiagnosticEvent(DiagnosticEventType.SseEventSent, DiagnosticHop.SseStream, {
+            conversationId,
+            connectionId,
+            messageId: streamEvent.messageId,
+            streamEventType: 'done',
+            status: streamEvent.status
+          }, conversationId);
           activeMessageId = null;
           lastSeq = -1;
         }
@@ -223,6 +281,7 @@ export async function GET(event) {
           resolve(null);
         }
         if (heartbeatTimer) clearInterval(heartbeatTimer);
+        emitDisconnect(cancelled ? 'cancelled' : 'closed');
         try {
           controller.close();
         } catch {
@@ -234,6 +293,7 @@ export async function GET(event) {
       cancelled = true;
       abortController.abort();
       if (heartbeatTimer) clearInterval(heartbeatTimer);
+      emitDisconnect('cancelled');
     }
   });
 

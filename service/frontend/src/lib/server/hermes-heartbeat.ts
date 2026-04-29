@@ -1,4 +1,5 @@
 import { getConfig } from './env';
+import { DiagnosticEventType, DiagnosticHop, emitDiagnosticEvent } from './diagnostics';
 
 type HeartbeatSource =
   | 'inbox-next'
@@ -19,12 +20,21 @@ let lastAuthFailureReason: string | null = null;
 export function noteHermesWorkerHeartbeat(source: HeartbeatSource) {
   lastSeenAtMs = Date.now();
   lastSeenSource = source;
+  emitDiagnosticEvent(DiagnosticEventType.HermesWorkerSeen, DiagnosticHop.HermesWorker, {
+    source,
+    lastSeenAt: new Date(lastSeenAtMs).toISOString()
+  });
 }
 
 export function noteHermesWorkerAuthFailure(source: HeartbeatSource, reason = 'unauthorized') {
   lastAuthFailureAtMs = Date.now();
   lastAuthFailureSource = source;
   lastAuthFailureReason = reason.trim() || 'unauthorized';
+  emitDiagnosticEvent(DiagnosticEventType.HermesAuthFailed, DiagnosticHop.HermesWorker, {
+    source,
+    reason: lastAuthFailureReason,
+    lastSeenAt: new Date(lastAuthFailureAtMs).toISOString()
+  });
 }
 
 export function getHermesWorkerHeartbeat() {

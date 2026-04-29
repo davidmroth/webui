@@ -8,6 +8,7 @@ import {
   updateAssistantMessage,
   recordHermesDeliveryTrace
 } from '$server/chat';
+import { DiagnosticEventType, DiagnosticHop, emitDiagnosticEvent } from '$server/diagnostics';
 import { getConfig } from '$server/env';
 import { noteHermesWorkerAuthFailure, noteHermesWorkerHeartbeat } from '$server/hermes-heartbeat';
 import { isHermesSystemStatusContent } from '$lib/utils/hermes-system-status';
@@ -247,6 +248,25 @@ function normalizeTimingsInput(raw: unknown): Record<string, unknown> | undefine
   return obj;
 }
 
+function diagnosticErrorDetails(error: unknown) {
+  return {
+    errorClass: error instanceof Error ? error.constructor.name : typeof error,
+    errorMessage: error instanceof Error ? error.message : 'Unknown assistant receiver error'
+  };
+}
+
+function emitAssistantDiagnostic(
+  eventType: (typeof DiagnosticEventType)[keyof typeof DiagnosticEventType],
+  details: Record<string, unknown>,
+  conversationId: string
+) {
+  emitDiagnosticEvent(eventType, DiagnosticHop.WebuiApi, details, conversationId);
+}
+
+function getRequestId(request: Request) {
+  return request.headers.get('x-request-id')?.trim() || globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
 export async function POST({ params, request }: { params: { conversationId: string }; request: Request }) {
   if (!isAuthorized(request)) {
     noteHermesWorkerAuthFailure('assistant-post');
@@ -254,6 +274,11 @@ export async function POST({ params, request }: { params: { conversationId: stri
   }
 
   noteHermesWorkerHeartbeat('assistant-post');
+
+  const requestId = getRequestId(request);
+  const startedAt = Date.now();
+
+  try {
 
   const contentType = request.headers.get('content-type') || '';
   if (contentType.includes('multipart/form-data')) {
@@ -264,7 +289,31 @@ export async function POST({ params, request }: { params: { conversationId: stri
     const files = formData
       .getAll('attachments')
       .filter((value: FormDataEntryValue): value is File => value instanceof File && value.size > 0);
+    emitAssistantDiagnostic(
+      DiagnosticEventType.HermesAssistantPostReceived,
+      {
+        conversationId: params.conversationId,
+        requestId,
+        mode: 'multipart_create',
+        contentLength: content.length,
+        attachmentCount: files.length,
+        role
+      },
+      params.conversationId
+    );
     if (!content && files.length === 0) {
+      emitAssistantDiagnostic(
+        DiagnosticEventType.HermesAssistantPostRejected,
+        {
+          conversationId: params.conversationId,
+          requestId,
+          mode: 'multipart_create',
+          statusCode: 400,
+          reason: 'Assistant content or attachment is required.',
+          durationMs: Date.now() - startedAt
+        },
+        params.conversationId
+      );
       return json({ error: 'Assistant content or attachment is required.' }, { status: 400 });
     }
 
@@ -284,6 +333,18 @@ export async function POST({ params, request }: { params: { conversationId: stri
       content,
       files,
       { timings, role, userMessageId }
+    );
+    emitAssistantDiagnostic(
+      DiagnosticEventType.HermesAssistantPostAccepted,
+      {
+        conversationId: params.conversationId,
+        requestId,
+        mode: 'multipart_create',
+        messageId,
+        statusCode: 201,
+        durationMs: Date.now() - startedAt
+      },
+      params.conversationId
     );
     return json({ ok: true, messageId }, { status: 201 });
   }
@@ -315,6 +376,25 @@ export async function POST({ params, request }: { params: { conversationId: stri
     senderTrace && normalizedTimings
       ? { ...senderTrace, route: `${senderTrace.route}+timings` }
       : senderTrace;
+  const messageId = normalizeOptionalString(body.messageId);
+  const mode = typeof body.delta === 'string' || body.done === true
+    ? 'streaming_delta'
+    : messageId
+      ? 'edit'
+      : 'create';
+  const diagnosticBase = {
+    conversationId: params.conversationId,
+    requestId,
+    senderTraceId: senderTrace?.senderTraceId ?? null,
+    mode,
+    messageId,
+    contentLength: rawContent.length,
+    attachmentCount: rawAttachmentNames.length,
+    hasDelta: typeof body.delta === 'string',
+    done: body.done === true,
+    hasTimings: Boolean(normalizedTimings)
+  };
+  emitAssistantDiagnostic(DiagnosticEventType.HermesAssistantPostReceived, diagnosticBase, params.conversationId);
 
   // ----- Chunked streaming path -----------------------------------------
   // Hermes can post incremental token deltas instead of (or before) a final
@@ -355,19 +435,52 @@ export async function POST({ params, request }: { params: { conversationId: stri
       }
     }
 
+    emitAssistantDiagnostic(
+      DiagnosticEventType.HermesAssistantPostAccepted,
+      {
+        ...diagnosticBase,
+        messageId,
+        seq,
+        statusCode: 200,
+        durationMs: Date.now() - startedAt
+      },
+      params.conversationId
+    );
     return json({ ok: true, messageId, seq, done }, { status: 200 });
   }
 
   const content = typeof body.content === 'string' ? body.content.trim() : '';
-  const messageId = normalizeOptionalString(body.messageId);
 
   if (messageId) {
+    emitAssistantDiagnostic(
+      DiagnosticEventType.HermesAssistantUpdateStarted,
+      { ...diagnosticBase, status: 'started' },
+      params.conversationId
+    );
     if (!content) {
       await persistSenderTrace(params.conversationId, traceWithTimingSignal, {
         receiverStatus: 'rejected',
         errorText: 'Assistant update content is required.'
       });
-      return json({ error: 'Assistant update content is required.' }, { status: 400 });
+      emitAssistantDiagnostic(
+        DiagnosticEventType.HermesAssistantUpdateRejected,
+        {
+          ...diagnosticBase,
+          statusCode: 400,
+          reason: 'Assistant update content is required.',
+          durationMs: Date.now() - startedAt
+        },
+        params.conversationId
+      );
+      return json(
+        {
+          success: false,
+          error: 'Assistant update content is required.',
+          error_code: 'HERMES_ASSISTANT_UPDATE_REJECTED',
+          error_message: 'Assistant update content is required.'
+        },
+        { status: 400 }
+      );
     }
 
     if (rawAttachmentNames.length > 0) {
@@ -375,7 +488,25 @@ export async function POST({ params, request }: { params: { conversationId: stri
         receiverStatus: 'rejected',
         errorText: 'Assistant updates do not support attachments.'
       });
-      return json({ error: 'Assistant updates do not support attachments.' }, { status: 400 });
+      emitAssistantDiagnostic(
+        DiagnosticEventType.HermesAssistantUpdateRejected,
+        {
+          ...diagnosticBase,
+          statusCode: 400,
+          reason: 'Assistant updates do not support attachments.',
+          durationMs: Date.now() - startedAt
+        },
+        params.conversationId
+      );
+      return json(
+        {
+          success: false,
+          error: 'Assistant updates do not support attachments.',
+          error_code: 'HERMES_ASSISTANT_UPDATE_REJECTED',
+          error_message: 'Assistant updates do not support attachments.'
+        },
+        { status: 400 }
+      );
     }
 
     try {
@@ -388,14 +519,40 @@ export async function POST({ params, request }: { params: { conversationId: stri
         receiverStatus: 'accepted'
       });
 
+      emitAssistantDiagnostic(
+        DiagnosticEventType.HermesAssistantPostAccepted,
+        {
+          ...diagnosticBase,
+          statusCode: 200,
+          durationMs: Date.now() - startedAt
+        },
+        params.conversationId
+      );
       return json({ ok: true, messageId }, { status: 200 });
     } catch (error) {
+      const details = diagnosticErrorDetails(error);
       await persistSenderTrace(params.conversationId, traceWithTimingSignal, {
         receiverStatus: 'rejected',
-        errorText: error instanceof Error ? error.message : 'Failed to update assistant message.'
+        errorText: details.errorMessage
       });
+      emitAssistantDiagnostic(
+        DiagnosticEventType.HermesAssistantUpdateFailed,
+        {
+          ...diagnosticBase,
+          ...details,
+          statusCode: 500,
+          durationMs: Date.now() - startedAt
+        },
+        params.conversationId
+      );
       return json(
-        { error: error instanceof Error ? error.message : 'Failed to update assistant message.' },
+        {
+          success: false,
+          error: details.errorMessage,
+          error_code: 'HERMES_ASSISTANT_UPDATE_FAILED',
+          error_message: details.errorMessage,
+          request_id: requestId
+        },
         { status: 500 }
       );
     }
@@ -405,12 +562,23 @@ export async function POST({ params, request }: { params: { conversationId: stri
   try {
     attachments = parseJsonAttachments(body.attachments);
   } catch (error) {
+    const details = diagnosticErrorDetails(error);
     await persistSenderTrace(params.conversationId, traceWithTimingSignal, {
       receiverStatus: 'rejected',
-      errorText: error instanceof Error ? error.message : 'Invalid assistant attachments.'
+      errorText: details.errorMessage
     });
+    emitAssistantDiagnostic(
+      DiagnosticEventType.HermesAssistantPostRejected,
+      {
+        ...diagnosticBase,
+        ...details,
+        statusCode: 400,
+        durationMs: Date.now() - startedAt
+      },
+      params.conversationId
+    );
     return json(
-      { error: error instanceof Error ? error.message : 'Invalid assistant attachments.' },
+      { error: details.errorMessage, error_code: 'HERMES_ASSISTANT_POST_REJECTED', error_message: details.errorMessage },
       { status: 400 }
     );
   }
@@ -420,6 +588,16 @@ export async function POST({ params, request }: { params: { conversationId: stri
       receiverStatus: 'rejected',
       errorText: 'Assistant content or attachment is required.'
     });
+    emitAssistantDiagnostic(
+      DiagnosticEventType.HermesAssistantPostRejected,
+      {
+        ...diagnosticBase,
+        statusCode: 400,
+        reason: 'Assistant content or attachment is required.',
+        durationMs: Date.now() - startedAt
+      },
+      params.conversationId
+    );
     return json({ error: 'Assistant content or attachment is required.' }, { status: 400 });
   }
 
@@ -442,14 +620,65 @@ export async function POST({ params, request }: { params: { conversationId: stri
       receiverStatus: 'accepted'
     });
 
+    emitAssistantDiagnostic(
+      DiagnosticEventType.HermesAssistantPostAccepted,
+      {
+        ...diagnosticBase,
+        messageId,
+        statusCode: 201,
+        durationMs: Date.now() - startedAt
+      },
+      params.conversationId
+    );
     return json({ ok: true, messageId }, { status: 201 });
   } catch (error) {
+    const details = diagnosticErrorDetails(error);
     await persistSenderTrace(params.conversationId, traceWithTimingSignal, {
       receiverStatus: 'rejected',
-      errorText: error instanceof Error ? error.message : 'Failed to store assistant message.'
+      errorText: details.errorMessage
     });
+    emitAssistantDiagnostic(
+      DiagnosticEventType.HermesAssistantPostFailed,
+      {
+        ...diagnosticBase,
+        ...details,
+        statusCode: 500,
+        durationMs: Date.now() - startedAt
+      },
+      params.conversationId
+    );
     return json(
-      { error: error instanceof Error ? error.message : 'Failed to store assistant message.' },
+      {
+        success: false,
+        error: details.errorMessage,
+        error_code: 'HERMES_ASSISTANT_POST_FAILED',
+        error_message: details.errorMessage,
+        request_id: requestId
+      },
+      { status: 500 }
+    );
+  }
+  } catch (error) {
+    const details = diagnosticErrorDetails(error);
+    emitAssistantDiagnostic(
+      DiagnosticEventType.HermesAssistantPostFailed,
+      {
+        conversationId: params.conversationId,
+        requestId,
+        ...details,
+        statusCode: 500,
+        durationMs: Date.now() - startedAt
+      },
+      params.conversationId
+    );
+    return json(
+      {
+        success: false,
+        error: details.errorMessage,
+        error_code: 'HERMES_ASSISTANT_POST_FAILED',
+        error_message: details.errorMessage,
+        request_id: requestId
+      },
       { status: 500 }
     );
   }

@@ -11,6 +11,10 @@ function getNumber(name: string, fallback: number): number {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function clampNumber(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, Math.floor(value)));
+}
+
 export function getConfig() {
   return {
     databaseHost: getEnv('DATABASE_HOST', 'mysql'),
@@ -30,6 +34,13 @@ export function getConfig() {
     hermesServiceToken: getEnv('HERMES_WEBCHAT_SERVICE_TOKEN', 'change-me'),
     hermesEventLeaseSeconds: getNumber('HERMES_EVENT_LEASE_SECONDS', 120),
     hermesWorkerHeartbeatStaleSeconds: getNumber('HERMES_WORKER_HEARTBEAT_STALE_SECONDS', 45),
+    diagnosticsToken: getEnv('DIAGNOSTICS_TOKEN', ''),
+    diagnosticsRingBufferSize: clampNumber(getNumber('DIAGNOSTICS_RING_BUFFER_SIZE', 1000), 100, 5000),
+    diagnosticsStaleCheckIntervalSeconds: clampNumber(
+      getNumber('DIAGNOSTICS_STALE_CHECK_INTERVAL_SECONDS', 15),
+      5,
+      300
+    ),
     webPushVapidSubject: getEnv('WEB_PUSH_VAPID_SUBJECT', ''),
     webPushVapidPrivateKey: getEnv('WEB_PUSH_VAPID_PRIVATE_KEY', ''),
     publicWebPushVapidPublicKey: getEnv('PUBLIC_WEB_PUSH_VAPID_PUBLIC_KEY', ''),
