@@ -6,20 +6,15 @@ self.addEventListener('push', (event) => {
   const targetUrl = payload.url || '/chat';
 
   event.waitUntil(
-    shouldSuppressPushNotification(targetUrl).then((shouldSuppress) => {
-      if (shouldSuppress) {
-        return null;
+    self.registration.showNotification(title, {
+      body,
+      tag,
+      timestamp: Date.now(),
+      data: {
+        url: targetUrl,
+        conversationId: payload.conversationId || null,
+        messageId: payload.messageId || null
       }
-
-      return self.registration.showNotification(title, {
-        body,
-        tag,
-        data: {
-          url: targetUrl,
-          conversationId: payload.conversationId || null,
-          messageId: payload.messageId || null
-        }
-      });
     })
   );
 });
@@ -72,37 +67,4 @@ function readPushPayload(event) {
       return {};
     }
   }
-}
-
-async function shouldSuppressPushNotification(targetUrl) {
-  const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-  const target = new URL(targetUrl, self.location.origin);
-
-  for (const client of clients) {
-    let clientUrl;
-    try {
-      clientUrl = new URL(client.url);
-    } catch {
-      continue;
-    }
-
-    if (clientUrl.origin !== target.origin) {
-      continue;
-    }
-
-    const isSameChatConversation =
-      target.pathname === '/chat' &&
-      clientUrl.pathname === target.pathname &&
-      clientUrl.searchParams.get('conversation') === target.searchParams.get('conversation');
-
-    if (!isSameChatConversation) {
-      continue;
-    }
-
-    if (client.focused || client.visibilityState === 'visible') {
-      return true;
-    }
-  }
-
-  return false;
 }
