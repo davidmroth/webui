@@ -26,6 +26,7 @@ export interface ConversationSummary {
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant' | 'system';
+  displayType?: 'tool_progress';
   content: string;
   createdAt: string;
   updatedAt?: string;

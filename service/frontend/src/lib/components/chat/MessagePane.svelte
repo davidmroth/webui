@@ -16,6 +16,7 @@
     X
   } from '@lucide/svelte';
   import { env as publicEnv } from '$env/dynamic/public';
+  import ActionHistory from '$lib/components/chat/ActionHistory.svelte';
   import type { ChatMessage, MessageAttachment } from '$lib/types-legacy';
   import { readTimingSummary } from '$lib/utils/chat-timings';
   import { isHermesSystemStatusContent } from '$lib/utils/hermes-system-status';
@@ -110,7 +111,15 @@
     return isHermesSystemStatusContent(message.content);
   }
 
+  function isToolProgressMessage(message: ChatMessage) {
+    return message.displayType === 'tool_progress';
+  }
+
   function effectiveRole(message: ChatMessage): ChatMessage['role'] {
+    if (isToolProgressMessage(message)) {
+      return 'system';
+    }
+
     return isSystemStatusMessage(message) ? 'system' : message.role;
   }
 
@@ -261,7 +270,7 @@
       {@const displayRole = effectiveRole(message)}
       <div class={`llama-message-row ${displayRole}`}>
         <div class="llama-message-card">
-          {#if showMessageHeader(displayRole)}
+          {#if showMessageHeader(displayRole) && !isToolProgressMessage(message)}
             <div class="llama-message-header">
               <div class="llama-message-role">
                 <span class="message-role-dot"></span>
@@ -313,6 +322,8 @@
                 </button>
               </div>
             </div>
+          {:else if isToolProgressMessage(message)}
+            <ActionHistory content={message.content} />
           {:else if message.content}
             {#if displayRole === 'assistant'}
               <div class="llama-message-body markdown-content">{@html renderMarkdown(message.content)}</div>

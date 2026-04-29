@@ -38,6 +38,8 @@ interface MessageRow {
   msg_timestamp?: number | string;
 }
 
+type MessageDisplayType = NonNullable<ChatMessage['displayType']>;
+
 interface ConversationRecordRow {
   id: string;
   title: string;
@@ -288,6 +290,21 @@ function getRevisionGroupId(row: Pick<MessageRow, 'extra'>): string | null {
   return typeof revisionGroupId === 'string' && revisionGroupId.trim().length > 0
     ? revisionGroupId.trim()
     : null;
+}
+
+function getMessageDisplayType(row: Pick<MessageRow, 'extra'>): MessageDisplayType | undefined {
+  const extra = parseMessageExtra(row.extra);
+  return extra?.displayType === 'tool_progress' ? 'tool_progress' : undefined;
+}
+
+function buildAssistantMessageExtra(input: {
+  revisionGroupId?: string | null;
+  displayType?: MessageDisplayType;
+}): string | null {
+  return serializeMessageExtra({
+    ...(input.revisionGroupId ? { revisionGroupId: input.revisionGroupId } : {}),
+    ...(input.displayType ? { displayType: input.displayType } : {})
+  });
 }
 
 function serializeMessageExtra(input: Record<string, unknown> | null | undefined): string | null {
@@ -1220,18 +1237,19 @@ export async function listMessages(userId: string, conversationId: string): Prom
       : [row.id];
 
     return {
-    id: row.id,
-    role: row.role,
-    content: row.content,
-    createdAt: toIsoString(row.created_at),
-    updatedAt: toIsoString(row.updated_at),
-    status: row.status,
-    attachments: attachmentsByMessageId.get(row.id) ?? [],
-    timings: parseTimings(row.timings),
-    revisionSiblingIds: siblingIds,
-    revisionIndex: Math.max(0, siblingIds.indexOf(row.id)),
-    revisionTotal: siblingIds.length
-  };
+      id: row.id,
+      role: row.role,
+      displayType: getMessageDisplayType(row),
+      content: row.content,
+      createdAt: toIsoString(row.created_at),
+      updatedAt: toIsoString(row.updated_at),
+      status: row.status,
+      attachments: attachmentsByMessageId.get(row.id) ?? [],
+      timings: parseTimings(row.timings),
+      revisionSiblingIds: siblingIds,
+      revisionIndex: Math.max(0, siblingIds.indexOf(row.id)),
+      revisionTotal: siblingIds.length
+    };
   });
 }
 
@@ -1454,9 +1472,7 @@ export async function openStreamingAssistantMessage(
       id: messageId,
       conversation_id: conversationId,
       parent_id: parentMessageId,
-      extra: serializeMessageExtra(
-        assistantRevisionGroupId ? { revisionGroupId: assistantRevisionGroupId } : null
-      ),
+      extra: buildAssistantMessageExtra({ revisionGroupId: assistantRevisionGroupId }),
       msg_timestamp: messageTimestamp
     }
   );
@@ -1915,6 +1931,7 @@ export async function storeAssistantMessage(
   options: {
     timings?: unknown;
     role?: 'assistant' | 'system';
+    displayType?: MessageDisplayType;
     userMessageId?: string | null;
     publishDoneEvent?: boolean;
     notifyPush?: boolean;
@@ -1943,9 +1960,10 @@ export async function storeAssistantMessage(
       parent_id: parentMessageId,
       role,
       content,
-      extra: serializeMessageExtra(
-        assistantRevisionGroupId ? { revisionGroupId: assistantRevisionGroupId } : null
-      ),
+      extra: buildAssistantMessageExtra({
+        revisionGroupId: assistantRevisionGroupId,
+        displayType: options.displayType
+      }),
       timings: timingsJson,
       msg_timestamp: messageTimestamp
     }
@@ -2004,6 +2022,7 @@ export async function storeAssistantMessageWithAttachments(
   options: {
     timings?: unknown;
     role?: 'assistant' | 'system';
+    displayType?: MessageDisplayType;
     userMessageId?: string | null;
   } = {}
 ) {

@@ -53,6 +53,7 @@ interface NormalizedSenderTrace {
 }
 
 type HermesInboundRole = 'assistant' | 'system';
+type HermesDisplayType = 'tool_progress';
 
 function isAuthorized(request: Request) {
   const expected = getConfig().hermesServiceToken;
@@ -106,6 +107,10 @@ function normalizeInboundRole(value: unknown, content = ''): HermesInboundRole {
   }
 
   return isHermesSystemStatusContent(content) ? 'system' : 'assistant';
+}
+
+function normalizeDisplayType(value: unknown): HermesDisplayType | undefined {
+  return value === 'tool_progress' ? 'tool_progress' : undefined;
 }
 
 function decodeBase64ToBytes(base64: string): Uint8Array {
@@ -297,7 +302,8 @@ export async function POST({ params, request }: { params: { conversationId: stri
         .filter((fileName: string | null): fileName is string => Boolean(fileName))
     : [];
   const rawContent = typeof body.content === 'string' ? body.content.trim() : '';
-  const role = normalizeInboundRole(body.role, rawContent);
+  const displayType = normalizeDisplayType(body.displayType);
+  const role = displayType === 'tool_progress' ? 'system' : normalizeInboundRole(body.role, rawContent);
   const userMessageId = normalizeOptionalString(body.userMessageId);
   const senderTrace = normalizeSenderTraceInput(body.senderTrace, {
     attachmentCount: rawAttachmentNames.length,
@@ -423,12 +429,12 @@ export async function POST({ params, request }: { params: { conversationId: stri
           params.conversationId,
           content,
           attachments,
-          { timings: normalizedTimings, role, userMessageId }
+          { timings: normalizedTimings, role, displayType, userMessageId }
         )
       : await storeAssistantMessage(
           params.conversationId,
           content,
-          { timings: normalizedTimings, role, userMessageId }
+          { timings: normalizedTimings, role, displayType, userMessageId }
         );
 
     await persistSenderTrace(params.conversationId, traceWithTimingSignal, {
