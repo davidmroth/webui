@@ -1,7 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { resolveAssistantParentMessageId, updateAssistantMessage } from './chat.ts';
+import {
+  resolveAssistantParentMessageId,
+  shouldAdvanceAssistantTail,
+  updateAssistantMessage
+} from './chat.ts';
 
 function createConversationState(currNode) {
   return {
@@ -11,6 +15,32 @@ function createConversationState(currNode) {
     title: 'Alpha'
   };
 }
+
+test('shouldAdvanceAssistantTail keeps substantive assistant replies as the active tail', () => {
+  assert.equal(
+    shouldAdvanceAssistantTail({ role: 'assistant', content: 'Here is the final answer.' }),
+    true
+  );
+});
+
+test('shouldAdvanceAssistantTail ignores Hermes status messages', () => {
+  assert.equal(
+    shouldAdvanceAssistantTail({ role: 'assistant', content: "💾 Skill 'deep-research' updated." }),
+    false
+  );
+  assert.equal(
+    shouldAdvanceAssistantTail({ role: 'system', content: 'Here is the final answer.' }),
+    false
+  );
+  assert.equal(
+    shouldAdvanceAssistantTail({
+      role: 'assistant',
+      displayType: 'tool_progress',
+      content: 'search_web: Iran military history'
+    }),
+    false
+  );
+});
 
 test('resolveAssistantParentMessageId ignores assistant curr_node and falls back to the latest user', async () => {
   const queryCalls = [];

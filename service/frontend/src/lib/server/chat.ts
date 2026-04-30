@@ -7,6 +7,7 @@ import { DiagnosticEventType, DiagnosticHop, emitDiagnosticEvent } from './diagn
 import { sendPushReplyNotification } from './push-notifications';
 import { getObjectBuffer, uploadObject } from './storage';
 import { getHermesWorkerHeartbeat } from './hermes-heartbeat';
+import { isHermesSystemStatusContent } from '$lib/utils/hermes-system-status';
 import type { ChatMessage, ConversationSummary, MessageAttachment } from '$lib/types-legacy';
 
 interface ConversationRow {
@@ -129,6 +130,18 @@ interface UpdateAssistantMessageDeps {
 
 interface UpdatableAssistantMessage {
   displayType?: MessageDisplayType;
+}
+
+export function shouldAdvanceAssistantTail(input: {
+  role?: 'assistant' | 'system';
+  displayType?: MessageDisplayType;
+  content?: string;
+}): boolean {
+  if (input.role === 'system' || input.displayType === 'tool_progress') {
+    return false;
+  }
+
+  return !isHermesSystemStatusContent(input.content ?? '');
 }
 
 interface HermesDeliveryTraceRow {
@@ -2062,6 +2075,11 @@ export async function storeAssistantMessage(
   const messageTimestamp = Date.now();
   const timingsJson = serializeTimingsForStorage(options.timings);
   const role = options.role === 'system' ? 'system' : 'assistant';
+  const advancesTail = shouldAdvanceAssistantTail({
+    role,
+    displayType: options.displayType,
+    content
+  });
   await execute(
     `INSERT INTO messages (id, conversation_id, parent_id, role, content, source, status, extra, timings, type, msg_timestamp)
      VALUES (:id, :conversation_id, :parent_id, :role, :content, 'hermes', 'complete', :extra, :timings, 'text', :msg_timestamp)`,
@@ -2079,7 +2097,11 @@ export async function storeAssistantMessage(
       msg_timestamp: messageTimestamp
     }
   );
-  await updateConversationState(conversationId, { currNode: messageId });
+  if (advancesTail) {
+    await updateConversationState(conversationId, { currNode: messageId });
+  } else {
+    await updateConversationState(conversationId);
+  }
   publishConversationStreamEvent({ type: 'message', conversationId, messageId });
   if (options.publishDoneEvent !== false) {
     publishConversationStreamEvent({
@@ -2090,7 +2112,7 @@ export async function storeAssistantMessage(
     });
   }
 
-  if (role === 'assistant' && options.notifyPush !== false) {
+  if (role === 'assistant' && advancesTail && options.notifyPush !== false) {
     void notifyAssistantReplyCompletion({
       conversationId,
       messageId,

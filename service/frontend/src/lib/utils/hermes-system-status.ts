@@ -1,5 +1,6 @@
 const hermesSystemStatusPatterns = [
 	/^⚡ Interrupting current task\b/i,
+	/^💾 Skill ['"].+['"] updated\.?$/i,
 	/^⏳ Gateway\b/i,
 	/^⏳ Still working\.\.\./i,
 	/^Operation interrupted:/i,
