@@ -39,6 +39,10 @@ export const DiagnosticEventType = {
   StorageProbeFailed: 'STORAGE_PROBE_FAILED',
   DatabaseProbeSucceeded: 'DATABASE_PROBE_SUCCEEDED',
   DatabaseProbeFailed: 'DATABASE_PROBE_FAILED',
+  DiagnosticChatProbeRequested: 'DIAGNOSTIC_CHAT_PROBE_REQUESTED',
+  DiagnosticChatProbeQueued: 'DIAGNOSTIC_CHAT_PROBE_QUEUED',
+  DiagnosticChatProbeCompleted: 'DIAGNOSTIC_CHAT_PROBE_COMPLETED',
+  DiagnosticChatProbeFailed: 'DIAGNOSTIC_CHAT_PROBE_FAILED',
   WorkerStatusStale: 'WORKER_STATUS_STALE',
   WorkerStatusRecovered: 'WORKER_STATUS_RECOVERED'
 } as const;

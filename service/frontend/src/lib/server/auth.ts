@@ -29,7 +29,7 @@ function hashValue(value: string): string {
   return createHash('sha256').update(value).digest('hex');
 }
 
-async function ensureBootstrapUser() {
+export async function ensureBootstrapUser() {
   const config = getConfig();
   const bootstrapKeyHash = hashValue(config.bootstrapUserKey);
   const existingUsers = await query<BootstrapUserRow>(
@@ -67,7 +67,7 @@ async function ensureBootstrapUser() {
       label: 'Bootstrap key',
       key_hash: bootstrapKeyHash
     });
-    return;
+    return userId;
   }
 
   if (existingKeys[0].key_hash !== bootstrapKeyHash || existingKeys[0].revoked_at !== null) {
@@ -76,6 +76,8 @@ async function ensureBootstrapUser() {
       key_hash: bootstrapKeyHash
     });
   }
+
+  return userId;
 }
 
 export async function authenticateApiKey(apiKey: string) {

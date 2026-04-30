@@ -73,6 +73,10 @@ test('resolveAssistantParentMessageId still prefers an explicit user message id'
         return [{ id: 'user-4' }];
       }
 
+      if (sql.includes('FROM messages') && sql.includes('ORDER BY msg_timestamp ASC')) {
+        return [];
+      }
+
       throw new Error(`Unexpected query: ${sql}`);
     },
     ensureConversationRootMessageFn: async () => 'root-1'
@@ -152,7 +156,7 @@ test('updateAssistantMessage rejects stale Hermes targets outside the visible ta
         {
           getConversationStateFn: async () => createConversationState('assistant-2'),
           queryFn: async (sql, params = {}) => {
-            if (sql.includes("source = 'hermes'")) {
+            if (sql.includes('FROM messages') && sql.includes('ORDER BY messages.msg_timestamp ASC')) {
               return [
                 {
                   id: 'assistant-1',
@@ -203,6 +207,206 @@ test('updateAssistantMessage rejects stale Hermes targets outside the visible ta
   assert.equal(executeCalls.length, 0);
 });
 
+test('updateAssistantMessage updates active tool progress without moving the conversation tail', async () => {
+  const executeCalls = [];
+  const stateUpdates = [];
+  const streamEvents = [];
+  const notifications = [];
+
+  await updateAssistantMessage(
+    'conv-1',
+    'progress-1',
+    'search_web: "one"\nexecute_code: "two"',
+    {},
+    {
+      getConversationStateFn: async () => createConversationState('assistant-1'),
+      queryFn: async (sql, params = {}) => {
+        if (sql.includes('FROM messages') && sql.includes('ORDER BY messages.msg_timestamp ASC')) {
+          return [
+            {
+              id: 'root-1',
+              parent_id: null,
+              role: 'system',
+              content: '',
+              created_at: '2026-04-27T00:00:00.000Z',
+              updated_at: '2026-04-27T00:00:00.000Z',
+              status: 'complete',
+              type: 'root',
+              source: 'hermes',
+              msg_timestamp: 0
+            },
+            {
+              id: 'user-1',
+              parent_id: 'root-1',
+              role: 'user',
+              content: 'Do work',
+              created_at: '2026-04-27T00:00:01.000Z',
+              updated_at: '2026-04-27T00:00:01.000Z',
+              status: 'complete',
+              type: 'text',
+              source: 'browser',
+              msg_timestamp: 1
+            },
+            {
+              id: 'progress-1',
+              parent_id: 'user-1',
+              role: 'system',
+              content: 'search_web: "one"',
+              created_at: '2026-04-27T00:00:02.000Z',
+              updated_at: '2026-04-27T00:00:02.000Z',
+              status: 'complete',
+              type: 'text',
+              source: 'hermes',
+              extra: JSON.stringify({ displayType: 'tool_progress' }),
+              msg_timestamp: 2
+            },
+            {
+              id: 'assistant-1',
+              parent_id: 'progress-1',
+              role: 'assistant',
+              content: 'Done',
+              created_at: '2026-04-27T00:00:03.000Z',
+              updated_at: '2026-04-27T00:00:03.000Z',
+              status: 'complete',
+              type: 'text',
+              source: 'hermes',
+              msg_timestamp: 3
+            }
+          ];
+        }
+
+        throw new Error(`Unexpected query: ${sql} ${JSON.stringify(params)}`);
+      },
+      executeFn: async (sql, params = {}) => {
+        executeCalls.push({ sql, params });
+      },
+      updateConversationStateFn: async (conversationId, options) => {
+        stateUpdates.push({ conversationId, options });
+      },
+      publishConversationStreamEventFn: (event) => {
+        streamEvents.push(event);
+      },
+      notifyAssistantReplyCompletionFn: (event) => {
+        notifications.push(event);
+      }
+    }
+  );
+
+  assert.equal(executeCalls.length, 1);
+  assert.doesNotMatch(executeCalls[0].sql, /timings = :timings/);
+  assert.deepEqual(stateUpdates, []);
+  assert.deepEqual(streamEvents, [
+    {
+      type: 'done',
+      conversationId: 'conv-1',
+      messageId: 'progress-1',
+      status: 'complete'
+    }
+  ]);
+  assert.deepEqual(notifications, []);
+});
+
+test('updateAssistantMessage rejects off-branch tool progress updates', async () => {
+  const executeCalls = [];
+
+  await assert.rejects(
+    () =>
+      updateAssistantMessage(
+        'conv-1',
+        'progress-1',
+        'execute_code: "two"',
+        {},
+        {
+          getConversationStateFn: async () => createConversationState('assistant-2'),
+          queryFn: async (sql, params = {}) => {
+            if (sql.includes('FROM messages') && sql.includes('ORDER BY messages.msg_timestamp ASC')) {
+              return [
+                {
+                  id: 'root-1',
+                  parent_id: null,
+                  role: 'system',
+                  content: '',
+                  created_at: '2026-04-27T00:00:00.000Z',
+                  updated_at: '2026-04-27T00:00:00.000Z',
+                  status: 'complete',
+                  type: 'root',
+                  source: 'hermes',
+                  msg_timestamp: 0
+                },
+                {
+                  id: 'user-1',
+                  parent_id: 'root-1',
+                  role: 'user',
+                  content: 'Old work',
+                  created_at: '2026-04-27T00:00:01.000Z',
+                  updated_at: '2026-04-27T00:00:01.000Z',
+                  status: 'complete',
+                  type: 'text',
+                  source: 'browser',
+                  msg_timestamp: 1
+                },
+                {
+                  id: 'progress-1',
+                  parent_id: 'user-1',
+                  role: 'system',
+                  content: 'search_web: "one"',
+                  created_at: '2026-04-27T00:00:02.000Z',
+                  updated_at: '2026-04-27T00:00:02.000Z',
+                  status: 'complete',
+                  type: 'text',
+                  source: 'hermes',
+                  extra: { displayType: 'tool_progress' },
+                  msg_timestamp: 2
+                },
+                {
+                  id: 'user-2',
+                  parent_id: 'root-1',
+                  role: 'user',
+                  content: 'New work',
+                  created_at: '2026-04-27T00:00:03.000Z',
+                  updated_at: '2026-04-27T00:00:03.000Z',
+                  status: 'complete',
+                  type: 'text',
+                  source: 'browser',
+                  msg_timestamp: 3
+                },
+                {
+                  id: 'assistant-2',
+                  parent_id: 'user-2',
+                  role: 'assistant',
+                  content: 'Done',
+                  created_at: '2026-04-27T00:00:04.000Z',
+                  updated_at: '2026-04-27T00:00:04.000Z',
+                  status: 'complete',
+                  type: 'text',
+                  source: 'hermes',
+                  msg_timestamp: 4
+                }
+              ];
+            }
+
+            throw new Error(`Unexpected query: ${sql} ${JSON.stringify(params)}`);
+          },
+          executeFn: async (sql, params = {}) => {
+            executeCalls.push({ sql, params });
+          },
+          updateConversationStateFn: async () => {
+            throw new Error('updateConversationState should not run for stale targets');
+          },
+          publishConversationStreamEventFn: () => {
+            throw new Error('publishConversationStreamEvent should not run for stale targets');
+          },
+          notifyAssistantReplyCompletionFn: () => {
+            throw new Error('notifyAssistantReplyCompletion should not run for stale targets');
+          }
+        }
+      ),
+    /Rejected stale assistant update target/
+  );
+
+  assert.equal(executeCalls.length, 0);
+});
+
 test('updateAssistantMessage updates the current Hermes tail message', async () => {
   const executeCalls = [];
   const stateUpdates = [];
@@ -217,7 +421,7 @@ test('updateAssistantMessage updates the current Hermes tail message', async () 
     {
       getConversationStateFn: async () => createConversationState('assistant-2'),
       queryFn: async (sql, params = {}) => {
-        if (sql.includes("source = 'hermes'")) {
+        if (sql.includes('FROM messages') && sql.includes('ORDER BY messages.msg_timestamp ASC')) {
           return [
             {
               id: 'assistant-1',

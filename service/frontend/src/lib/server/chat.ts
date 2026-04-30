@@ -127,6 +127,10 @@ interface UpdateAssistantMessageDeps {
   getConversationStateFn?: (conversationId: string) => Promise<ConversationStateRow | null>;
 }
 
+interface UpdatableAssistantMessage {
+  displayType?: MessageDisplayType;
+}
+
 interface HermesDeliveryTraceRow {
   id: string;
   sender_trace_id: string | null;
@@ -914,7 +918,7 @@ async function listAttachmentsByMessageIds(messageIds: string[]) {
   return grouped;
 }
 
-async function getConversationOwnerId(conversationId: string): Promise<string | null> {
+export async function getConversationOwnerId(conversationId: string): Promise<string | null> {
   const rows = await query<{ user_id: string }>(
     'SELECT user_id FROM conversations WHERE id = :id LIMIT 1',
     { id: conversationId }
@@ -1592,7 +1596,7 @@ async function resolveUpdatableAssistantMessage(
   conversationId: string,
   messageId: string,
   deps: UpdateAssistantMessageDeps = {}
-): Promise<void> {
+): Promise<UpdatableAssistantMessage> {
   const queryFn = deps.queryFn ?? query;
   const getConversationStateFn = deps.getConversationStateFn ?? getConversationState;
   const conversation = await getConversationStateFn(conversationId);
@@ -1611,29 +1615,45 @@ async function resolveUpdatableAssistantMessage(
             messages.status,
             messages.type,
             messages.source,
+            messages.extra,
             messages.msg_timestamp
      FROM messages
      WHERE messages.conversation_id = :conversation_id
-       AND messages.source = 'hermes'
-       AND messages.role IN ('assistant', 'system')
      ORDER BY messages.msg_timestamp ASC, messages.created_at ASC, messages.id ASC`,
     { conversation_id: conversationId }
   );
 
   const target = rows.find((row) => row.id === messageId);
-  if (!target) {
+  if (
+    !target ||
+    target.source !== 'hermes' ||
+    (target.role !== 'assistant' && target.role !== 'system')
+  ) {
     throw new Error(`Assistant message not found for update: ${messageId}`);
   }
 
+  const displayType = getMessageDisplayType(target);
+
   if (target.status === 'streaming') {
-    return;
+    return { displayType };
   }
 
   const messageTree = buildMessageTree(rows);
-  const latestVisible = resolveVisibleConversationRows(messageTree, conversation.curr_node).at(-1);
+  const visibleRows = resolveVisibleConversationRows(messageTree, conversation.curr_node);
+  if (displayType === 'tool_progress') {
+    if (!visibleRows.some((row) => row.id === messageId)) {
+      throw new Error(`Rejected stale assistant update target: ${messageId}`);
+    }
+
+    return { displayType };
+  }
+
+  const latestVisible = visibleRows.at(-1);
   if (!latestVisible || latestVisible.id !== messageId) {
     throw new Error(`Rejected stale assistant update target: ${messageId}`);
   }
+
+  return { displayType };
 }
 
 export async function updateAssistantMessage(
@@ -1650,7 +1670,7 @@ export async function updateAssistantMessage(
   const notifyAssistantReplyCompletionFn =
     deps.notifyAssistantReplyCompletionFn ?? notifyAssistantReplyCompletion;
 
-  await resolveUpdatableAssistantMessage(conversationId, messageId, deps);
+  const target = await resolveUpdatableAssistantMessage(conversationId, messageId, deps);
 
   const timingsJson = serializeTimingsForStorage(options.timings);
   if (timingsJson === null) {
@@ -1669,18 +1689,22 @@ export async function updateAssistantMessage(
     );
   }
 
-  await updateConversationStateFn(conversationId, { currNode: messageId });
+  if (target.displayType !== 'tool_progress') {
+    await updateConversationStateFn(conversationId, { currNode: messageId });
+  }
   publishConversationStreamEventFn({
     type: 'done',
     conversationId,
     messageId,
     status: 'complete'
   });
-  void notifyAssistantReplyCompletionFn({
-    conversationId,
-    messageId,
-    content
-  });
+  if (target.displayType !== 'tool_progress') {
+    void notifyAssistantReplyCompletionFn({
+      conversationId,
+      messageId,
+      content
+    });
+  }
 }
 
 /**
