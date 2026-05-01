@@ -427,7 +427,32 @@ function collectBranchRows(nodes: Map<string, MessageNode>, leafId: string | nul
   return path;
 }
 
-function resolveVisibleConversationRows(
+function collectActiveTurnRows(
+  nodes: Map<string, MessageNode>,
+  activeRows: MessageRow[]
+): MessageRow[] {
+  const selectedRows = new Map(activeRows.map((row) => [row.id, row]));
+  const activeUserRows = activeRows.filter((row) => row.role === 'user' && row.type !== 'root');
+
+  for (let index = 0; index < activeUserRows.length; index += 1) {
+    const userRow = activeUserRows[index];
+    const nextUserRow = activeUserRows[index + 1] ?? null;
+    for (const descendantId of collectDescendantIds(nodes, userRow.id)) {
+      const row = nodes.get(descendantId)?.row;
+      if (!row || row.type === 'root' || row.role === 'user' || row.source !== 'hermes') {
+        continue;
+      }
+      if (nextUserRow && compareMessageRows(row, nextUserRow) >= 0) {
+        continue;
+      }
+      selectedRows.set(row.id, row);
+    }
+  }
+
+  return Array.from(selectedRows.values()).sort(compareMessageRows);
+}
+
+export function resolveVisibleConversationRows(
   nodes: Map<string, MessageNode>,
   currNode: string | null
 ): MessageRow[] {
@@ -435,7 +460,7 @@ function resolveVisibleConversationRows(
     (row) => row.type !== 'root'
   );
   if (activeRows.length > 0) {
-    return activeRows;
+    return collectActiveTurnRows(nodes, activeRows);
   }
 
   // Some legacy conversations can carry malformed branch pointers after schema

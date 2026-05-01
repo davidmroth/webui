@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  resolveVisibleConversationRows,
   resolveAssistantParentMessageId,
   shouldAdvanceAssistantTail,
   updateAssistantMessage
@@ -14,6 +15,17 @@ function createConversationState(currNode) {
     curr_node: currNode,
     title: 'Alpha'
   };
+}
+
+function buildTestMessageTree(rows) {
+  const nodes = new Map(rows.map((row) => [row.id, { row, children: [] }]));
+  for (const row of rows) {
+    if (!row.parent_id) {
+      continue;
+    }
+    nodes.get(row.parent_id)?.children.push(row.id);
+  }
+  return nodes;
 }
 
 test('shouldAdvanceAssistantTail keeps substantive assistant replies as the active tail', () => {
@@ -39,6 +51,100 @@ test('shouldAdvanceAssistantTail ignores Hermes status messages', () => {
       content: 'search_web: Iran military history'
     }),
     false
+  );
+});
+
+test('resolveVisibleConversationRows includes same-turn Hermes tool activity', () => {
+  const rows = [
+    {
+      id: 'root-1',
+      parent_id: null,
+      role: 'system',
+      content: '',
+      source: 'hermes',
+      type: 'root',
+      status: 'complete',
+      created_at: '2026-04-27T00:00:00.000Z',
+      updated_at: '2026-04-27T00:00:00.000Z',
+      msg_timestamp: 0
+    },
+    {
+      id: 'user-1',
+      parent_id: 'root-1',
+      role: 'user',
+      content: 'Build the explainer',
+      source: 'browser',
+      type: 'text',
+      status: 'complete',
+      created_at: '2026-04-27T00:00:01.000Z',
+      updated_at: '2026-04-27T00:00:01.000Z',
+      msg_timestamp: 1
+    },
+    {
+      id: 'tool-call-1',
+      parent_id: 'user-1',
+      role: 'system',
+      content: 'send_html_to_webchat',
+      source: 'hermes',
+      type: 'text',
+      status: 'complete',
+      created_at: '2026-04-27T00:00:02.000Z',
+      updated_at: '2026-04-27T00:00:02.000Z',
+      msg_timestamp: 2
+    },
+    {
+      id: 'tool-output-1',
+      parent_id: 'tool-call-1',
+      role: 'system',
+      content: '{"status":"success"}',
+      source: 'hermes',
+      type: 'text',
+      status: 'complete',
+      created_at: '2026-04-27T00:00:03.000Z',
+      updated_at: '2026-04-27T00:00:03.000Z',
+      msg_timestamp: 3
+    },
+    {
+      id: 'assistant-1',
+      parent_id: 'user-1',
+      role: 'assistant',
+      content: 'Done',
+      source: 'hermes',
+      type: 'text',
+      status: 'complete',
+      created_at: '2026-04-27T00:00:04.000Z',
+      updated_at: '2026-04-27T00:00:04.000Z',
+      msg_timestamp: 4
+    },
+    {
+      id: 'user-2',
+      parent_id: 'assistant-1',
+      role: 'user',
+      content: 'Thanks',
+      source: 'browser',
+      type: 'text',
+      status: 'complete',
+      created_at: '2026-04-27T00:00:05.000Z',
+      updated_at: '2026-04-27T00:00:05.000Z',
+      msg_timestamp: 5
+    },
+    {
+      id: 'assistant-2',
+      parent_id: 'user-2',
+      role: 'assistant',
+      content: 'You are welcome',
+      source: 'hermes',
+      type: 'text',
+      status: 'complete',
+      created_at: '2026-04-27T00:00:06.000Z',
+      updated_at: '2026-04-27T00:00:06.000Z',
+      msg_timestamp: 6
+    }
+  ];
+
+  assert.deepEqual(
+    resolveVisibleConversationRows(buildTestMessageTree(rows), 'assistant-2').map((row) => row.id),
+    ['user-1', 'tool-call-1', 'tool-output-1', 'assistant-1', 'user-2', 'assistant-2']
   );
 });
 
