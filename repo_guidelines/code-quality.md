@@ -96,6 +96,7 @@ For frontend-specific size limits, see [frontend.md](./frontend.md#size-limits).
 
 Strongly discourage and avoid:
 
+- pattern-matching human text is the wrong layer for core control flow or classification logic — see [Classify Once](./architecture.md#classify-once-consume-structured-metadata).
 - regex-based parsing, HTML scraping, and string-manipulation hacks as core control flow,
 - brittle prefix, suffix, split, contains, startsWith, endsWith, or regex checks used to classify or route behavior,
 - repeated logic copied with small edits,
