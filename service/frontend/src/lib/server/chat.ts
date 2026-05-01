@@ -439,7 +439,8 @@ function collectActiveTurnRows(
     const nextUserRow = activeUserRows[index + 1] ?? null;
     for (const descendantId of collectDescendantIds(nodes, userRow.id)) {
       const row = nodes.get(descendantId)?.row;
-      if (!row || row.type === 'root' || row.role === 'user' || row.source !== 'hermes') {
+      // Omit any assistant/system messages that come after the next user message in the branch, as they likely belong to a different turn.
+      if (!row || row.type === 'root' || row.role === 'user' || row.source === 'browser') {
         continue;
       }
       if (nextUserRow && compareMessageRows(row, nextUserRow) >= 0) {
@@ -1290,6 +1291,7 @@ export async function listMessages(userId: string, conversationId: string): Prom
             messages.created_at,
             messages.updated_at,
             messages.status,
+            messages.source,
             messages.extra,
             messages.timings,
             messages.type,

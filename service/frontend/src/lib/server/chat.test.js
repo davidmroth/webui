@@ -97,7 +97,6 @@ test('resolveVisibleConversationRows includes same-turn Hermes tool activity', (
       parent_id: 'tool-call-1',
       role: 'system',
       content: '{"status":"success"}',
-      source: 'hermes',
       type: 'text',
       status: 'complete',
       created_at: '2026-04-27T00:00:03.000Z',
