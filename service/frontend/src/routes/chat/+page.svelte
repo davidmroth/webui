@@ -988,6 +988,16 @@
 
     return null;
   });
+  const composerBusy = $derived.by(
+    () => isSending || isAssistantBusy
+  );
+  const passiveRunStateNotice = $derived.by(() => {
+    if (!runStateNotice || runStateNotice.tone === 'active') {
+      return null;
+    }
+
+    return runStateNotice;
+  });
   const slashQuery = $derived.by(() => {
     const normalized = draftMessage.trim();
     if (!normalized.startsWith('/') || normalized.includes('\n')) {
@@ -2948,9 +2958,10 @@
                   <div class="llama-composer-actions llama-composer-actions-right">
                     <button
                       class="send-button"
+                      class:send-button--working={composerBusy}
                       type="submit"
-                      aria-label={isSending ? 'Sending message' : 'Send message'}
-                      aria-busy={isSending}
+                      aria-label={composerBusy ? 'Hermes is still working' : 'Send message'}
+                      aria-busy={composerBusy}
                       disabled={isSending}
                     >
                       {#if isSending}
@@ -2971,9 +2982,9 @@
                 <div class="llama-footnote">Press Enter to send, Shift + Enter for new line.</div>
               {/if}
 
-              {#if runStateNotice}
-                <div class={`run-state-strip run-state-strip--${runStateNotice.tone}`}>
-                  {runStateNotice.label}
+              {#if passiveRunStateNotice}
+                <div class={`run-state-strip run-state-strip--${passiveRunStateNotice.tone}`}>
+                  {passiveRunStateNotice.label}
                 </div>
               {/if}
 

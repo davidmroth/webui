@@ -358,6 +358,9 @@
   --accent-foreground: #ffffff;
   --accent-soft: rgba(31, 31, 28, 0.08);
   --accent-strong: #0d0d0c;
+  --working-accent: #665848;
+  --working-accent-soft: rgba(102, 88, 72, 0.24);
+  --working-accent-surface: rgba(102, 88, 72, 0.08);
   --disabled-bg: rgba(33, 33, 28, 0.05);
   --disabled-text: #b4b0a9;
   --shadow: none;
@@ -381,6 +384,9 @@
   --accent-foreground: #0d0d0c;
   --accent-soft: rgba(255, 255, 255, 0.08);
   --accent-strong: #ffffff;
+  --working-accent: #d8c7b0;
+  --working-accent-soft: rgba(216, 199, 176, 0.28);
+  --working-accent-surface: rgba(216, 199, 176, 0.1);
   --disabled-bg: rgba(255, 255, 255, 0.05);
   --disabled-text: #5a5a5a;
   --shadow: none;
@@ -802,15 +808,38 @@ a {
 }
 
 .llama-conversation-busy {
-  display: inline-block;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
-  width: 0.55rem;
-  height: 0.55rem;
+  width: 0.7rem;
+  height: 0.7rem;
   border-radius: 999px;
-  background: #22c55e;
-  box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.6);
-  animation: llama-busy-pulse 1.4s ease-out infinite;
+  border: 1px solid var(--working-accent-soft);
+  background: var(--working-accent-surface);
+  color: var(--working-accent);
   vertical-align: middle;
+}
+
+.llama-conversation-busy::before {
+  content: '';
+  position: absolute;
+  inset: -0.24rem;
+  border: 1.5px solid var(--working-accent-soft);
+  border-top-color: var(--working-accent);
+  border-right-color: var(--working-accent);
+  border-radius: 999px;
+  animation: send-button-ring-spin 1.6s linear infinite;
+  pointer-events: none;
+}
+
+.llama-conversation-busy::after {
+  content: '';
+  width: 0.28rem;
+  height: 0.28rem;
+  border-radius: 999px;
+  background: currentColor;
 }
 
 .llama-conversation-stalled {
@@ -826,18 +855,6 @@ a {
 .llama-conversation-stalled-label {
   color: #b45309;
   font-weight: 600;
-}
-
-@keyframes llama-busy-pulse {
-  0% {
-    box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.55);
-  }
-  70% {
-    box-shadow: 0 0 0 6px rgba(34, 197, 94, 0);
-  }
-  100% {
-    box-shadow: 0 0 0 0 rgba(34, 197, 94, 0);
-  }
 }
 
 .llama-sidebar-footer {
@@ -1527,6 +1544,16 @@ a {
   color: currentColor;
 }
 
+@keyframes send-button-ring-spin {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .assistant-typing-square {
   width: var(--assistant-loader-cell-size);
   height: var(--assistant-loader-cell-size);
@@ -2054,15 +2081,38 @@ a {
 }
 
 .send-button {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 2.4rem;
   height: 2.4rem;
   border-radius: 999px;
-  border-color: var(--accent);
+  border: 1px solid var(--accent);
   background: var(--accent);
   color: white;
+  overflow: visible;
+}
+
+.send-button--working::before {
+  content: '';
+  position: absolute;
+  inset: -0.28rem;
+  border: 2px solid var(--working-accent-soft);
+  border-top-color: var(--working-accent);
+  border-right-color: var(--working-accent);
+  border-radius: 999px;
+  animation: send-button-ring-spin 1.25s linear infinite;
+  pointer-events: none;
+}
+
+.send-button--working:not(:disabled) {
+  cursor: progress;
+}
+
+.send-button--working svg,
+.send-button--working .send-button-loader {
+  opacity: 0.92;
 }
 
 .compose-icon-button:disabled {
@@ -2144,9 +2194,9 @@ a {
 }
 
 .run-state-strip--active {
-  border-color: rgba(36, 106, 94, 0.2);
-  background: rgba(42, 139, 124, 0.09);
-  color: #23675d;
+  border-color: var(--working-accent-soft);
+  background: var(--working-accent-surface);
+  color: var(--working-accent);
 }
 
 .run-state-strip--warning {
@@ -2911,6 +2961,10 @@ a {
     justify-content: flex-start;
     gap: 0.4rem 1rem;
     font-size: 0.74rem;
+  }
+
+  .send-button--working::before {
+    inset: -0.22rem;
   }
 
   .llama-jump-to-bottom-slot {
