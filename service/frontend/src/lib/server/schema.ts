@@ -10,6 +10,7 @@ import { migration as branchRootsMigration } from './migrations/007_branch_roots
 import { migration as messageUpdatedAtMigration } from './migrations/008_message_updated_at';
 import { migration as pushSubscriptionsMigration } from './migrations/009_push_subscriptions';
 import { migration as mobileResilientChatStateMigration } from './migrations/010_mobile_resilient_chat_state';
+import { migration as hermesRunStatusBackfillMigration } from './migrations/011_backfill_hermes_run_status';
 
 interface SchemaMigrationRow {
   id: string;
@@ -48,7 +49,8 @@ const migrations: Migration[] = [
   branchRootsMigration,
   messageUpdatedAtMigration,
   pushSubscriptionsMigration,
-  mobileResilientChatStateMigration
+  mobileResilientChatStateMigration,
+  hermesRunStatusBackfillMigration
 ];
 
 function toIsoString(value: Date | string | null | undefined): string | null {

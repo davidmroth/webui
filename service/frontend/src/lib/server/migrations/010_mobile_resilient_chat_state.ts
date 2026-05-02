@@ -26,6 +26,23 @@ export const migration: Migration = {
       await execute('ALTER TABLE hermes_events ADD COLUMN run_error_message TEXT NULL AFTER run_error_code');
     }
 
+    await execute(
+      `UPDATE hermes_events
+       SET run_status = CASE
+         WHEN status = 'acked' THEN 'completed'
+         WHEN status = 'cancelled' THEN 'cancelled'
+         WHEN status = 'processing' THEN 'processing'
+         ELSE 'queued'
+       END,
+       run_completed_at = CASE
+         WHEN status = 'acked' THEN COALESCE(run_completed_at, acked_at, UTC_TIMESTAMP())
+         WHEN status = 'cancelled' THEN COALESCE(run_completed_at, cancelled_at, UTC_TIMESTAMP())
+         ELSE run_completed_at
+       END
+       WHERE run_status = 'queued'
+         AND status IN ('acked', 'cancelled', 'processing')`
+    );
+
     if (!(await indexExists('hermes_events', 'idx_hermes_events_run_status'))) {
       await execute(
         'CREATE INDEX idx_hermes_events_run_status ON hermes_events (conversation_id, run_status, created_at)'

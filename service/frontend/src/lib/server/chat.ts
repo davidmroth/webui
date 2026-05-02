@@ -1075,7 +1075,7 @@ function buildConversationRunStateFromRow(row: HermesRunStateRow | null): Conver
     };
   }
 
-  const status = row.run_status;
+  const status = resolveEffectiveHermesRunStatus(row);
   const completedAt = toNullableIsoString(row.run_completed_at ?? row.acked_at ?? row.cancelled_at);
   const claimedAt = toNullableIsoString(row.claimed_at);
 
@@ -1092,6 +1092,18 @@ function buildConversationRunStateFromRow(row: HermesRunStateRow | null): Conver
     errorCode: row.run_error_code,
     errorMessage: row.run_error_message
   };
+}
+
+function resolveEffectiveHermesRunStatus(row: HermesRunStateRow): HermesRunStatus {
+  if (row.status === 'acked' && (row.run_status === 'queued' || row.run_status === 'processing')) {
+    return 'completed';
+  }
+
+  if (row.status === 'cancelled') {
+    return 'cancelled';
+  }
+
+  return row.run_status;
 }
 
 export async function markStaleHermesRuns(options: { userId?: string; conversationId?: string } = {}) {
