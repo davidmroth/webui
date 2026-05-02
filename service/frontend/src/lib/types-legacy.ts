@@ -13,6 +13,7 @@ export interface MessageAttachment {
   previewUrl?: string;
   isImage: boolean;
   isHtml: boolean;
+  isAudio: boolean;
 }
 
 export interface ConversationSummary {

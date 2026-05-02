@@ -1596,6 +1596,12 @@ a {
   text-decoration: none;
 }
 
+.attachment-card--audio {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.85rem;
+  align-items: stretch;
+}
+
 .attachment-download {
   display: flex;
   align-items: center;
@@ -1654,7 +1660,8 @@ a {
   color: var(--accent);
 }
 
-.attachment-html-chip {
+.attachment-html-chip,
+.attachment-audio-chip {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1667,6 +1674,10 @@ a {
   font-size: 0.78rem;
   font-weight: 700;
   letter-spacing: 0.06em;
+}
+
+.attachment-audio-chip {
+  letter-spacing: 0.02em;
 }
 
 .attachment-open-label {
@@ -1683,6 +1694,28 @@ a {
   border-radius: var(--app-radius);
   object-fit: cover;
   border: 1px solid rgba(29, 29, 24, 0.08);
+}
+
+.attachment-audio-controls {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.attachment-audio-player {
+  width: 100%;
+  min-width: 0;
+}
+
+.attachment-audio-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.attachment-audio-download-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  text-decoration: none;
 }
 
 .message-meta {

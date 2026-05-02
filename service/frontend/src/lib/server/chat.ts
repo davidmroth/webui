@@ -8,6 +8,7 @@ import { sendPushReplyNotification } from './push-notifications';
 import { getObjectBuffer, uploadObject } from './storage';
 import { getHermesWorkerHeartbeat } from './hermes-heartbeat';
 import { isHermesSystemStatusContent } from '$lib/utils/hermes-system-status';
+import { getAttachmentContentFlags, isHtmlAttachmentContentType } from '$lib/utils/attachment-content-type';
 import type { ChatMessage, ConversationRunState, ConversationSummary, MessageAttachment } from '$lib/types-legacy';
 
 interface ConversationRow {
@@ -939,7 +940,7 @@ function mapHermesDeliveryTrace(row: HermesDeliveryTraceRow): HermesDeliveryTrac
 }
 
 function mapAttachment(row: AttachmentRow): MessageAttachment {
-  const isHtml = isHtmlContentType(row.content_type);
+  const { isAudio, isHtml, isImage } = getAttachmentContentFlags(row.content_type);
 
   return {
     id: row.id,
@@ -948,13 +949,10 @@ function mapAttachment(row: AttachmentRow): MessageAttachment {
     sizeBytes: row.size_bytes,
     downloadUrl: `/api/attachments/${row.id}/download`,
     previewUrl: isHtml ? `/api/attachments/${row.id}/preview` : undefined,
-    isImage: row.content_type.startsWith('image/'),
-    isHtml
+    isImage,
+    isHtml,
+    isAudio
   };
-}
-
-function isHtmlContentType(contentType: string): boolean {
-  return contentType.split(';', 1)[0]?.trim().toLowerCase() === 'text/html';
 }
 
 async function listAttachmentsByMessageIds(messageIds: string[]) {
@@ -1238,7 +1236,7 @@ async function saveAttachmentsForMessage(
       buffer
     });
     const attachmentId = randomUUID();
-    const isHtml = isHtmlContentType(contentType);
+    const { isAudio, isHtml, isImage } = getAttachmentContentFlags(contentType);
     await execute(
       `INSERT INTO attachments (
          id, user_id, conversation_id, message_id, storage_bucket, storage_key, file_name, content_type, size_bytes
@@ -1264,8 +1262,9 @@ async function saveAttachmentsForMessage(
       sizeBytes: uploaded.sizeBytes,
       downloadUrl: `/api/attachments/${attachmentId}/download`,
       previewUrl: isHtml ? `/api/attachments/${attachmentId}/preview` : undefined,
-      isImage: contentType.startsWith('image/'),
-      isHtml
+      isImage,
+      isHtml,
+      isAudio
     });
   }
 
