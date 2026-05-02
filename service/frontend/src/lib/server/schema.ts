@@ -9,9 +9,12 @@ import { migration as deliveryTracesMigration } from './migrations/006_delivery_
 import { migration as branchRootsMigration } from './migrations/007_branch_roots';
 import { migration as messageUpdatedAtMigration } from './migrations/008_message_updated_at';
 import { migration as pushSubscriptionsMigration } from './migrations/009_push_subscriptions';
+import { migration as mobileResilientChatStateMigration } from './migrations/010_mobile_resilient_chat_state';
 
 interface SchemaMigrationRow {
   id: string;
+  description?: string;
+  applied_at?: Date | string;
 }
 
 interface AppliedMigration {
@@ -21,6 +24,16 @@ interface AppliedMigration {
 
 interface MigrationResult {
   applied: AppliedMigration[];
+}
+
+export interface SchemaMigrationStatus {
+  latestExpectedMigrationId: string | null;
+  latestAppliedMigrationId: string | null;
+  latestAppliedAt: string | null;
+  appliedCount: number;
+  expectedCount: number;
+  pendingMigrationIds: string[];
+  current: boolean;
 }
 
 let schemaReadyPromise: Promise<void> | null = null;
@@ -34,8 +47,17 @@ const migrations: Migration[] = [
   deliveryTracesMigration,
   branchRootsMigration,
   messageUpdatedAtMigration,
-  pushSubscriptionsMigration
+  pushSubscriptionsMigration,
+  mobileResilientChatStateMigration
 ];
+
+function toIsoString(value: Date | string | null | undefined): string | null {
+  if (!value) {
+    return null;
+  }
+
+  return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
+}
 
 export async function runDatabaseMigrations(): Promise<MigrationResult> {
   await execute(`
@@ -75,6 +97,30 @@ export async function runDatabaseMigrations(): Promise<MigrationResult> {
   }
 
   return { applied: appliedNow };
+}
+
+export async function getSchemaMigrationStatus(): Promise<SchemaMigrationStatus> {
+  const expectedIds = migrations.map((migration) => migration.id);
+  const expectedIdSet = new Set(expectedIds);
+  const rows = await query<Required<SchemaMigrationRow>>(
+    `SELECT id, description, applied_at
+     FROM schema_migrations
+     ORDER BY applied_at ASC, id ASC`
+  );
+  const appliedIds = rows.map((row) => row.id).filter((id) => expectedIdSet.has(id));
+  const appliedIdSet = new Set(appliedIds);
+  const pendingMigrationIds = expectedIds.filter((id) => !appliedIdSet.has(id));
+  const latestAppliedRow = [...rows].reverse().find((row) => expectedIdSet.has(row.id)) ?? null;
+
+  return {
+    latestExpectedMigrationId: expectedIds[expectedIds.length - 1] ?? null,
+    latestAppliedMigrationId: latestAppliedRow?.id ?? null,
+    latestAppliedAt: toIsoString(latestAppliedRow?.applied_at),
+    appliedCount: appliedIds.length,
+    expectedCount: expectedIds.length,
+    pendingMigrationIds,
+    current: pendingMigrationIds.length === 0
+  };
 }
 
 export function ensureDatabaseSchema() {

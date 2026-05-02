@@ -13,7 +13,8 @@ self.addEventListener('push', (event) => {
       data: {
         url: targetUrl,
         conversationId: payload.conversationId || null,
-        messageId: payload.messageId || null
+        messageId: payload.messageId || null,
+        runStatus: payload.runStatus || null
       }
     })
   );

@@ -23,6 +23,22 @@ export interface ConversationSummary {
   assistantStalled?: boolean;
 }
 
+export type HermesRunStatus = 'idle' | 'queued' | 'processing' | 'completed' | 'failed' | 'cancelled' | 'stale';
+
+export interface ConversationRunState {
+  status: HermesRunStatus;
+  active: boolean;
+  stalled: boolean;
+  eventId?: string;
+  messageId?: string;
+  createdAt?: string;
+  claimedAt?: string | null;
+  completedAt?: string | null;
+  lastActivityAt?: string | null;
+  errorCode?: string | null;
+  errorMessage?: string | null;
+}
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant' | 'system';

@@ -1,5 +1,5 @@
 import { json } from '@sveltejs/kit';
-import { enqueueUserMessage, isConversationBusy, listMessages } from '$server/chat';
+import { enqueueUserMessage, getConversationRunState, isConversationBusy, listMessages } from '$server/chat';
 import { requireSession } from '$server/auth';
 
 function isRequestBodyTooLarge(reason: string): boolean {
@@ -11,11 +11,12 @@ function isRequestBodyTooLarge(reason: string): boolean {
 
 export async function GET(event) {
   const session = await requireSession(event);
-  const [messages, assistantBusy] = await Promise.all([
+  const [messages, assistantBusy, runState] = await Promise.all([
     listMessages(session.userId, event.params.conversationId),
-    isConversationBusy(session.userId, event.params.conversationId)
+    isConversationBusy(session.userId, event.params.conversationId),
+    getConversationRunState(session.userId, event.params.conversationId)
   ]);
-  return json({ messages, assistantBusy });
+  return json({ messages, assistantBusy, runState });
 }
 
 export async function POST(event) {

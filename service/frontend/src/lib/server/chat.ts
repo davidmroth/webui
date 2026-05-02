@@ -8,7 +8,7 @@ import { sendPushReplyNotification } from './push-notifications';
 import { getObjectBuffer, uploadObject } from './storage';
 import { getHermesWorkerHeartbeat } from './hermes-heartbeat';
 import { isHermesSystemStatusContent } from '$lib/utils/hermes-system-status';
-import type { ChatMessage, ConversationSummary, MessageAttachment } from '$lib/types-legacy';
+import type { ChatMessage, ConversationRunState, ConversationSummary, MessageAttachment } from '$lib/types-legacy';
 
 interface ConversationRow {
   id: string;
@@ -109,6 +109,30 @@ interface HermesQueueStatsRow {
   processing: number;
   acked: number;
   stale_processing: number;
+}
+
+type HermesRunStatus = 'queued' | 'processing' | 'completed' | 'failed' | 'cancelled' | 'stale';
+
+interface HermesRunStateRow {
+  id: string;
+  message_id: string;
+  status: 'queued' | 'processing' | 'acked' | 'cancelled';
+  run_status: HermesRunStatus;
+  created_at: Date | string;
+  claimed_at: Date | string | null;
+  acked_at: Date | string | null;
+  cancelled_at: Date | string | null;
+  run_completed_at: Date | string | null;
+  run_error_code: string | null;
+  run_error_message: string | null;
+}
+
+interface StaleHermesRunCandidateRow {
+  id: string;
+  user_id: string;
+  conversation_id: string;
+  conversation_title: string;
+  message_id: string;
 }
 
 type ServerQueryFn = <T>(sql: string, params?: Record<string, unknown>) => Promise<T[]>;
@@ -236,6 +260,10 @@ export interface ConversationExportPayload {
 
 function toIsoString(value: Date | string): string {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
+}
+
+function toNullableIsoString(value: Date | string | null | undefined): string | null {
+  return value == null ? null : toIsoString(value);
 }
 
 function toUnixMilliseconds(value: Date | string): number {
@@ -1015,6 +1043,165 @@ async function notifyAssistantReplyCompletion(options: {
   }
 }
 
+function publishHermesRunStatus(options: {
+  conversationId: string;
+  messageId: string;
+  runStatus: HermesRunStatus;
+  eventId?: string;
+  errorCode?: string | null;
+  errorMessage?: string | null;
+}) {
+  publishConversationStreamEvent({
+    type: 'status',
+    conversationId: options.conversationId,
+    messageId: options.messageId,
+    runStatus: options.runStatus,
+    ...(options.eventId ? { eventId: options.eventId } : {}),
+    ...(options.errorCode ? { errorCode: options.errorCode } : {}),
+    ...(options.errorMessage ? { errorMessage: options.errorMessage } : {})
+  });
+}
+
+function isActiveRunStatus(status: ConversationRunState['status']) {
+  return status === 'queued' || status === 'processing';
+}
+
+function buildConversationRunStateFromRow(row: HermesRunStateRow | null): ConversationRunState {
+  if (!row) {
+    return {
+      status: 'idle',
+      active: false,
+      stalled: false
+    };
+  }
+
+  const status = row.run_status;
+  const completedAt = toNullableIsoString(row.run_completed_at ?? row.acked_at ?? row.cancelled_at);
+  const claimedAt = toNullableIsoString(row.claimed_at);
+
+  return {
+    status,
+    active: isActiveRunStatus(status),
+    stalled: status === 'stale',
+    eventId: row.id,
+    messageId: row.message_id,
+    createdAt: toIsoString(row.created_at),
+    claimedAt,
+    completedAt,
+    lastActivityAt: completedAt ?? claimedAt ?? toIsoString(row.created_at),
+    errorCode: row.run_error_code,
+    errorMessage: row.run_error_message
+  };
+}
+
+export async function markStaleHermesRuns(options: { userId?: string; conversationId?: string } = {}) {
+  const leaseSeconds = Math.max(30, getConfig().hermesEventLeaseSeconds);
+  const params: Record<string, unknown> = { lease_seconds: leaseSeconds };
+  const predicates = [
+    "hermes_events.status = 'processing'",
+    "hermes_events.run_status = 'processing'",
+    'hermes_events.claimed_at IS NOT NULL',
+    'hermes_events.claimed_at < UTC_TIMESTAMP() - INTERVAL :lease_seconds SECOND'
+  ];
+
+  if (options.userId) {
+    predicates.push('conversations.user_id = :user_id');
+    params.user_id = options.userId;
+  }
+
+  if (options.conversationId) {
+    predicates.push('hermes_events.conversation_id = :conversation_id');
+    params.conversation_id = options.conversationId;
+  }
+
+  const candidates = await query<StaleHermesRunCandidateRow>(
+    `SELECT hermes_events.id,
+            conversations.user_id,
+            hermes_events.conversation_id,
+            conversations.title AS conversation_title,
+            hermes_events.message_id
+     FROM hermes_events
+     INNER JOIN conversations ON conversations.id = hermes_events.conversation_id
+     WHERE ${predicates.join(' AND ')}`,
+    params
+  );
+
+  if (candidates.length === 0) {
+    return;
+  }
+
+  await execute(
+    `UPDATE hermes_events
+     INNER JOIN conversations ON conversations.id = hermes_events.conversation_id
+     SET hermes_events.run_status = 'stale',
+         hermes_events.run_completed_at = UTC_TIMESTAMP(),
+         hermes_events.run_error_code = 'HERMES_EVENT_LEASE_EXPIRED',
+         hermes_events.run_error_message = 'Hermes stopped reporting progress before the event lease expired.'
+     WHERE ${predicates.join(' AND ')}`,
+    params
+  );
+
+  await Promise.all(
+    candidates.map(async (candidate) => {
+      publishHermesRunStatus({
+        conversationId: candidate.conversation_id,
+        messageId: candidate.message_id,
+        eventId: candidate.id,
+        runStatus: 'stale',
+        errorCode: 'HERMES_EVENT_LEASE_EXPIRED',
+        errorMessage: 'Hermes stopped reporting progress before the event lease expired.'
+      });
+
+      try {
+        await sendPushReplyNotification({
+          userId: candidate.user_id,
+          conversationId: candidate.conversation_id,
+          conversationTitle: candidate.conversation_title || 'New chat',
+          messageId: candidate.message_id,
+          content: 'Hermes stopped before completing the reply.',
+          runStatus: 'stale'
+        });
+      } catch (error) {
+        console.error('Failed to queue stale Hermes run notification', {
+          conversationId: candidate.conversation_id,
+          messageId: candidate.message_id,
+          error: error instanceof Error ? error.message : String(error)
+        });
+      }
+    })
+  );
+}
+
+export async function getConversationRunState(
+  userId: string,
+  conversationId: string
+): Promise<ConversationRunState> {
+  await markStaleHermesRuns({ userId, conversationId });
+
+  const rows = await query<HermesRunStateRow>(
+    `SELECT hermes_events.id,
+            hermes_events.message_id,
+            hermes_events.status,
+            hermes_events.run_status,
+            hermes_events.created_at,
+            hermes_events.claimed_at,
+            hermes_events.acked_at,
+            hermes_events.cancelled_at,
+            hermes_events.run_completed_at,
+            hermes_events.run_error_code,
+            hermes_events.run_error_message
+     FROM hermes_events
+     INNER JOIN conversations ON conversations.id = hermes_events.conversation_id
+     WHERE hermes_events.conversation_id = :conversation_id
+       AND conversations.user_id = :user_id
+     ORDER BY hermes_events.created_at DESC
+     LIMIT 1`,
+    { conversation_id: conversationId, user_id: userId }
+  );
+
+  return buildConversationRunStateFromRow(rows[0] ?? null);
+}
+
 async function saveAttachmentsForMessage(
   userId: string,
   conversationId: string,
@@ -1759,7 +1946,10 @@ export async function cancelActiveAssistantTurn(
   const eventResult = await execute(
     `UPDATE hermes_events
      INNER JOIN conversations ON conversations.id = hermes_events.conversation_id
-     SET hermes_events.status = 'cancelled', hermes_events.cancelled_at = UTC_TIMESTAMP()
+     SET hermes_events.status = 'cancelled',
+         hermes_events.run_status = 'cancelled',
+         hermes_events.cancelled_at = UTC_TIMESTAMP(),
+         hermes_events.run_completed_at = UTC_TIMESTAMP()
      WHERE hermes_events.conversation_id = :conversation_id
        AND conversations.user_id = :user_id
        AND hermes_events.status IN ('queued', 'processing')`,
@@ -1820,8 +2010,8 @@ export async function enqueueUserMessage(
   );
   await saveAttachmentsForMessage(userId, conversationId, messageId, files);
   await execute(
-    `INSERT INTO hermes_events (id, user_id, conversation_id, message_id, event_type, status, payload)
-     VALUES (:id, :user_id, :conversation_id, :message_id, 'message', 'queued', :payload)`,
+    `INSERT INTO hermes_events (id, user_id, conversation_id, message_id, event_type, status, run_status, payload)
+     VALUES (:id, :user_id, :conversation_id, :message_id, 'message', 'queued', 'queued', :payload)`,
     {
       id: eventId,
       user_id: userId,
@@ -1846,6 +2036,12 @@ export async function enqueueUserMessage(
     },
     conversationId
   );
+  publishHermesRunStatus({
+    conversationId,
+    messageId,
+    eventId,
+    runStatus: 'queued'
+  });
 
   return { messageId, eventId };
 }
@@ -1887,7 +2083,12 @@ export async function dequeueHermesEvent() {
 
     await connection.execute(
       `UPDATE hermes_events
-       SET status = 'processing', claimed_at = UTC_TIMESTAMP()
+       SET status = 'processing',
+           run_status = 'processing',
+           claimed_at = UTC_TIMESTAMP(),
+           run_completed_at = NULL,
+           run_error_code = NULL,
+           run_error_message = NULL
        WHERE id = ?`,
       [row.id]
     );
@@ -1903,6 +2104,12 @@ export async function dequeueHermesEvent() {
       },
       row.conversation_id
     );
+    publishHermesRunStatus({
+      conversationId: row.conversation_id,
+      messageId: row.message_id,
+      eventId: row.id,
+      runStatus: 'processing'
+    });
 
     const attachments = await query<AttachmentRow>(
       `SELECT id, message_id, file_name, content_type, size_bytes, storage_key
@@ -1949,16 +2156,39 @@ export async function dequeueHermesEvent() {
 }
 
 export async function ackHermesEvent(eventId: string) {
+  const rows = await query<{ conversation_id: string; message_id: string; run_status: HermesRunStatus }>(
+    `SELECT conversation_id, message_id, run_status
+     FROM hermes_events
+     WHERE id = :id
+     LIMIT 1`,
+    { id: eventId }
+  );
+
   await execute(
     `UPDATE hermes_events
-     SET status = 'acked', acked_at = UTC_TIMESTAMP()
+     SET status = 'acked',
+       run_status = CASE WHEN run_status = 'cancelled' THEN run_status ELSE 'completed' END,
+         acked_at = UTC_TIMESTAMP(),
+       run_completed_at = COALESCE(run_completed_at, UTC_TIMESTAMP()),
+         run_error_code = NULL,
+         run_error_message = NULL
      WHERE id = :id`,
     { id: eventId }
   );
   emitDiagnosticEvent(DiagnosticEventType.HermesEventAcked, DiagnosticHop.HermesQueue, { eventId });
+  const row = rows[0];
+  if (row) {
+    publishHermesRunStatus({
+      conversationId: row.conversation_id,
+      messageId: row.message_id,
+      eventId,
+      runStatus: row.run_status === 'cancelled' ? 'cancelled' : 'completed'
+    });
+  }
 }
 
 export async function getHermesQueueStats() {
+  await markStaleHermesRuns();
   const leaseSeconds = Math.max(30, getConfig().hermesEventLeaseSeconds);
   const rows = await query<HermesQueueStatsRow>(
     `SELECT
@@ -2371,8 +2601,8 @@ export async function regenerateAssistantMessage(
   }
   const eventId = randomUUID();
   await execute(
-    `INSERT INTO hermes_events (id, user_id, conversation_id, message_id, event_type, status, payload)
-     VALUES (:id, :user_id, :conversation_id, :message_id, 'message', 'queued', :payload)`,
+    `INSERT INTO hermes_events (id, user_id, conversation_id, message_id, event_type, status, run_status, payload)
+     VALUES (:id, :user_id, :conversation_id, :message_id, 'message', 'queued', 'queued', :payload)`,
     {
       id: eventId,
       user_id: userId,
@@ -2386,6 +2616,12 @@ export async function regenerateAssistantMessage(
     }
   );
   await updateConversationState(conversationId, { currNode: previousUser.id });
+  publishHermesRunStatus({
+    conversationId,
+    messageId: previousUser.id,
+    eventId,
+    runStatus: 'queued'
+  });
 
   return { eventId, userMessageId: previousUser.id };
 }
@@ -2434,8 +2670,8 @@ export async function editUserMessage(
   );
   await cloneAttachmentsForMessage(messageId, nextMessageId);
   await execute(
-    `INSERT INTO hermes_events (id, user_id, conversation_id, message_id, event_type, status, payload)
-     VALUES (:id, :user_id, :conversation_id, :message_id, 'message', 'queued', :payload)`,
+    `INSERT INTO hermes_events (id, user_id, conversation_id, message_id, event_type, status, run_status, payload)
+     VALUES (:id, :user_id, :conversation_id, :message_id, 'message', 'queued', 'queued', :payload)`,
     {
       id: eventId,
       user_id: userId,
@@ -2447,6 +2683,12 @@ export async function editUserMessage(
   await updateConversationState(conversationId, {
     currNode: nextMessageId,
     ...(parentMessageId === rootId ? { title: deriveConversationTitle(content) } : {})
+  });
+  publishHermesRunStatus({
+    conversationId,
+    messageId: nextMessageId,
+    eventId,
+    runStatus: 'queued'
   });
 
   return { messageId: nextMessageId, eventId };

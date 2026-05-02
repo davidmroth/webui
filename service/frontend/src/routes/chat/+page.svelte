@@ -26,7 +26,7 @@
     exportConversation as exportConversationRequest,
     renameConversation as renameConversationRequest
   } from '$lib/services/conversation-actions';
-  import type { ChatMessage, ConversationSummary } from '$lib/types-legacy';
+  import type { ChatMessage, ConversationRunState, ConversationSummary, HermesRunStatus } from '$lib/types-legacy';
   import {
     deliverBrowserNotification,
     ensureBrowserPushSubscription,
@@ -93,6 +93,7 @@
   );
   let messages = $state<ChatMessage[]>(untrack(() => data.messages ?? []));
   let conversations = $state<ConversationSummary[]>(untrack(() => data.conversations ?? []));
+  let currentRunState = $state<ConversationRunState>(untrack(() => normalizeConversationRunState(data.runState)));
   let pendingFiles = $state<PendingAttachment[]>([]);
   let pendingAssistantByConversation = $state<Record<string, PendingAssistantState>>({});
   let hermesTypingPlaceholderByConversation = $state<Record<string, string>>({});
@@ -612,10 +613,59 @@
     }
   }
 
+  function createIdleRunState(): ConversationRunState {
+    return {
+      status: 'idle',
+      active: false,
+      stalled: false
+    };
+  }
+
+  function normalizeConversationRunState(value: unknown): ConversationRunState {
+    if (!value || typeof value !== 'object') {
+      return createIdleRunState();
+    }
+
+    const candidate = value as Partial<ConversationRunState>;
+    const status = normalizeHermesRunStatus(candidate.status);
+    if (!status) {
+      return createIdleRunState();
+    }
+
+    return {
+      ...candidate,
+      status,
+      active: Boolean(candidate.active),
+      stalled: Boolean(candidate.stalled)
+    };
+  }
+
+  function buildRunStateFromStatusPayload(
+    payload: Record<string, unknown>,
+    messageId: string,
+    runStatus: HermesRunStatus
+  ): ConversationRunState {
+    const eventId = typeof payload.eventId === 'string' ? payload.eventId : undefined;
+    const errorCode = typeof payload.errorCode === 'string' ? payload.errorCode : null;
+    const errorMessage = typeof payload.errorMessage === 'string' ? payload.errorMessage : null;
+
+    return {
+      status: runStatus,
+      active: runStatus === 'queued' || runStatus === 'processing',
+      stalled: runStatus === 'stale',
+      eventId,
+      messageId,
+      errorCode,
+      errorMessage,
+      lastActivityAt: new Date().toISOString()
+    };
+  }
+
   $effect(() => {
     currentConversationId = data.currentConversationId;
     messages = data.messages;
     conversations = data.conversations;
+    currentRunState = normalizeConversationRunState(data.runState);
     loadedMessagesConversationId = data.currentConversationId;
     if (data.currentConversationId) {
       rememberConversationStreamCursor(data.currentConversationId, data.messages);
@@ -747,8 +797,39 @@
       void refreshTask;
     };
 
+    const handleStatusEvent = (event: Event) => {
+      if (currentConversationId !== conversationId) {
+        return;
+      }
+
+      const payload = parseStreamPayload(event);
+      if (!payload) {
+        return;
+      }
+
+      const messageId = typeof payload?.messageId === 'string' ? payload.messageId : null;
+      const runStatus = normalizeHermesRunStatus(payload?.runStatus);
+      if (!messageId || !runStatus) {
+        return;
+      }
+
+      if (runStatus === 'queued' || runStatus === 'processing') {
+        currentRunState = buildRunStateFromStatusPayload(payload, messageId, runStatus);
+        setConversationBusyState(conversationId, true);
+        return;
+      }
+
+      currentRunState = buildRunStateFromStatusPayload(payload, messageId, runStatus);
+      clearHermesTypingIndicator(conversationId, { updateBusy: false });
+      clearPendingAssistant(conversationId);
+      setConversationBusyState(conversationId, false);
+      void refreshConversations();
+      void loadMessages(conversationId);
+    };
+
     stream.addEventListener('typing', handleTypingEvent);
     stream.addEventListener('typing-stop', handleTypingStopEvent);
+    stream.addEventListener('status', handleStatusEvent);
     stream.addEventListener('message', handleMessageEvent);
     stream.addEventListener('delta', handleDeltaEvent);
     stream.addEventListener('done', handleDoneEvent);
@@ -756,6 +837,7 @@
     return () => {
       stream.removeEventListener('typing', handleTypingEvent);
       stream.removeEventListener('typing-stop', handleTypingStopEvent);
+      stream.removeEventListener('status', handleStatusEvent);
       stream.removeEventListener('message', handleMessageEvent);
       stream.removeEventListener('delta', handleDeltaEvent);
       stream.removeEventListener('done', handleDoneEvent);
@@ -793,8 +875,9 @@
   const isAssistantBusy = $derived(
     displayMessages.some((message) => message.role === 'assistant' && message.status === 'streaming') ||
       (currentConversationId
-        ? serverAssistantBusyByConversation[currentConversationId] ??
-          (currentConversationId === data.currentConversationId ? Boolean(data.assistantBusy) : false)
+        ? currentRunState.active ||
+          (serverAssistantBusyByConversation[currentConversationId] ??
+            (currentConversationId === data.currentConversationId ? Boolean(data.assistantBusy) : false))
         : false)
   );
 
@@ -876,8 +959,35 @@
     conversations.find((conversation) => conversation.id === currentConversationId) ?? null
   );
   const showStalledWarning = $derived(
-    Boolean(currentConversationSummary?.assistantStalled)
+    Boolean(currentConversationSummary?.assistantStalled || currentRunState.status === 'stale')
   );
+  const runStateNotice = $derived.by(() => {
+    if (!currentConversationId) {
+      return null;
+    }
+
+    if (currentRunState.status === 'queued') {
+      return { tone: 'active', label: 'Hermes queued' };
+    }
+
+    if (currentRunState.status === 'processing') {
+      return { tone: 'active', label: 'Hermes running' };
+    }
+
+    if (currentRunState.status === 'failed') {
+      return { tone: 'error', label: currentRunState.errorMessage ?? 'Hermes failed' };
+    }
+
+    if (currentRunState.status === 'stale') {
+      return { tone: 'warning', label: 'Hermes stopped before completing' };
+    }
+
+    if (currentRunState.status === 'cancelled') {
+      return { tone: 'muted', label: 'Turn cancelled' };
+    }
+
+    return null;
+  });
   const slashQuery = $derived.by(() => {
     const normalized = draftMessage.trim();
     if (!normalized.startsWith('/') || normalized.includes('\n')) {
@@ -1450,6 +1560,21 @@
     }
   }
 
+  function normalizeHermesRunStatus(value: unknown): HermesRunStatus | null {
+    if (
+      value === 'queued' ||
+      value === 'processing' ||
+      value === 'completed' ||
+      value === 'failed' ||
+      value === 'cancelled' ||
+      value === 'stale'
+    ) {
+      return value;
+    }
+
+    return null;
+  }
+
   function revokePendingFiles(files: PendingAttachment[]) {
     for (const pendingFile of files) {
       URL.revokeObjectURL(pendingFile.previewUrl);
@@ -1542,6 +1667,7 @@
     if (!conversationId) {
       messages = [];
       loadedMessagesConversationId = null;
+      currentRunState = createIdleRunState();
       isAtBottom = true;
       return;
     }
@@ -1560,6 +1686,7 @@
     rememberConversationStreamCursor(conversationId, payload.messages);
     loadedMessagesConversationId = conversationId;
     messages = payload.messages;
+    currentRunState = normalizeConversationRunState(payload.runState);
     if (editingMessageId && !payload.messages.some((message: ChatMessage) => message.id === editingMessageId)) {
       editingMessageId = null;
       editingDraft = '';
@@ -2842,6 +2969,12 @@
 
               {#if !isMobileViewport}
                 <div class="llama-footnote">Press Enter to send, Shift + Enter for new line.</div>
+              {/if}
+
+              {#if runStateNotice}
+                <div class={`run-state-strip run-state-strip--${runStateNotice.tone}`}>
+                  {runStateNotice.label}
+                </div>
               {/if}
 
               {#if errorMessage || form?.error}

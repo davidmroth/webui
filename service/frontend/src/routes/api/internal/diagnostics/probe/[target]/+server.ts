@@ -12,6 +12,7 @@ import { getHermesQueueStats } from '$server/chat';
 import { getHermesWorkerHeartbeat } from '$server/hermes-heartbeat';
 import { createStorageClient } from '$server/storage';
 import { getConfig } from '$server/env';
+import { getSchemaMigrationStatus } from '$server/schema';
 
 function errorDetails(error: unknown) {
   return {
@@ -22,6 +23,7 @@ function errorDetails(error: unknown) {
 
 async function probeDatabase() {
   await query('SELECT 1 AS ok');
+  return getSchemaMigrationStatus();
 }
 
 async function probeStorage() {
@@ -53,7 +55,7 @@ export async function POST({ params, request }) {
     if (target === 'database') {
       hop = DiagnosticHop.Database;
       successType = DiagnosticEventType.DatabaseProbeSucceeded;
-      await probeDatabase();
+      data = await probeDatabase();
     } else if (target === 'storage') {
       hop = DiagnosticHop.ObjectStorage;
       successType = DiagnosticEventType.StorageProbeSucceeded;

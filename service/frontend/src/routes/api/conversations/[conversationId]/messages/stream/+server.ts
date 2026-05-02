@@ -3,6 +3,7 @@ import { requireSession } from '$server/auth';
 import {
   findActiveAssistantMessage,
   findLatestAssistantMessage,
+  getConversationRunState,
   getMessageStatus,
   listAssistantChunks
 } from '$server/chat';
@@ -82,6 +83,19 @@ export async function GET(event) {
         conversationId
       );
       heartbeatTimer = setInterval(() => send(': keepalive\n\n'), HEARTBEAT_INTERVAL_MS);
+
+      const initialRunState = await getConversationRunState(session.userId, conversationId);
+      if (initialRunState.status !== 'idle' && initialRunState.messageId) {
+        send(
+          sse('status', {
+            messageId: initialRunState.messageId,
+            runStatus: initialRunState.status,
+            eventId: initialRunState.eventId ?? null,
+            errorCode: initialRunState.errorCode ?? null,
+            errorMessage: initialRunState.errorMessage ?? null
+          })
+        );
+      }
 
       let lastSeq = -1;
       let activeMessageId: string | null = null;
@@ -205,6 +219,26 @@ export async function GET(event) {
               conversationId,
               connectionId,
               streamEventType: 'typing-stop'
+            }, conversationId);
+            continue;
+          }
+
+          if (streamEvent.type === 'status') {
+            send(
+              sse('status', {
+                messageId: streamEvent.messageId,
+                runStatus: streamEvent.runStatus,
+                eventId: streamEvent.eventId ?? null,
+                errorCode: streamEvent.errorCode ?? null,
+                errorMessage: streamEvent.errorMessage ?? null
+              })
+            );
+            emitDiagnosticEvent(DiagnosticEventType.SseEventSent, DiagnosticHop.SseStream, {
+              conversationId,
+              connectionId,
+              messageId: streamEvent.messageId,
+              streamEventType: 'status',
+              runStatus: streamEvent.runStatus
             }, conversationId);
             continue;
           }

@@ -24,6 +24,15 @@ export type ConversationStreamEvent =
       conversationId: string;
       messageId: string;
       status: 'complete' | 'streaming' | 'error';
+    }
+  | {
+      type: 'status';
+      conversationId: string;
+      messageId: string;
+      runStatus: 'queued' | 'processing' | 'completed' | 'failed' | 'cancelled' | 'stale';
+      eventId?: string;
+      errorCode?: string | null;
+      errorMessage?: string | null;
     };
 
 type ConversationStreamListener = (event: ConversationStreamEvent) => void;

@@ -4,6 +4,7 @@ import {
   createConversation,
   enqueueUserMessage,
   getConversationOwnerId,
+  getConversationRunState,
   getHermesQueueStats,
   listMessages
 } from '$server/chat';
@@ -36,15 +37,16 @@ async function loadProbeConversation(conversationId: string) {
     return null;
   }
 
-  const [messages, queue, worker] = await Promise.all([
+  const [messages, runState, queue, worker] = await Promise.all([
     listMessages(ownerId, conversationId),
+    getConversationRunState(ownerId, conversationId),
     getHermesQueueStats().catch((error) => ({
       error: error instanceof Error ? error.message : 'Queue query failed.'
     })),
     Promise.resolve(getHermesWorkerHeartbeat())
   ]);
 
-  return { ownerId, messages, queue, worker };
+  return { ownerId, messages, runState, queue, worker };
 }
 
 export async function GET({ request, url }) {

@@ -7,6 +7,7 @@ import { getHermesQueueStats } from './chat';
 import { getConfig } from './env';
 import { query } from './db';
 import { getHermesWorkerHeartbeat } from './hermes-heartbeat';
+import { getSchemaMigrationStatus, type SchemaMigrationStatus } from './schema';
 import type { RequestEvent } from '@sveltejs/kit';
 
 interface BuildInfo {
@@ -43,6 +44,7 @@ interface DatabaseTelemetry {
   attachmentStats: AttachmentStats;
   latestConversationUpdate: string | null;
   latestMessageCreated: string | null;
+  migrations: SchemaMigrationStatus | null;
   error: string | null;
 }
 
@@ -450,9 +452,10 @@ async function getDatabaseTelemetry(): Promise<DatabaseTelemetry> {
       query<CountRow>('SELECT COUNT(*) AS count FROM attachments'),
       query<CountRow>('SELECT COUNT(*) AS count FROM web_sessions')
     ]);
-    const [latestConversationUpdate, latestMessageCreated] = await Promise.all([
+    const [latestConversationUpdate, latestMessageCreated, migrations] = await Promise.all([
       query<TimestampRow>('SELECT MAX(updated_at) AS value FROM conversations'),
-      query<TimestampRow>('SELECT MAX(created_at) AS value FROM messages')
+      query<TimestampRow>('SELECT MAX(created_at) AS value FROM messages'),
+      getSchemaMigrationStatus()
     ]);
     const [attachmentTelemetry] = await query<AttachmentTelemetryRow>(
       `SELECT
@@ -490,6 +493,7 @@ async function getDatabaseTelemetry(): Promise<DatabaseTelemetry> {
       },
       latestConversationUpdate: toIsoString(latestConversationUpdate[0]?.value),
       latestMessageCreated: toIsoString(latestMessageCreated[0]?.value),
+      migrations,
       error: null
     };
   } catch (error) {
@@ -508,6 +512,7 @@ async function getDatabaseTelemetry(): Promise<DatabaseTelemetry> {
       },
       latestConversationUpdate: null,
       latestMessageCreated: null,
+      migrations: null,
       error: error instanceof Error ? error.message : 'Database query failed.'
     };
   }

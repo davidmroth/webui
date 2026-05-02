@@ -557,6 +557,9 @@
                 <div>Messages: {snapshot.database.counts?.messages ?? 'n/a'}</div>
                 <div>Attachments: {snapshot.database.counts?.attachments ?? 'n/a'}</div>
                 <div>Web sessions: {snapshot.database.counts?.activeSessions ?? 'n/a'}</div>
+                <div>Schema: {snapshot.database.migrations?.current ? 'current' : 'pending'}</div>
+                <div>Latest migration: {snapshot.database.migrations?.latestAppliedMigrationId ?? 'n/a'}</div>
+                <div>Expected migration: {snapshot.database.migrations?.latestExpectedMigrationId ?? 'n/a'}</div>
               </dl>
               {#if snapshot.database.error}
                 <p class="mt-3 text-sm text-destructive">{snapshot.database.error}</p>

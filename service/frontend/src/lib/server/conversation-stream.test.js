@@ -49,3 +49,30 @@ test('conversation stream typing events stay scoped to their conversation', () =
 
   assert.deepEqual(received, []);
 });
+
+test('conversation stream delivers durable run status events', () => {
+  const received = [];
+  const unsubscribe = subscribeConversationStream('conv-status', (event) => {
+    received.push(event);
+  });
+
+  publishConversationStreamEvent({
+    type: 'status',
+    conversationId: 'conv-status',
+    messageId: 'message-1',
+    eventId: 'event-1',
+    runStatus: 'processing'
+  });
+
+  unsubscribe();
+
+  assert.deepEqual(received, [
+    {
+      type: 'status',
+      conversationId: 'conv-status',
+      messageId: 'message-1',
+      eventId: 'event-1',
+      runStatus: 'processing'
+    }
+  ]);
+});

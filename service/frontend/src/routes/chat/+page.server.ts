@@ -2,6 +2,7 @@ import { fail, redirect } from '@sveltejs/kit';
 import {
   createConversation,
   enqueueUserMessage,
+  getConversationRunState,
   isConversationBusy,
   listConversations,
   listMessages
@@ -17,12 +18,13 @@ export async function load(event) {
   ]);
   const requestedConversation = event.url.searchParams.get('conversation');
   const currentConversationId = requestedConversation || null;
-  const [messages, assistantBusy] = currentConversationId
+  const [messages, assistantBusy, runState] = currentConversationId
     ? await Promise.all([
         listMessages(session.userId, currentConversationId),
-        isConversationBusy(session.userId, currentConversationId)
+        isConversationBusy(session.userId, currentConversationId),
+        getConversationRunState(session.userId, currentConversationId)
       ])
-    : [[], false];
+    : [[], false, { status: 'idle', active: false, stalled: false }];
 
   return {
     session,
@@ -30,6 +32,7 @@ export async function load(event) {
     currentConversationId,
     messages,
     assistantBusy,
+    runState,
     buildInfo
   };
 }
