@@ -57,6 +57,11 @@
 		return `Open source ${title}`;
 	}
 
+	function audioDownloadName(assetPath: string) {
+		const extension = assetPath.split('.').pop()?.trim();
+		return extension ? `briefing-${briefing.jobId}.${extension}` : `briefing-${briefing.jobId}`;
+	}
+
 	const selectedSource = $derived(
 		briefing.sources.find((source) => source.id === selectedSourceId) ?? briefing.sources[0] ?? null
 	);
@@ -86,7 +91,7 @@
 				</a>
 			{/if}
 			{#if briefing.audioAsset}
-				<a class="secondary-button" href={briefing.audioAsset.url} download={`briefing-${briefing.jobId}.wav`}>
+				<a class="secondary-button" href={briefing.audioAsset.url} download={audioDownloadName(briefing.audioAsset.path)}>
 					Download audio
 				</a>
 			{/if}

@@ -7,3 +7,4 @@ service/frontend/dev-dist/
 infra/
 *.override.yml
 *.code-workspace
+.validation/
