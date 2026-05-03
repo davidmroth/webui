@@ -42,7 +42,7 @@ services:
       MYSQL_PASSWORD: ${DATABASE_PASSWORD}
     volumes:
       - ./mysql/init:/docker-entrypoint-initdb.d
-      - mysql_data:/var/lib/mysql
+      - .data/mysql:/var/lib/mysql
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-p${MYSQL_ROOT_PASSWORD}"]
       interval: 10s
@@ -60,7 +60,7 @@ services:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
     volumes:
-      - minio_data:/data
+      - .data/minio:/data
 
   # phpMyAdmin — database admin UI.
   phpmyadmin:
@@ -73,7 +73,4 @@ services:
     restart: unless-stopped
 
 volumes:
-  hermes_home:
-  mysql_data:
-  minio_data:
   webui_node_modules:
