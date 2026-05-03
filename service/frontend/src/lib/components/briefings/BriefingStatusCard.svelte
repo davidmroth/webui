@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { browser } from '$app/environment';
 	import { estimateBriefingRenderProgress } from '$lib/services/briefing-preview';
 	import type { BriefingPreview } from '$lib/types/briefing';
 
@@ -14,7 +15,7 @@
 	let nowMs = $state(Date.now());
 
 	$effect(() => {
-		if (preview.state !== 'processing') {
+		if (!browser || preview.state !== 'processing') {
 			return;
 		}
 

@@ -2120,8 +2120,10 @@ export async function enqueueUserMessage(
 export async function dequeueHermesEvent() {
   const leaseSeconds = Math.max(30, getConfig().hermesEventLeaseSeconds);
   const connection = (await pool.getConnection()) as any;
+  let transactionStarted = false;
   try {
     await connection.beginTransaction();
+    transactionStarted = true;
     const [rows] = await connection.query(
       `SELECT hermes_events.id, hermes_events.conversation_id, conversations.title AS conversation_title,
               conversations.curr_node, conversations.last_modified,
@@ -2146,9 +2148,10 @@ export async function dequeueHermesEvent() {
       [leaseSeconds]
     );
 
-     const row = (rows as EventRow[])[0];
+    const row = (rows as EventRow[])[0];
     if (!row) {
       await connection.commit();
+      transactionStarted = false;
       return null;
     }
 
@@ -2164,6 +2167,7 @@ export async function dequeueHermesEvent() {
       [row.id]
     );
     await connection.commit();
+    transactionStarted = false;
     emitDiagnosticEvent(
       DiagnosticEventType.HermesEventDequeued,
       DiagnosticHop.HermesQueue,
@@ -2215,7 +2219,13 @@ export async function dequeueHermesEvent() {
       }))
     };
   } catch (error) {
-    await connection.rollback();
+    if (transactionStarted) {
+      try {
+        await connection.rollback();
+      } catch {
+        // Preserve the original dequeue failure when the connection is already closed.
+      }
+    }
     emitDiagnosticEvent(DiagnosticEventType.HermesAssistantPostFailed, DiagnosticHop.HermesQueue, {
       errorClass: error instanceof Error ? error.constructor.name : typeof error,
       errorMessage: error instanceof Error ? error.message : 'Failed to dequeue Hermes event.'

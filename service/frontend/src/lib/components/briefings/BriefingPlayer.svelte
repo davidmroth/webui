@@ -8,7 +8,19 @@
 	let { briefing }: Props = $props();
 	let audioElement = $state<HTMLAudioElement | null>(null);
 	let currentTime = $state(0);
-	let selectedSourceId = $state(briefing.sources[0]?.id ?? null);
+	let selectedSourceId = $state<string | null>(null);
+
+	$effect(() => {
+		const defaultSourceId = briefing.sources[0]?.id ?? null;
+		if (!selectedSourceId) {
+			selectedSourceId = defaultSourceId;
+			return;
+		}
+
+		if (!briefing.sources.some((source) => source.id === selectedSourceId)) {
+			selectedSourceId = defaultSourceId;
+		}
+	});
 
 	function formatTime(seconds: number) {
 		const totalSeconds = Math.max(0, Math.floor(seconds));

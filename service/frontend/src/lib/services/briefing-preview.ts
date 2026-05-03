@@ -135,6 +135,10 @@ export function estimateBriefingRenderProgress(
 }
 
 export function startBriefingPreviewPolling(options: BriefingPreviewPollingOptions) {
+	if (typeof window === 'undefined') {
+		return () => {};
+	}
+
 	let cancelled = false;
 	let timer: ReturnType<typeof setTimeout> | null = null;
 	let inFlight = false;

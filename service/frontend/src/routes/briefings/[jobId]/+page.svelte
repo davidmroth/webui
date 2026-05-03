@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { browser } from '$app/environment';
 	import { base } from '$app/paths';
 	import BriefingStatusCard from '$lib/components/briefings/BriefingStatusCard.svelte';
 	import { startBriefingPreviewPolling } from '$lib/services/briefing-preview';
@@ -7,24 +8,21 @@
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
-	const serverPreview = $derived(data.preview);
-	let preview = $state<BriefingPreview>(serverPreview);
+	let preview = $state<BriefingPreview>(data.preview);
 	let pollError = $state<string | null>(null);
 
 	$effect(() => {
-		preview = serverPreview;
+		preview = data.preview;
 		pollError = null;
 	});
 
-	const pollingJobId = $derived(preview.state === 'processing' ? preview.jobId : null);
-
 	$effect(() => {
-		if (!pollingJobId) {
+		if (!browser || preview.state !== 'processing') {
 			return;
 		}
 
 		const stopPolling = startBriefingPreviewPolling({
-			jobId: pollingJobId,
+			jobId: preview.jobId,
 			basePath: base,
 			onUpdate: (nextPreview) => {
 				preview = nextPreview;
