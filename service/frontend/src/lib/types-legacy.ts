@@ -40,6 +40,23 @@ export interface ConversationRunState {
   errorMessage?: string | null;
 }
 
+export interface BriefingReferenceValidation {
+  valid: boolean;
+  warningCount: number;
+  errorCount: number;
+}
+
+export interface BriefingReference {
+  schemaVersion: 'briefing-reference/v1';
+  jobId: string;
+  briefingId: string;
+  title: string;
+  summary?: string | null;
+  generatedAt?: string | null;
+  previewUrl: string;
+  validation: BriefingReferenceValidation;
+}
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant' | 'system';
@@ -49,6 +66,7 @@ export interface ChatMessage {
   updatedAt?: string;
   status: 'complete' | 'streaming' | 'error';
   attachments: MessageAttachment[];
+  briefingReference?: BriefingReference | null;
   revisionSiblingIds?: string[];
   revisionIndex?: number;
   revisionTotal?: number;

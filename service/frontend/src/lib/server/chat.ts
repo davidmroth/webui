@@ -9,7 +9,13 @@ import { getObjectBuffer, uploadObject } from './storage';
 import { getHermesWorkerHeartbeat } from './hermes-heartbeat';
 import { isHermesSystemStatusContent } from '$lib/utils/hermes-system-status';
 import { getAttachmentContentFlags, isHtmlAttachmentContentType } from '$lib/utils/attachment-content-type';
-import type { ChatMessage, ConversationRunState, ConversationSummary, MessageAttachment } from '$lib/types-legacy';
+import type {
+  BriefingReference,
+  ChatMessage,
+  ConversationRunState,
+  ConversationSummary,
+  MessageAttachment
+} from '$lib/types-legacy';
 
 interface ConversationRow {
   id: string;
@@ -344,13 +350,66 @@ function getMessageDisplayType(row: Pick<MessageRow, 'extra'>): MessageDisplayTy
   return extra?.displayType === 'tool_progress' ? 'tool_progress' : undefined;
 }
 
+function normalizeOptionalExtraString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
+}
+
+function normalizeNonNegativeExtraInteger(value: unknown): number {
+  const normalized = Number(value);
+  if (!Number.isFinite(normalized)) {
+    return 0;
+  }
+
+  return Math.max(0, Math.floor(normalized));
+}
+
+function getMessageBriefingReference(row: Pick<MessageRow, 'extra'>): BriefingReference | null {
+  const extra = parseMessageExtra(row.extra);
+  const raw = extra?.briefingReference;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return null;
+  }
+
+  const source = raw as Record<string, unknown>;
+  const jobId = normalizeOptionalExtraString(source.jobId);
+  const briefingId = normalizeOptionalExtraString(source.briefingId);
+  const title = normalizeOptionalExtraString(source.title);
+
+  if (!jobId || !briefingId || !title) {
+    return null;
+  }
+
+  const validationRaw =
+    source.validation && typeof source.validation === 'object' && !Array.isArray(source.validation)
+      ? (source.validation as Record<string, unknown>)
+      : {};
+
+  return {
+    schemaVersion: 'briefing-reference/v1',
+    jobId,
+    briefingId,
+    title,
+    summary: normalizeOptionalExtraString(source.summary),
+    generatedAt: normalizeOptionalExtraString(source.generatedAt),
+    previewUrl:
+      normalizeOptionalExtraString(source.previewUrl) ?? `/briefings/${encodeURIComponent(jobId)}`,
+    validation: {
+      valid: validationRaw.valid !== false,
+      warningCount: normalizeNonNegativeExtraInteger(validationRaw.warningCount),
+      errorCount: normalizeNonNegativeExtraInteger(validationRaw.errorCount)
+    }
+  };
+}
+
 function buildAssistantMessageExtra(input: {
   revisionGroupId?: string | null;
   displayType?: MessageDisplayType;
+  briefingReference?: BriefingReference | null;
 }): string | null {
   return serializeMessageExtra({
     ...(input.revisionGroupId ? { revisionGroupId: input.revisionGroupId } : {}),
-    ...(input.displayType ? { displayType: input.displayType } : {})
+    ...(input.displayType ? { displayType: input.displayType } : {}),
+    ...(input.briefingReference ? { briefingReference: input.briefingReference } : {})
   });
 }
 
@@ -1528,6 +1587,7 @@ export async function listMessages(userId: string, conversationId: string): Prom
       updatedAt: toIsoString(row.updated_at),
       status: row.status,
       attachments: attachmentsByMessageId.get(row.id) ?? [],
+      briefingReference: getMessageBriefingReference(row),
       timings: parseTimings(row.timings),
       revisionSiblingIds: siblingIds,
       revisionIndex: Math.max(0, siblingIds.indexOf(row.id)),
@@ -2324,6 +2384,7 @@ export async function storeAssistantMessage(
     timings?: unknown;
     role?: 'assistant' | 'system';
     displayType?: MessageDisplayType;
+    briefingReference?: BriefingReference | null;
     userMessageId?: string | null;
     publishDoneEvent?: boolean;
     notifyPush?: boolean;
@@ -2359,7 +2420,8 @@ export async function storeAssistantMessage(
       content,
       extra: buildAssistantMessageExtra({
         revisionGroupId: assistantRevisionGroupId,
-        displayType: options.displayType
+        displayType: options.displayType,
+        briefingReference: options.briefingReference
       }),
       timings: timingsJson,
       msg_timestamp: messageTimestamp
@@ -2424,6 +2486,7 @@ export async function storeAssistantMessageWithAttachments(
     timings?: unknown;
     role?: 'assistant' | 'system';
     displayType?: MessageDisplayType;
+    briefingReference?: BriefingReference | null;
     userMessageId?: string | null;
   } = {}
 ) {
