@@ -1,4 +1,4 @@
-import type { BriefingPreview, BriefingPreviewProcessing } from '$lib/types/briefing';
+import type { BriefingPreview, BriefingPreviewProcessing, BriefingRenderStage } from '$lib/types/briefing';
 
 const DEFAULT_POLL_INTERVAL_MS = 3_000;
 const MIN_POLL_INTERVAL_MS = 1_000;
@@ -7,12 +7,14 @@ const PROGRESS_FLOOR = 12;
 const PROGRESS_CEILING = 94;
 
 export interface BriefingProgressEstimate {
+	source: 'estimated' | 'renderer';
 	percent: number;
 	elapsedMs: number;
 	etaMs: number | null;
 	stageLabel: string;
 	summary: string;
 	detail: string;
+	trailingLabel: string | null;
 }
 
 interface FetchBriefingPreviewOptions {
@@ -28,6 +30,58 @@ interface BriefingPreviewPollingOptions extends FetchBriefingPreviewOptions {
 }
 
 const BRIEFING_PREVIEW_STATES = new Set(['ready', 'processing', 'failed', 'missing', 'error']);
+const RENDERER_STAGE_COPY: Record<
+	BriefingRenderStage,
+	{
+		defaultPercent: number;
+		stageLabel: string;
+		summary: string;
+		detail: string;
+	}
+> = {
+	queued: {
+		defaultPercent: 1,
+		stageLabel: 'Queued for renderer availability',
+		summary: 'The briefing has been accepted and is waiting for the renderer.',
+		detail: 'Another briefing is already using the local renderer. This job will start automatically when a slot is free.'
+	},
+	rendering_narration: {
+		defaultPercent: 36,
+		stageLabel: 'Rendering narration and timing cues',
+		summary: 'The renderer is actively generating spoken narration for this briefing.',
+		detail: 'Long narrated briefings can take several minutes on the local TTS sidecar, especially when multiple jobs are queued.'
+	},
+	encoding_audio: {
+		defaultPercent: 84,
+		stageLabel: 'Encoding the final audio track',
+		summary: 'Narration is complete and the renderer is encoding the final audio track.',
+		detail: 'The synthesized narration is being converted into the export audio asset.'
+	},
+	assembling_briefing: {
+		defaultPercent: 92,
+		stageLabel: 'Building timeline and briefing bundle',
+		summary: 'The renderer is assembling timeline cues, validation, and HTML output.',
+		detail: 'The narrated briefing bundle is being assembled from the completed audio and source data.'
+	},
+	packaging_assets: {
+		defaultPercent: 97,
+		stageLabel: 'Writing packaged assets',
+		summary: 'The renderer is writing the final briefing assets and manifest.',
+		detail: 'The export bundle is almost ready.'
+	},
+	completed: {
+		defaultPercent: 100,
+		stageLabel: 'Briefing ready',
+		summary: 'The briefing render has completed.',
+		detail: 'The exported briefing is ready to open.'
+	},
+	failed: {
+		defaultPercent: PROGRESS_CEILING,
+		stageLabel: 'Rendering failed',
+		summary: 'The renderer reported a failure for this briefing.',
+		detail: 'Check the reported error for the failed stage.'
+	}
+};
 
 function isObjectRecord(value: unknown): value is Record<string, unknown> {
 	return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -106,11 +160,42 @@ export async function fetchBriefingPreview(
 }
 
 export function estimateBriefingRenderProgress(
-	preview: Pick<BriefingPreviewProcessing, 'createdAt'>,
+	preview: Pick<BriefingPreviewProcessing, 'createdAt' | 'renderProgress'>,
 	now = Date.now()
 ): BriefingProgressEstimate {
 	const createdAtMs = Date.parse(preview.createdAt);
 	const elapsedMs = Number.isFinite(createdAtMs) ? Math.max(0, now - createdAtMs) : 0;
+
+	if (preview.renderProgress) {
+		const stageCopy = RENDERER_STAGE_COPY[preview.renderProgress.stage];
+		const percent = Math.max(
+			0,
+			Math.min(100, preview.renderProgress.percent ?? stageCopy.defaultPercent)
+		);
+		const sentenceTotal = preview.renderProgress.sentenceTotal;
+		const sentenceCompleted = preview.renderProgress.sentenceCompleted;
+		const trailingLabel =
+			typeof sentenceTotal === 'number' && sentenceTotal > 0
+				? `${Math.min(sentenceTotal, Math.max(0, sentenceCompleted ?? 0))} of ${sentenceTotal} narration segments completed`
+				: preview.renderProgress.stage === 'queued'
+					? 'Starts automatically when a render slot is free'
+					: 'Live renderer status';
+
+		return {
+			source: 'renderer',
+			percent,
+			elapsedMs,
+			etaMs: null,
+			stageLabel: stageCopy.stageLabel,
+			summary: stageCopy.summary,
+			detail:
+				typeof preview.renderProgress.detail === 'string' && preview.renderProgress.detail.trim().length > 0
+					? preview.renderProgress.detail
+					: stageCopy.detail,
+			trailingLabel
+		};
+	}
+
 	const percent = Math.max(PROGRESS_FLOOR, Math.min(PROGRESS_CEILING, interpolateProgress(elapsedMs)));
 	const etaMs = elapsedMs >= ESTIMATED_RENDER_DURATION_MS ? null : ESTIMATED_RENDER_DURATION_MS - elapsedMs;
 
@@ -124,13 +209,15 @@ export function estimateBriefingRenderProgress(
 	}
 
 	return {
+		source: 'estimated',
 		percent,
 		elapsedMs,
 		etaMs,
 		stageLabel,
 		summary: 'Research has been completed, and the briefing is being generated.',
 		detail:
-			'We are rendering narration, syncing the explainer timeline, and packaging the export assets. Most briefings finish within about a minute.'
+			'We are rendering narration, syncing the explainer timeline, and packaging the export assets. Most briefings finish within about a minute.',
+		trailingLabel: null
 	};
 }
 

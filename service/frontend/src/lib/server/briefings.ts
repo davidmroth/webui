@@ -18,6 +18,14 @@ import type {
 
 type FetchImpl = typeof fetch;
 type RendererJobState = 'processing' | 'completed' | 'failed';
+type RendererJobStage =
+	| 'queued'
+	| 'rendering_narration'
+	| 'encoding_audio'
+	| 'assembling_briefing'
+	| 'packaging_assets'
+	| 'completed'
+	| 'failed';
 type RendererCueKind = 'section' | 'sentence' | 'metric' | 'illustration' | 'citation';
 type RendererIllustrationKind = 'illustration' | 'map' | 'chart';
 type RendererAssetRole = 'audio' | 'standalone_html' | 'player_css' | 'player_js' | 'illustration';
@@ -118,6 +126,11 @@ interface RendererJobStatus {
 	job_id: string;
 	briefing_id?: string | null;
 	status: RendererJobState;
+	stage?: RendererJobStage | null;
+	progress_percent?: number | null;
+	progress_detail?: string | null;
+	sentence_total?: number | null;
+	sentence_completed?: number | null;
 	created_at: string;
 	completed_at?: string | null;
 	error?: string | null;
@@ -207,6 +220,38 @@ function normalizeValidation(value: RendererValidationResult | null | undefined)
 	};
 }
 
+function normalizeRendererProgress(status: RendererJobStatus) {
+	const stage = typeof status.stage === 'string' ? status.stage : null;
+	const percent =
+		typeof status.progress_percent === 'number' && Number.isFinite(status.progress_percent)
+			? Math.min(100, Math.max(0, Math.round(status.progress_percent)))
+			: null;
+	const detail =
+		typeof status.progress_detail === 'string' && status.progress_detail.trim().length > 0
+			? status.progress_detail
+			: null;
+	const sentenceTotal =
+		typeof status.sentence_total === 'number' && Number.isFinite(status.sentence_total)
+			? Math.max(0, Math.round(status.sentence_total))
+			: null;
+	const sentenceCompleted =
+		typeof status.sentence_completed === 'number' && Number.isFinite(status.sentence_completed)
+			? Math.max(0, Math.round(status.sentence_completed))
+			: null;
+
+	if (stage === null) {
+		return null;
+	}
+
+	return {
+		stage,
+		percent,
+		detail,
+		sentenceTotal,
+		sentenceCompleted
+	};
+}
+
 function buildClientConfig(options: BriefingClientOptions = {}): BriefingClientConfig {
 	const config = getConfig();
 	return {
@@ -244,7 +289,8 @@ function toStatusState(jobId: string, status: RendererJobStatus): BriefingPrevie
 		completedAt: typeof status.completed_at === 'string' ? status.completed_at : null,
 		error: typeof status.error === 'string' ? status.error : null,
 		validation: status.validation ? normalizeValidation(status.validation) : null,
-		assetCount: typeof status.asset_count === 'number' ? status.asset_count : 0
+		assetCount: typeof status.asset_count === 'number' ? status.asset_count : 0,
+		renderProgress: normalizeRendererProgress(status)
 	};
 
 	if (status.status === 'failed') {

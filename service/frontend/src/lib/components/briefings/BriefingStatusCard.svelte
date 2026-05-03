@@ -71,13 +71,15 @@
 
 		<div class="briefing-progress-shell">
 			<div class="briefing-progress-header">
-				<span>Estimated render progress</span>
+				<span>{progress.source === 'renderer' ? 'Renderer progress' : 'Estimated render progress'}</span>
 				<strong>{progress.percent}%</strong>
 			</div>
 			<div
 				class="briefing-progress-track"
 				role="progressbar"
-				aria-label="Estimated briefing render progress"
+				aria-label={progress.source === 'renderer'
+					? 'Briefing render progress'
+					: 'Estimated briefing render progress'}
 				aria-valuemin={0}
 				aria-valuemax={100}
 				aria-valuenow={progress.percent}
@@ -88,7 +90,9 @@
 				<span>{progress.stageLabel}</span>
 				<span>Elapsed {formatDuration(progress.elapsedMs)}</span>
 				<span>
-					{#if progress.etaMs === null}
+					{#if progress.source === 'renderer'}
+						{progress.trailingLabel ?? 'Live renderer status'}
+					{:else if progress.etaMs === null}
 						Usually any moment now
 					{:else}
 						About {formatDuration(progress.etaMs)} remaining

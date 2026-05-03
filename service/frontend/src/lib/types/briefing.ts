@@ -1,6 +1,22 @@
 export type BriefingCueKind = 'section' | 'sentence' | 'metric' | 'illustration' | 'citation';
 export type BriefingAssetRole = 'audio' | 'standalone_html' | 'player_css' | 'player_js' | 'illustration';
 export type BriefingIllustrationKind = 'illustration' | 'map' | 'chart';
+export type BriefingRenderStage =
+	| 'queued'
+	| 'rendering_narration'
+	| 'encoding_audio'
+	| 'assembling_briefing'
+	| 'packaging_assets'
+	| 'completed'
+	| 'failed';
+
+export interface BriefingRenderProgress {
+	stage: BriefingRenderStage;
+	percent: number | null;
+	detail: string | null;
+	sentenceTotal: number | null;
+	sentenceCompleted: number | null;
+}
 
 export interface BriefingValidationResult {
 	valid: boolean;
@@ -114,6 +130,7 @@ export interface BriefingPreviewProcessing {
 	error: string | null;
 	validation: BriefingValidationResult | null;
 	assetCount: number;
+	renderProgress: BriefingRenderProgress | null;
 }
 
 export interface BriefingPreviewFailed {
@@ -126,6 +143,7 @@ export interface BriefingPreviewFailed {
 	error: string | null;
 	validation: BriefingValidationResult | null;
 	assetCount: number;
+	renderProgress: BriefingRenderProgress | null;
 }
 
 export interface BriefingPreviewMissing {

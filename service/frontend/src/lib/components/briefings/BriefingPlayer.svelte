@@ -61,6 +61,18 @@
 		}
 	}
 
+	function isNestedInteractiveTarget(target: EventTarget | null) {
+		return target instanceof HTMLElement && Boolean(target.closest('button, a, audio'));
+	}
+
+	function handleSectionCardClick(event: MouseEvent, sectionStart: number) {
+		if (isNestedInteractiveTarget(event.target)) {
+			return;
+		}
+
+		seekTo(sectionStart);
+	}
+
 	function sourceButtonLabel(title: string, publisher: string) {
 		return publisher ? `${title} · ${publisher}` : title;
 	}
@@ -77,6 +89,20 @@
 	const selectedSource = $derived(
 		briefing.sources.find((source) => source.id === selectedSourceId) ?? briefing.sources[0] ?? null
 	);
+
+	const sourceCueStartById = $derived.by(() => {
+		const cueStarts = new Map<string, number>();
+
+		for (const section of briefing.sections) {
+			for (const citation of section.citations) {
+				if (!cueStarts.has(citation.sourceId)) {
+					cueStarts.set(citation.sourceId, citation.cue?.start ?? section.start);
+				}
+			}
+		}
+
+		return cueStarts;
+	});
 </script>
 
 <section class="briefing-player-shell">
@@ -126,7 +152,11 @@
 	<div class="briefing-layout">
 		<div class="briefing-main-column">
 			{#each briefing.sections as section}
-				<section class:active={isCueActive(section.cue)} class="briefing-section-card">
+				<section
+					class:active={isCueActive(section.cue)}
+					class="briefing-section-card"
+					onclick={(event) => handleSectionCardClick(event, section.start)}
+				>
 					<div class="briefing-section-header">
 						<button class="briefing-section-title" type="button" onclick={() => seekTo(section.start)}>
 							<span>{section.title}</span>
@@ -229,7 +259,7 @@
 								class:selected={source.id === selectedSource?.id}
 								class="briefing-source-button"
 								type="button"
-								onclick={() => selectSource(source.id)}
+								onclick={() => selectSource(source.id, sourceCueStartById.get(source.id))}
 							>
 								{sourceButtonLabel(source.title, source.publisher)}
 							</button>
@@ -399,6 +429,7 @@
 		padding: 1.35rem;
 		display: grid;
 		gap: 1rem;
+		cursor: pointer;
 		transition: border-color 160ms ease, transform 160ms ease, box-shadow 160ms ease;
 	}
 
