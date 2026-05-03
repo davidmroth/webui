@@ -8,3 +8,4 @@ infra/
 *.override.yml
 *.code-workspace
 .validation/
+.data/
