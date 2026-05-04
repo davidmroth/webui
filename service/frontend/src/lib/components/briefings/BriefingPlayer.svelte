@@ -402,6 +402,11 @@
 		padding: 1.25rem 1.5rem;
 		display: grid;
 		gap: 0.75rem;
+		position: sticky;
+		top: calc(var(--chat-viewport-offset-top, 0px) + 0.75rem);
+		z-index: 20;
+		backdrop-filter: blur(14px);
+		-webkit-backdrop-filter: blur(14px);
 	}
 
 	.briefing-audio-label {
