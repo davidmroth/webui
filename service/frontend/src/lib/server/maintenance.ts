@@ -10,6 +10,9 @@ import { getHermesWorkerHeartbeat } from './hermes-heartbeat';
 import { getSchemaMigrationStatus, type SchemaMigrationStatus } from './schema';
 import type { RequestEvent } from '@sveltejs/kit';
 
+type HermesQueueSnapshot = Awaited<ReturnType<typeof getHermesQueueStats>> & { error?: string };
+type HermesWorkerHeartbeatSnapshot = ReturnType<typeof getHermesWorkerHeartbeat>;
+
 interface BuildInfo {
   source: 'version.json' | '.build.json' | 'package.json';
   metadataMode: 'image-baked' | 'package-fallback';
@@ -199,6 +202,31 @@ interface HermesInboxContractTelemetry {
   hasPendingEvent: boolean;
   preview: HermesInboxContractEventPreview | null;
   error: string | null;
+}
+
+interface HermesConnectionPendingEvent {
+  exists: boolean;
+  status: 'queued' | 'processing' | 'acked' | 'cancelled' | null;
+  eventId: string | null;
+  createdAt: string | null;
+  ageSeconds: number | null;
+}
+
+interface HermesConnectionStatus {
+  polledAt: string;
+  state: 'connected' | 'degraded' | 'offline' | 'misconfigured';
+  label: string;
+  summary: string;
+  hermesServiceTokenConfigured: boolean;
+  queue: {
+    queued: number;
+    processing: number;
+    staleProcessing: number;
+    acked: number;
+    error: string | null;
+  };
+  workerHeartbeat: HermesWorkerHeartbeatSnapshot;
+  pendingEvent: HermesConnectionPendingEvent;
 }
 
 interface CountRow {
@@ -755,6 +783,137 @@ async function getHermesInboxContractTelemetry(): Promise<HermesInboxContractTel
   }
 }
 
+export function buildHermesConnectionStatus(params: {
+  queue: HermesQueueSnapshot;
+  workerHeartbeat: HermesWorkerHeartbeatSnapshot;
+  inboxContract: HermesInboxContractTelemetry;
+  hermesServiceTokenConfigured: boolean;
+  nowMs?: number;
+}): HermesConnectionStatus {
+  const {
+    queue,
+    workerHeartbeat,
+    inboxContract,
+    hermesServiceTokenConfigured,
+    nowMs = Date.now()
+  } = params;
+
+  const queueStats = {
+    queued: Math.max(0, Number(queue.queued ?? 0) || 0),
+    processing: Math.max(0, Number(queue.processing ?? 0) || 0),
+    staleProcessing: Math.max(0, Number(queue.staleProcessing ?? 0) || 0),
+    acked: Math.max(0, Number(queue.acked ?? 0) || 0),
+    error: queue.error ?? null
+  };
+  const pendingCreatedAt = inboxContract.preview?.createdAt ?? null;
+  const pendingCreatedAtMs = pendingCreatedAt ? Date.parse(pendingCreatedAt) : Number.NaN;
+  const pendingEvent: HermesConnectionPendingEvent = {
+    exists: inboxContract.hasPendingEvent,
+    status: inboxContract.preview?.status ?? null,
+    eventId: inboxContract.preview?.eventId ?? null,
+    createdAt: pendingCreatedAt,
+    ageSeconds:
+      pendingCreatedAt && Number.isFinite(pendingCreatedAtMs)
+        ? Math.max(0, Math.floor((nowMs - pendingCreatedAtMs) / 1000))
+        : null
+  };
+
+  const authFailureRecent =
+    Boolean(workerHeartbeat.authFailure?.seen) &&
+    typeof workerHeartbeat.authFailure?.ageSeconds === 'number' &&
+    workerHeartbeat.authFailure.ageSeconds <= 600;
+  const hasBacklog =
+    queueStats.queued > 0 || queueStats.processing > 0 || queueStats.staleProcessing > 0 || pendingEvent.exists;
+
+  if (!hermesServiceTokenConfigured) {
+    return {
+      polledAt: new Date(nowMs).toISOString(),
+      state: 'misconfigured',
+      label: 'Misconfigured',
+      summary:
+        'This webui is missing the Hermes receiver token, so assistant delivery requests cannot be authenticated until configuration is fixed.',
+      hermesServiceTokenConfigured,
+      queue: queueStats,
+      workerHeartbeat,
+      pendingEvent
+    };
+  }
+
+  if (queueStats.error) {
+    return {
+      polledAt: new Date(nowMs).toISOString(),
+      state: 'degraded',
+      label: 'Queue unavailable',
+      summary:
+        'The receiver could not read Hermes queue state right now, so worker connectivity is only partially observable from this process.',
+      hermesServiceTokenConfigured,
+      queue: queueStats,
+      workerHeartbeat,
+      pendingEvent
+    };
+  }
+
+  if (workerHeartbeat.isOnline) {
+    const backlogSummary = hasBacklog
+      ? `Hermes is online and the receiver currently sees ${queueStats.queued} queued event${queueStats.queued === 1 ? '' : 's'}${pendingEvent.exists ? ' with a live inbox contract preview' : ''}.`
+      : 'Hermes is online and the receiver is not building backlog right now.';
+
+    return {
+      polledAt: new Date(nowMs).toISOString(),
+      state: 'connected',
+      label: 'Connected',
+      summary: authFailureRecent
+        ? `${backlogSummary} A recent auth failure was observed, but the worker has checked in since then.`
+        : backlogSummary,
+      hermesServiceTokenConfigured,
+      queue: queueStats,
+      workerHeartbeat,
+      pendingEvent
+    };
+  }
+
+  if (authFailureRecent) {
+    return {
+      polledAt: new Date(nowMs).toISOString(),
+      state: 'degraded',
+      label: 'Auth failing',
+      summary:
+        'The receiver recently saw unauthorized Hermes requests and there is no fresh worker heartbeat. WEBCHAT_SERVICE_TOKEN and HERMES_WEBCHAT_SERVICE_TOKEN likely do not match.',
+      hermesServiceTokenConfigured,
+      queue: queueStats,
+      workerHeartbeat,
+      pendingEvent
+    };
+  }
+
+  if (hasBacklog) {
+    return {
+      polledAt: new Date(nowMs).toISOString(),
+      state: 'degraded',
+      label: 'Waiting for worker',
+      summary:
+        'WebUI can see queued or in-flight Hermes work, but no fresh worker heartbeat has arrived. The webchat poller likely needs to reconnect.',
+      hermesServiceTokenConfigured,
+      queue: queueStats,
+      workerHeartbeat,
+      pendingEvent
+    };
+  }
+
+  return {
+    polledAt: new Date(nowMs).toISOString(),
+    state: 'offline',
+    label: workerHeartbeat.seen ? 'Heartbeat stale' : 'Awaiting connection',
+    summary: workerHeartbeat.seen
+      ? 'The last Hermes heartbeat is older than the configured freshness window, but the receiver is not currently holding queued inbox work.'
+      : 'No Hermes heartbeat has been observed yet from this webui process.',
+    hermesServiceTokenConfigured,
+    queue: queueStats,
+    workerHeartbeat,
+    pendingEvent
+  };
+}
+
 function deriveFileDeliveryDiagnosis(params: {
   database: DatabaseTelemetry;
   storage: Awaited<ReturnType<typeof getStorageTelemetry>>;
@@ -898,6 +1057,8 @@ export async function collectMaintenanceSnapshot(event: RequestEvent) {
   const config = getConfig();
   const memoryUsage = process.memoryUsage();
   const workerHeartbeat = getHermesWorkerHeartbeat();
+  const hermesServiceTokenConfigured =
+    config.hermesServiceToken !== 'change-me' && config.hermesServiceToken.length > 0;
   const [build, database, storage, deliveryTraces, inboxContract, queue, recentAssistantTimings] = await Promise.all([
     getBuildInfo(),
     getDatabaseTelemetry(),
@@ -959,7 +1120,7 @@ export async function collectMaintenanceSnapshot(event: RequestEvent) {
       },
       sessionCookieName: config.sessionCookieName,
       maintenanceCookieName: config.maintenanceCookieName,
-      hermesServiceTokenConfigured: config.hermesServiceToken !== 'change-me' && config.hermesServiceToken.length > 0,
+      hermesServiceTokenConfigured,
       maintenanceTokenConfigured: config.maintenanceToken.length > 0
     },
     database,
@@ -968,6 +1129,12 @@ export async function collectMaintenanceSnapshot(event: RequestEvent) {
     inboxContract,
     queue,
     workerHeartbeat,
+    hermesConnection: buildHermesConnectionStatus({
+      queue,
+      workerHeartbeat,
+      inboxContract,
+      hermesServiceTokenConfigured
+    }),
     recentAssistantTimings,
     fileDeliveryDiagnosis: deriveFileDeliveryDiagnosis({
       database,
@@ -975,8 +1142,32 @@ export async function collectMaintenanceSnapshot(event: RequestEvent) {
       deliveryTraces,
       queue,
       workerHeartbeat,
-      hermesServiceTokenConfigured:
-        config.hermesServiceToken !== 'change-me' && config.hermesServiceToken.length > 0
+      hermesServiceTokenConfigured
     })
   };
+}
+
+export async function collectMaintenanceHermesConnectionStatus(): Promise<HermesConnectionStatus> {
+  const config = getConfig();
+  const workerHeartbeat = getHermesWorkerHeartbeat();
+  const hermesServiceTokenConfigured =
+    config.hermesServiceToken !== 'change-me' && config.hermesServiceToken.length > 0;
+  const [queue, inboxContract] = await Promise.all([
+    getHermesQueueStats().catch((error) => ({
+      queued: 0,
+      processing: 0,
+      acked: 0,
+      staleProcessing: 0,
+      leaseSeconds: config.hermesEventLeaseSeconds,
+      error: error instanceof Error ? error.message : 'Queue query failed.'
+    })),
+    getHermesInboxContractTelemetry()
+  ]);
+
+  return buildHermesConnectionStatus({
+    queue,
+    workerHeartbeat,
+    inboxContract,
+    hermesServiceTokenConfigured
+  });
 }

@@ -4,6 +4,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
+  buildHermesConnectionStatus,
   buildHermesInboxContractPreview,
   getBuildInfo,
   resolveBuildFingerprint
@@ -116,4 +117,99 @@ test('buildHermesInboxContractPreview derives the conversation-scoped session co
       lastModified: 42
     }
   });
+});
+
+test('buildHermesConnectionStatus reports a connected worker when heartbeat is fresh', () => {
+  const status = buildHermesConnectionStatus({
+    queue: {
+      queued: 1,
+      processing: 0,
+      acked: 4,
+      staleProcessing: 0,
+      leaseSeconds: 60
+    },
+    workerHeartbeat: {
+      seen: true,
+      lastSeenAt: '2026-05-04T14:00:55.000Z',
+      ageSeconds: 5,
+      staleAfterSeconds: 30,
+      isOnline: true,
+      source: 'inbox-next',
+      authFailure: {
+        seen: false,
+        lastSeenAt: null,
+        ageSeconds: null,
+        source: null,
+        reason: null
+      }
+    },
+    inboxContract: {
+      ok: true,
+      hasPendingEvent: true,
+      preview: {
+        eventId: 'evt-1',
+        status: 'queued',
+        conversationId: 'conv-1',
+        conversationName: 'Alpha',
+        messageId: 'msg-1',
+        createdAt: '2026-05-04T14:00:30.000Z',
+        messagePreview: 'Preview',
+        attachmentCount: 0,
+        sessionPlatform: 'webui-conversation',
+        sessionChatId: 'conv-1',
+        contextUrl: '/api/internal/hermes/conversations/conv-1/context',
+        contextVersion: {
+          currNode: null,
+          lastModified: 0
+        }
+      },
+      error: null
+    },
+    hermesServiceTokenConfigured: true,
+    nowMs: Date.parse('2026-05-04T14:01:00.000Z')
+  });
+
+  assert.equal(status.state, 'connected');
+  assert.equal(status.label, 'Connected');
+  assert.equal(status.pendingEvent.ageSeconds, 30);
+  assert.match(status.summary, /Hermes is online/);
+});
+
+test('buildHermesConnectionStatus reports recent auth failures as degraded', () => {
+  const status = buildHermesConnectionStatus({
+    queue: {
+      queued: 2,
+      processing: 0,
+      acked: 0,
+      staleProcessing: 0,
+      leaseSeconds: 60
+    },
+    workerHeartbeat: {
+      seen: false,
+      lastSeenAt: null,
+      ageSeconds: null,
+      staleAfterSeconds: 30,
+      isOnline: false,
+      source: null,
+      authFailure: {
+        seen: true,
+        lastSeenAt: '2026-05-04T14:00:10.000Z',
+        ageSeconds: 50,
+        source: 'health',
+        reason: 'unauthorized'
+      }
+    },
+    inboxContract: {
+      ok: true,
+      hasPendingEvent: false,
+      preview: null,
+      error: null
+    },
+    hermesServiceTokenConfigured: true,
+    nowMs: Date.parse('2026-05-04T14:01:00.000Z')
+  });
+
+  assert.equal(status.state, 'degraded');
+  assert.equal(status.label, 'Auth failing');
+  assert.match(status.summary, /do not match/);
 });

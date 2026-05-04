@@ -1,4 +1,5 @@
 <script lang="ts">
+  import HermesConnectionStatusCard from '$lib/components/maintenance/HermesConnectionStatusCard.svelte';
   import {
     describeNotificationServiceWorker,
     getNotificationPermission,
@@ -316,7 +317,7 @@
 </svelte:head>
 
 <div class="min-h-screen bg-background text-foreground">
-  <div class="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-8 sm:px-6 lg:px-8">
+  <div class="mx-auto flex max-w-[1600px] flex-col gap-6 px-4 py-8 sm:px-6 lg:px-8">
     <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
       <div>
         <p class="text-sm font-medium uppercase tracking-[0.24em] text-muted-foreground">Hermes WebUI</p>
@@ -484,7 +485,9 @@
         </div>
       </section>
 
-      <section class="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <HermesConnectionStatusCard initialStatus={snapshot.hermesConnection} />
+
+      <section class="grid gap-4 sm:grid-cols-2">
         <div class="min-w-0 rounded-xl border border-border bg-card p-5 shadow-sm">
           <div class="text-xs font-medium uppercase tracking-[0.22em] text-muted-foreground">Build</div>
           <div class="mt-3 text-2xl font-semibold [overflow-wrap:anywhere]">{snapshot.build.frontend}</div>
@@ -538,10 +541,9 @@
         </div>
       </section>
 
-      <section class="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
-        <div class="rounded-xl border border-border bg-card p-5 shadow-sm xl:col-span-2">
+      <section class="rounded-xl border border-border bg-card p-5 shadow-sm">
           <h2 class="text-lg font-semibold">System checks</h2>
-          <div class="mt-4 grid gap-4 md:grid-cols-2">
+          <div class="mt-4 grid gap-4 sm:grid-cols-2">
             <div class="min-w-0 rounded-lg border border-border bg-muted/40 p-4">
               <div class="flex items-center justify-between gap-3">
                 <h3 class="font-medium">Database</h3>
@@ -584,9 +586,9 @@
               {/if}
             </div>
           </div>
-        </div>
+      </section>
 
-        <div class="rounded-xl border border-border bg-card p-5 shadow-sm xl:col-span-2">
+      <section class="rounded-xl border border-border bg-card p-5 shadow-sm">
           <h2 class="text-lg font-semibold">File delivery diagnosis</h2>
           <p class="mt-2 text-sm text-muted-foreground">
             Receiver-side diagnosis only. This verifies what webui can prove locally, not the live Hermes sender target or tool schema.
@@ -604,7 +606,7 @@
               </span>
             </div>
 
-            <div class="mt-4 grid gap-3 md:grid-cols-2">
+            <div class="mt-4 grid gap-3 sm:grid-cols-2">
               <div class="min-w-0 rounded-md bg-background p-3 text-sm [overflow-wrap:anywhere]">
                 <div><span class="font-medium">Metadata mode:</span> {snapshot.build.metadataMode}</div>
                 <div><span class="font-medium">Last attachment:</span> {snapshot.database.attachmentStats.lastAttachmentAt ?? 'never'}</div>
@@ -633,9 +635,11 @@
               <div><span class="font-medium">Sender config verified:</span> {snapshot.fileDeliveryDiagnosis.senderConfigVerified ? 'yes' : 'no'}</div>
             </div>
           </div>
-        </div>
+      </section>
 
-        <div class="rounded-xl border border-border bg-card p-5 shadow-sm">
+      <section class="grid gap-4">
+        <div class="flex min-w-0 flex-col gap-4">
+          <div class="rounded-xl border border-border bg-card p-5 shadow-sm">
           <h2 class="text-lg font-semibold">Recent Hermes delivery traces</h2>
           <p class="mt-2 text-sm text-muted-foreground">
             Sender-declared webchat delivery attempts that actually reached this deployment. Use this to compare what Hermes said it posted against what the receiver stored.
@@ -644,7 +648,7 @@
             When the receiver sees a top-level assistant <code>timings</code> payload, the trace route is tagged as <code>webchat_adapter+timings</code>.
           </p>
 
-          <div class="mt-4 grid gap-3 md:grid-cols-2 text-sm">
+          <div class="mt-4 grid gap-3 text-sm sm:grid-cols-2">
             <div class="rounded-md bg-muted/40 p-4">
               <div><span class="font-medium">Total traces:</span> {snapshot.deliveryTraces.totalCount}</div>
               <div><span class="font-medium">Accepted:</span> {snapshot.deliveryTraces.acceptedCount}</div>
@@ -678,7 +682,7 @@
                     </span>
                   </div>
 
-                  <div class="mt-3 grid gap-2 md:grid-cols-2 [overflow-wrap:anywhere]">
+                  <div class="mt-3 grid gap-2 [overflow-wrap:anywhere] sm:grid-cols-2">
                     <div>Conversation: {trace.conversationId}</div>
                     <div>Receiver message: {trace.receiverMessageId ?? 'n/a'}</div>
                     <div>Trace id: {trace.senderTraceId ?? 'n/a'}</div>
@@ -696,15 +700,71 @@
               {/each}
             </div>
           {/if}
+          </div>
+
+          <div class="rounded-xl border border-border bg-card p-5 shadow-sm">
+            <h2 class="text-lg font-semibold">Recent assistant timings</h2>
+            <p class="mt-2 text-sm text-muted-foreground">
+              llama.cpp-style inference timings as stored on the most-recent assistant messages. Used to verify that the upstream sender is forwarding <code>timings</code> and that they are being persisted into the <code>messages.timings</code> JSON column. Older messages predating the timings work will show <em>none</em>.
+            </p>
+
+            <div class="mt-4 grid gap-3 text-sm sm:grid-cols-2">
+              <div class="rounded-md bg-muted/40 p-4">
+                <div><span class="font-medium">Total assistant messages:</span> {snapshot.recentAssistantTimings.totalAssistantCount}</div>
+                <div><span class="font-medium">With timings:</span> {snapshot.recentAssistantTimings.withTimingsCount}</div>
+                <div><span class="font-medium">Without timings:</span> {snapshot.recentAssistantTimings.withoutTimingsCount}</div>
+                <div><span class="font-medium">Last with timings:</span> {snapshot.recentAssistantTimings.lastWithTimingsAt ?? 'never'}</div>
+              </div>
+              <div class="rounded-md bg-muted/40 p-4">
+                <div><span class="font-medium">Query OK:</span> {snapshot.recentAssistantTimings.ok ? 'yes' : 'no'}</div>
+                {#if snapshot.recentAssistantTimings.error}
+                  <div class="text-destructive">{snapshot.recentAssistantTimings.error}</div>
+                {/if}
+                {#if snapshot.recentAssistantTimings.totalAssistantCount > 0 && snapshot.recentAssistantTimings.withTimingsCount === 0}
+                  <div class="mt-2 text-muted-foreground">
+                    No assistant message has stored timings yet. Either the upstream provider is not llama.cpp (no <code>timings</code> emitted), or the sender/receiver pipeline is not forwarding them. Send a fresh message via webchat to test.
+                  </div>
+                {/if}
+              </div>
+            </div>
+
+            {#if snapshot.recentAssistantTimings.recent.length > 0}
+              <div class="mt-4 space-y-3">
+                {#each snapshot.recentAssistantTimings.recent as msg}
+                  <div class="min-w-0 rounded-lg border border-border bg-muted/30 p-4 text-sm">
+                    <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div class="min-w-0">
+                        <div class="font-medium">{msg.createdAt ?? 'unknown time'}</div>
+                        <div class="mt-1 text-muted-foreground break-all">id: {msg.id}</div>
+                        <div class="text-muted-foreground break-all">conversation: {msg.conversationId}</div>
+                      </div>
+                      <span class={`shrink-0 whitespace-nowrap rounded-full px-2 py-1 text-xs font-medium ${msg.timings ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300' : 'bg-muted text-muted-foreground'}`}>
+                        {msg.timings ? 'has timings' : 'no timings'}
+                      </span>
+                    </div>
+                    <div class="mt-2 text-muted-foreground [overflow-wrap:anywhere]">
+                      Content ({msg.contentLength} chars): <span class="text-foreground">{msg.contentSnippet || '(empty)'}{msg.contentLength > msg.contentSnippet.length ? '\u2026' : ''}</span>
+                    </div>
+                    {#if msg.timingsRaw}
+                      <pre class="mt-3 max-w-full overflow-x-auto whitespace-pre-wrap rounded-md bg-background/60 p-3 text-xs [overflow-wrap:anywhere]">{msg.timingsRaw}</pre>
+                    {/if}
+                  </div>
+                {/each}
+              </div>
+            {:else}
+              <div class="mt-4 text-sm text-muted-foreground">No assistant messages found.</div>
+            {/if}
+          </div>
         </div>
 
-        <div class="rounded-xl border border-border bg-card p-5 shadow-sm">
+        <div class="flex min-w-0 flex-col gap-4">
+          <div class="rounded-xl border border-border bg-card p-5 shadow-sm">
           <h2 class="text-lg font-semibold">Webchat inbox contract</h2>
           <p class="mt-2 text-sm text-muted-foreground">
             Non-destructive preview of the next queue payload shape Hermes consumes. This does not dequeue work; it shows the conversation-scoped session key and context export route the sender should use.
           </p>
 
-          <div class="mt-4 grid gap-3 md:grid-cols-2 text-sm">
+          <div class="mt-4 grid gap-3 text-sm sm:grid-cols-2">
             <div class="rounded-md bg-muted/40 p-4">
               <div><span class="font-medium">Query OK:</span> {snapshot.inboxContract.ok ? 'yes' : 'no'}</div>
               <div><span class="font-medium">Pending event:</span> {snapshot.inboxContract.hasPendingEvent ? 'yes' : 'no'}</div>
@@ -735,7 +795,7 @@
                 </div>
               </div>
 
-              <div class="mt-3 grid gap-2 md:grid-cols-2">
+              <div class="mt-3 grid gap-2 sm:grid-cols-2">
                 <div>Conversation id: {snapshot.inboxContract.preview.conversationId}</div>
                 <div>Message id: {snapshot.inboxContract.preview.messageId}</div>
                 <div>Session platform: {snapshot.inboxContract.preview.sessionPlatform}</div>
@@ -751,63 +811,9 @@
               </div>
             </div>
           {/if}
-        </div>
-
-        <div class="rounded-xl border border-border bg-card p-5 shadow-sm">
-          <h2 class="text-lg font-semibold">Recent assistant timings</h2>
-          <p class="mt-2 text-sm text-muted-foreground">
-            llama.cpp-style inference timings as stored on the most-recent assistant messages. Used to verify that the upstream sender is forwarding <code>timings</code> and that they are being persisted into the <code>messages.timings</code> JSON column. Older messages predating the timings work will show <em>none</em>.
-          </p>
-
-          <div class="mt-4 grid gap-3 md:grid-cols-2 text-sm">
-            <div class="rounded-md bg-muted/40 p-4">
-              <div><span class="font-medium">Total assistant messages:</span> {snapshot.recentAssistantTimings.totalAssistantCount}</div>
-              <div><span class="font-medium">With timings:</span> {snapshot.recentAssistantTimings.withTimingsCount}</div>
-              <div><span class="font-medium">Without timings:</span> {snapshot.recentAssistantTimings.withoutTimingsCount}</div>
-              <div><span class="font-medium">Last with timings:</span> {snapshot.recentAssistantTimings.lastWithTimingsAt ?? 'never'}</div>
-            </div>
-            <div class="rounded-md bg-muted/40 p-4">
-              <div><span class="font-medium">Query OK:</span> {snapshot.recentAssistantTimings.ok ? 'yes' : 'no'}</div>
-              {#if snapshot.recentAssistantTimings.error}
-                <div class="text-destructive">{snapshot.recentAssistantTimings.error}</div>
-              {/if}
-              {#if snapshot.recentAssistantTimings.totalAssistantCount > 0 && snapshot.recentAssistantTimings.withTimingsCount === 0}
-                <div class="mt-2 text-muted-foreground">
-                  No assistant message has stored timings yet. Either the upstream provider is not llama.cpp (no <code>timings</code> emitted), or the sender/receiver pipeline is not forwarding them. Send a fresh message via webchat to test.
-                </div>
-              {/if}
-            </div>
           </div>
 
-          {#if snapshot.recentAssistantTimings.recent.length > 0}
-            <div class="mt-4 space-y-3">
-              {#each snapshot.recentAssistantTimings.recent as msg}
-                <div class="min-w-0 rounded-lg border border-border bg-muted/30 p-4 text-sm">
-                  <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                    <div class="min-w-0">
-                      <div class="font-medium">{msg.createdAt ?? 'unknown time'}</div>
-                      <div class="mt-1 text-muted-foreground break-all">id: {msg.id}</div>
-                      <div class="text-muted-foreground break-all">conversation: {msg.conversationId}</div>
-                    </div>
-                    <span class={`shrink-0 whitespace-nowrap rounded-full px-2 py-1 text-xs font-medium ${msg.timings ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300' : 'bg-muted text-muted-foreground'}`}>
-                      {msg.timings ? 'has timings' : 'no timings'}
-                    </span>
-                  </div>
-                  <div class="mt-2 text-muted-foreground [overflow-wrap:anywhere]">
-                    Content ({msg.contentLength} chars): <span class="text-foreground">{msg.contentSnippet || '(empty)'}{msg.contentLength > msg.contentSnippet.length ? '\u2026' : ''}</span>
-                  </div>
-                  {#if msg.timingsRaw}
-                    <pre class="mt-3 max-w-full overflow-x-auto whitespace-pre-wrap rounded-md bg-background/60 p-3 text-xs [overflow-wrap:anywhere]">{msg.timingsRaw}</pre>
-                  {/if}
-                </div>
-              {/each}
-            </div>
-          {:else}
-            <div class="mt-4 text-sm text-muted-foreground">No assistant messages found.</div>
-          {/if}
-        </div>
-
-        <div class="min-w-0 rounded-xl border border-border bg-card p-5 shadow-sm">
+          <div class="min-w-0 rounded-xl border border-border bg-card p-5 shadow-sm">
           <h2 class="text-lg font-semibold">Request and config</h2>
           <dl class="mt-4 space-y-2 text-sm [overflow-wrap:anywhere]">
             <div><span class="font-medium">Collected at:</span> {snapshot.collectedAt}</div>
@@ -829,7 +835,7 @@
         <p class="mt-2 text-sm text-muted-foreground">
           Copy this block when debugging deployment mismatches, stale containers, queue issues, or missing build metadata.
         </p>
-        <pre class="mt-4 max-w-full overflow-x-auto whitespace-pre-wrap rounded-lg bg-muted p-4 text-[11px] leading-5 [overflow-wrap:anywhere] sm:text-xs">{pretty(snapshot)}</pre>
+        <pre class="mt-4 max-h-[70vh] max-w-full overflow-auto whitespace-pre-wrap rounded-lg bg-muted p-4 text-[11px] leading-5 [overflow-wrap:anywhere] sm:text-xs">{pretty(snapshot)}</pre>
       </section>
     {:else}
       <section class="rounded-xl border border-border bg-card p-6 shadow-sm">
