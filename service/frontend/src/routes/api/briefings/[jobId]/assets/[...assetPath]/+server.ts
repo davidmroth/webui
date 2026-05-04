@@ -11,7 +11,9 @@ export async function GET(event) {
 
 	let upstream: Response;
 	try {
-		upstream = await fetchBriefingAsset(event.params.jobId, assetPath);
+		upstream = await fetchBriefingAsset(event.params.jobId, assetPath, {
+			requestHeaders: event.request.headers
+		});
 	} catch (error) {
 		return json(
 			{
@@ -33,17 +35,24 @@ export async function GET(event) {
 	}
 
 	const headers = new Headers();
-	const contentType = upstream.headers.get('content-type');
-	const contentLength = upstream.headers.get('content-length');
-	const cacheControl = upstream.headers.get('cache-control');
-
-	if (contentType) {
-		headers.set('content-type', contentType);
+	for (const headerName of [
+		'content-type',
+		'content-length',
+		'cache-control',
+		'accept-ranges',
+		'content-range',
+		'etag',
+		'last-modified',
+		'content-disposition'
+	]) {
+		const headerValue = upstream.headers.get(headerName);
+		if (headerValue) {
+			headers.set(headerName, headerValue);
+		}
 	}
-	if (contentLength) {
-		headers.set('content-length', contentLength);
+	if (!headers.has('cache-control')) {
+		headers.set('cache-control', 'private, max-age=60');
 	}
-	headers.set('cache-control', cacheControl ?? 'private, max-age=60');
 	headers.set('x-content-type-options', 'nosniff');
 
 	return new Response(upstream.body, {

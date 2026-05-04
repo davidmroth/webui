@@ -143,6 +143,7 @@ interface BriefingClientOptions {
 	serviceToken?: string;
 	timeoutMs?: number;
 	fetchImpl?: FetchImpl;
+	requestHeaders?: HeadersInit;
 }
 
 interface BriefingClientConfig {
@@ -559,11 +560,20 @@ export async function fetchBriefingAsset(jobId: string, assetPath: string, optio
 	}
 
 	const config = buildClientConfig(options);
+	const headers = buildRendererHeaders(config.serviceToken, '*/*');
+	const requestHeaders = new Headers(options.requestHeaders);
+	for (const headerName of ['range', 'if-range']) {
+		const headerValue = requestHeaders.get(headerName);
+		if (headerValue) {
+			headers.set(headerName, headerValue);
+		}
+	}
+
 	return config.fetchImpl(
 		`${config.baseUrl}/v1/briefings/${encodeURIComponent(normalizedJobId)}/assets/${encodeAssetPath(normalizedAssetPath)}`,
 		{
 			method: 'GET',
-			headers: buildRendererHeaders(config.serviceToken, '*/*'),
+			headers,
 			signal: AbortSignal.timeout(config.timeoutMs)
 		}
 	);
