@@ -4,6 +4,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
+  buildRecentAssistantTimingsTelemetry,
   buildHermesConnectionStatus,
   buildHermesInboxContractPreview,
   getBuildInfo,
@@ -212,4 +213,57 @@ test('buildHermesConnectionStatus reports recent auth failures as degraded', () 
   assert.equal(status.state, 'degraded');
   assert.equal(status.label, 'Auth failing');
   assert.match(status.summary, /do not match/);
+});
+
+test('buildRecentAssistantTimingsTelemetry surfaces stored llama timings for the maintenance page', () => {
+  const llamaTimingsJson = JSON.stringify({
+    prompt_eval_count: 48,
+    prompt_eval_duration: 125000000,
+    eval_count: 96,
+    eval_duration: 640000000,
+    predicted_per_second: 150
+  });
+
+  const telemetry = buildRecentAssistantTimingsTelemetry(
+    {
+      total_count: 3,
+      with_timings_count: 2,
+      last_with_timings_at: '2026-05-04T14:03:00.000Z'
+    },
+    [
+      {
+        id: 'msg-1',
+        conversation_id: 'conv-1',
+        created_at: '2026-05-04T14:03:00.000Z',
+        content: 'Most recent answer',
+        timings: llamaTimingsJson
+      },
+      {
+        id: 'msg-2',
+        conversation_id: 'conv-1',
+        created_at: '2026-05-04T14:02:00.000Z',
+        content: 'Older answer',
+        timings: { prompt_eval_count: 12, eval_count: 34 }
+      },
+      {
+        id: 'msg-3',
+        conversation_id: 'conv-2',
+        created_at: '2026-05-04T14:01:00.000Z',
+        content: 'No timings here',
+        timings: null
+      }
+    ]
+  );
+
+  assert.equal(telemetry.ok, true);
+  assert.equal(telemetry.totalAssistantCount, 3);
+  assert.equal(telemetry.withTimingsCount, 2);
+  assert.equal(telemetry.withoutTimingsCount, 1);
+  assert.equal(telemetry.lastWithTimingsAt, '2026-05-04T14:03:00.000Z');
+  assert.deepEqual(telemetry.recent[0].timings, JSON.parse(llamaTimingsJson));
+  assert.equal(telemetry.recent[0].timingsRaw, llamaTimingsJson);
+  assert.deepEqual(telemetry.recent[1].timings, { prompt_eval_count: 12, eval_count: 34 });
+  assert.equal(telemetry.recent[1].timingsRaw, JSON.stringify({ prompt_eval_count: 12, eval_count: 34 }));
+  assert.equal(telemetry.recent[2].timings, null);
+  assert.equal(telemetry.recent[2].timingsRaw, null);
 });

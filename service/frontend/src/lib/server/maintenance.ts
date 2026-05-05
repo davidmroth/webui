@@ -137,6 +137,12 @@ interface RecentAssistantTimingsTelemetry {
   error: string | null;
 }
 
+interface RecentAssistantTimingsStatsRow {
+  total_count: number | string | null;
+  with_timings_count: number | string | null;
+  last_with_timings_at: Date | string | null;
+}
+
 interface HermesDeliveryTraceSample {
   createdAt: string;
   senderTraceId: string | null;
@@ -603,11 +609,7 @@ function parseTimingsValue(raw: string | object | null | undefined): {
 
 async function getRecentAssistantTimingsTelemetry(): Promise<RecentAssistantTimingsTelemetry> {
   try {
-    const [statsRow] = await query<{
-      total_count: number | string | null;
-      with_timings_count: number | string | null;
-      last_with_timings_at: Date | string | null;
-    }>(
+    const [statsRow] = await query<RecentAssistantTimingsStatsRow>(
       `SELECT
          COUNT(*) AS total_count,
          SUM(CASE WHEN timings IS NOT NULL THEN 1 ELSE 0 END) AS with_timings_count,
@@ -622,29 +624,7 @@ async function getRecentAssistantTimingsTelemetry(): Promise<RecentAssistantTimi
        ORDER BY created_at DESC
        LIMIT 10`
     );
-    const total = Number(statsRow?.total_count ?? 0);
-    const withTimings = Number(statsRow?.with_timings_count ?? 0);
-    return {
-      ok: true,
-      totalAssistantCount: total,
-      withTimingsCount: withTimings,
-      withoutTimingsCount: Math.max(total - withTimings, 0),
-      lastWithTimingsAt: toIsoString(statsRow?.last_with_timings_at),
-      recent: rows.map((row) => {
-        const { parsed, rawText } = parseTimingsValue(row.timings);
-        const content = row.content ?? '';
-        return {
-          id: row.id,
-          conversationId: row.conversation_id,
-          createdAt: toIsoString(row.created_at),
-          contentSnippet: content.slice(0, 80),
-          contentLength: content.length,
-          timings: parsed,
-          timingsRaw: rawText
-        };
-      }),
-      error: null
-    };
+    return buildRecentAssistantTimingsTelemetry(statsRow, rows);
   } catch (error) {
     return {
       ok: false,
@@ -656,6 +636,35 @@ async function getRecentAssistantTimingsTelemetry(): Promise<RecentAssistantTimi
       error: error instanceof Error ? error.message : 'Recent assistant timings query failed.'
     };
   }
+}
+
+export function buildRecentAssistantTimingsTelemetry(
+  statsRow: RecentAssistantTimingsStatsRow | null | undefined,
+  rows: RecentAssistantMessageRow[]
+): RecentAssistantTimingsTelemetry {
+  const total = Number(statsRow?.total_count ?? 0);
+  const withTimings = Number(statsRow?.with_timings_count ?? 0);
+  return {
+    ok: true,
+    totalAssistantCount: total,
+    withTimingsCount: withTimings,
+    withoutTimingsCount: Math.max(total - withTimings, 0),
+    lastWithTimingsAt: toIsoString(statsRow?.last_with_timings_at),
+    recent: rows.map((row) => {
+      const { parsed, rawText } = parseTimingsValue(row.timings);
+      const content = row.content ?? '';
+      return {
+        id: row.id,
+        conversationId: row.conversation_id,
+        createdAt: toIsoString(row.created_at),
+        contentSnippet: content.slice(0, 80),
+        contentLength: content.length,
+        timings: parsed,
+        timingsRaw: rawText
+      };
+    }),
+    error: null
+  };
 }
 
 async function getHermesDeliveryTraceTelemetry(): Promise<HermesDeliveryTraceTelemetry> {
