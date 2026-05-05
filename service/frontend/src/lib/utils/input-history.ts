@@ -18,6 +18,23 @@ type InputHistoryNavigationResult = {
   nextPendingDraft: string | null;
 };
 
+function normalizeInputHistory(entries: unknown[], limit: number): string[] {
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    const entry = entries[index];
+    if (typeof entry !== 'string' || entry.length === 0 || seen.has(entry)) {
+      continue;
+    }
+
+    seen.add(entry);
+    normalized.push(entry);
+  }
+
+  return normalized.reverse().slice(-limit);
+}
+
 export function loadInputHistory(
   storage: HistoryStorage | null | undefined,
   key: string,
@@ -38,9 +55,7 @@ export function loadInputHistory(
       return [];
     }
 
-    return parsed
-      .filter((entry): entry is string => typeof entry === 'string' && entry.length > 0)
-      .slice(-limit);
+    return normalizeInputHistory(parsed, limit);
   } catch {
     return [];
   }
@@ -57,7 +72,7 @@ export function saveInputHistory(
   }
 
   try {
-    storage.setItem(key, JSON.stringify(entries.slice(-limit)));
+    storage.setItem(key, JSON.stringify(normalizeInputHistory(entries, limit)));
   } catch {
     // Ignore quota and unavailable-storage failures.
   }
@@ -72,7 +87,7 @@ export function appendInputHistory(
     return entries;
   }
 
-  return [...entries, entry].slice(-limit);
+  return normalizeInputHistory([...entries, entry], limit);
 }
 
 export function navigateInputHistory(

@@ -19,6 +19,12 @@ test('appendInputHistory keeps only the most recent entries', () => {
   assert.equal(next.at(-1), 'message-latest');
 });
 
+test('appendInputHistory prunes older duplicate values and keeps the latest copy', () => {
+  const next = appendInputHistory(['first', 'second', 'first'], 'second');
+
+  assert.deepEqual(next, ['first', 'second']);
+});
+
 test('loadInputHistory ignores malformed payloads and saveInputHistory stores capped history', () => {
   let storedValue = 'not-json';
   const storage = {
@@ -35,6 +41,17 @@ test('loadInputHistory ignores malformed payloads and saveInputHistory stores ca
   saveInputHistory(storage, 'history-key', ['first', 'second']);
 
   assert.deepEqual(loadInputHistory(storage, 'history-key'), ['first', 'second']);
+});
+
+test('loadInputHistory prunes duplicate stored values while preserving the latest occurrence', () => {
+  const storage = {
+    getItem() {
+      return JSON.stringify(['first', 'second', 'first', 'third', 'second']);
+    },
+    setItem() {}
+  };
+
+  assert.deepEqual(loadInputHistory(storage, 'history-key'), ['first', 'third', 'second']);
 });
 
 test('navigateInputHistory walks backward through history and restores the pending draft', () => {
