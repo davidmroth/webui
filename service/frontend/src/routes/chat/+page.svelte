@@ -187,7 +187,6 @@
   const COMPOSER_STATS_VISIBLE_MS = 1_500;
   const COMPOSER_STATS_FADE_MS = 450;
   const COMPOSER_STATS_CAPS_REFRESH_INTERVAL_MS = 30_000;
-  const CHAT_SCROLL_DEBUG_PREFIX = '[chat-scroll]';
   const notificationsSupported = $derived(isNotificationApiSupported());
   const pushNotificationsSupported = $derived(
     notificationsSupported &&
@@ -204,57 +203,6 @@
   let composerStatsCapsLoadInFlight: Promise<void> | null = null;
   let lastComposerStatsCapsLoadAt = 0;
   let pendingLayoutAutoScroll = false;
-  let lastLoggedJumpVisibility: boolean | null = null;
-  let lastLoggedMessageSignature = '';
-  let lastViewportDebugSignature = '';
-
-  function roundScrollDebugMetric(value: number | null | undefined) {
-    if (typeof value !== 'number' || Number.isNaN(value)) {
-      return null;
-    }
-
-    return Number(value.toFixed(2));
-  }
-
-  function buildChatScrollSnapshot() {
-    const latestMessage = displayMessages[displayMessages.length - 1] ?? null;
-    const scrollElement = messageScrollElement;
-    const scrollTop = scrollElement ? roundScrollDebugMetric(scrollElement.scrollTop) : null;
-    const scrollHeight = scrollElement ? roundScrollDebugMetric(scrollElement.scrollHeight) : null;
-    const clientHeight = scrollElement ? roundScrollDebugMetric(scrollElement.clientHeight) : null;
-    const distanceFromBottom =
-      scrollElement && scrollHeight !== null && clientHeight !== null && scrollTop !== null
-        ? roundScrollDebugMetric(scrollHeight - clientHeight - scrollTop)
-        : null;
-
-    return {
-      conversationId: currentConversationId,
-      loadedMessagesConversationId,
-      displayMessageCount: displayMessages.length,
-      latestMessageId: latestMessage?.id ?? null,
-      latestMessageRole: latestMessage?.role ?? null,
-      latestMessageStatus: latestMessage?.status ?? null,
-      shouldAutoScroll,
-      isAtBottom,
-      showJumpToBottom,
-      pendingLayoutAutoScroll,
-      scrollTop,
-      scrollHeight,
-      clientHeight,
-      distanceFromBottom
-    };
-  }
-
-  function logChatScroll(event: string, details: Record<string, unknown> = {}) {
-    if (typeof window === 'undefined') {
-      return;
-    }
-
-    console.debug(CHAT_SCROLL_DEBUG_PREFIX, event, {
-      ...details,
-      ...buildChatScrollSnapshot()
-    });
-  }
 
   function loadTimeFormatPreference() {
     if (typeof window === 'undefined') {
@@ -736,7 +684,6 @@
       void loadComposerStatsCaps();
       clearHermesTypingIndicator(conversationId, { updateBusy: false });
       ensureStreamingAssistantMessage(conversationId, messageId);
-      logChatScroll('stream-message', { messageId });
       void refreshConversations();
     };
 
@@ -779,7 +726,6 @@
 
       clearPendingAssistant(conversationId);
       setConversationBusyState(conversationId, false);
-      logChatScroll('stream-done', { messageId, status });
 
       const refreshTask = Promise.all([refreshConversations(), loadMessages(conversationId)]);
       if (status === 'complete' && messageId) {
@@ -881,37 +827,7 @@
         : false)
   );
 
-  const showJumpToBottom = $derived(displayMessages.length > 0 && !isAtBottom);
-
-  $effect(() => {
-    if (lastLoggedJumpVisibility === showJumpToBottom) {
-      return;
-    }
-
-    lastLoggedJumpVisibility = showJumpToBottom;
-    logChatScroll('jump-visibility', { nextShowJumpToBottom: showJumpToBottom });
-  });
-
-  $effect(() => {
-    const latestMessage = displayMessages[displayMessages.length - 1] ?? null;
-    const messageSignature = [
-      currentConversationId ?? 'none',
-      String(displayMessages.length),
-      latestMessage?.id ?? 'none',
-      latestMessage?.status ?? 'none'
-    ].join(':');
-
-    if (messageSignature === lastLoggedMessageSignature) {
-      return;
-    }
-
-    lastLoggedMessageSignature = messageSignature;
-    logChatScroll('message-list-change', {
-      latestMessageId: latestMessage?.id ?? null,
-      latestMessageRole: latestMessage?.role ?? null,
-      latestMessageStatus: latestMessage?.status ?? null
-    });
-  });
+  const showJumpToBottom = $derived(displayMessages.length > 0 && !shouldFollowLatestMessages());
 
   const composerStatsMessage = $derived.by(() => {
     if (!composerStatsMessageId) {
@@ -1186,17 +1102,9 @@
     return distanceFromBottom < AUTO_SCROLL_AT_BOTTOM_THRESHOLD;
   }
 
-  function syncBottomTrackingState(source = 'sync-bottom') {
-    const previousIsAtBottom = isAtBottom;
+  function syncBottomTrackingState() {
     const nextIsAtBottom = isNearBottom();
     isAtBottom = nextIsAtBottom;
-
-    if (previousIsAtBottom !== nextIsAtBottom) {
-      logChatScroll(`${source}:is-at-bottom`, {
-        previousIsAtBottom,
-        nextIsAtBottom
-      });
-    }
 
     return nextIsAtBottom;
   }
@@ -1221,22 +1129,10 @@
           return;
         }
 
-        const previousIsAtBottom = isAtBottom;
-        const previousShouldAutoScroll = shouldAutoScroll;
         isAtBottom = entry.isIntersecting;
         if (entry.isIntersecting) {
           shouldAutoScroll = true;
         }
-
-        logChatScroll('bottom-sentinel', {
-          previousIsAtBottom,
-          nextIsAtBottom: entry.isIntersecting,
-          previousShouldAutoScroll,
-          nextShouldAutoScroll: shouldAutoScroll,
-          intersectionRatio: roundScrollDebugMetric(entry.intersectionRatio),
-          sentinelTop: roundScrollDebugMetric(entry.boundingClientRect.top),
-          rootBottom: roundScrollDebugMetric(entry.rootBounds?.bottom ?? null)
-        });
       },
       {
         root: messageScrollElement,
@@ -1246,8 +1142,9 @@
     );
 
     observer.observe(messageBottomSentinel);
-    logChatScroll('bottom-sentinel-observing');
-    syncBottomTrackingState('bottom-sentinel-initial');
+    untrack(() => {
+      syncBottomTrackingState();
+    });
 
     return () => {
       observer.disconnect();
@@ -1255,27 +1152,17 @@
   });
 
   function handleMessageScroll() {
-    const previousShouldAutoScroll = shouldAutoScroll;
-    shouldAutoScroll = syncBottomTrackingState('user-scroll');
-
-    if (previousShouldAutoScroll !== shouldAutoScroll) {
-      logChatScroll('user-scroll:follow-state', {
-        previousShouldAutoScroll,
-        nextShouldAutoScroll: shouldAutoScroll
-      });
-    }
+    shouldAutoScroll = syncBottomTrackingState();
   }
 
   function scrollMessagesToBottomSync() {
     if (!messageScrollElement) {
       isAtBottom = true;
-      logChatScroll('scroll-to-bottom-sync:no-scroll-element');
       return;
     }
 
     messageScrollElement.scrollTop = messageScrollElement.scrollHeight;
     isAtBottom = true;
-    logChatScroll('scroll-to-bottom-sync');
   }
 
   async function scrollMessagesToBottom(behavior: ScrollBehavior = 'auto') {
@@ -1283,7 +1170,6 @@
     await tick();
     if (!messageScrollElement) {
       isAtBottom = true;
-      logChatScroll('scroll-to-bottom-async:no-scroll-element', { behavior });
       return;
     }
 
@@ -1292,30 +1178,22 @@
       behavior
     });
     isAtBottom = true;
-    logChatScroll('scroll-to-bottom-async', { behavior });
   }
 
   function queueAutoScrollAfterLayoutChange() {
     const followLatestMessages = shouldFollowLatestMessages();
     if (!followLatestMessages || pendingLayoutAutoScroll) {
-      logChatScroll('layout-auto-scroll:skip', {
-        followLatestMessages,
-        pendingLayoutAutoScroll
-      });
       return;
     }
 
     pendingLayoutAutoScroll = true;
-    logChatScroll('layout-auto-scroll:queued');
     void tick().then(() => {
       pendingLayoutAutoScroll = false;
       if (shouldFollowLatestMessages()) {
         shouldAutoScroll = true;
         scrollMessagesToBottomSync();
-        logChatScroll('layout-auto-scroll:flushed');
       } else {
-        syncBottomTrackingState('layout-auto-scroll-cancelled');
-        logChatScroll('layout-auto-scroll:cancelled');
+        syncBottomTrackingState();
       }
     });
   }
@@ -1713,17 +1591,9 @@
         shouldAutoScroll = true;
       } else {
         messageScrollElement.scrollTop = previousScrollTop;
-        shouldAutoScroll = syncBottomTrackingState('load-messages-restore-scroll');
+        shouldAutoScroll = syncBottomTrackingState();
       }
     }
-
-    logChatScroll('load-messages:complete', {
-      conversationId,
-      forceScroll: options.forceScroll ?? null,
-      shouldStickToBottom,
-      fetchedMessageCount: payload.messages.length,
-      previousScrollTop: roundScrollDebugMetric(previousScrollTop)
-    });
   }
 
   function closeRenameConversationDialog() {
@@ -2408,25 +2278,15 @@
       const viewport = window.visualViewport;
       const viewportHeight = viewport?.height ?? window.innerHeight;
       const viewportOffsetTop = viewport?.offsetTop ?? 0;
-      const viewportDebugSignature = `${Math.round(viewportHeight)}:${Math.round(viewportOffsetTop)}:${shouldStickToBottom}`;
 
       rootElement.style.setProperty('--chat-viewport-height', `${Math.round(viewportHeight)}px`);
       rootElement.style.setProperty('--chat-viewport-offset-top', `${Math.round(viewportOffsetTop)}px`);
-
-      if (viewportDebugSignature !== lastViewportDebugSignature) {
-        lastViewportDebugSignature = viewportDebugSignature;
-        logChatScroll('viewport-sync', {
-          viewportHeight: roundScrollDebugMetric(viewportHeight),
-          viewportOffsetTop: roundScrollDebugMetric(viewportOffsetTop),
-          shouldStickToBottom
-        });
-      }
 
       if (shouldStickToBottom) {
         shouldAutoScroll = true;
         queueAutoScrollAfterLayoutChange();
       } else {
-        syncBottomTrackingState('viewport-sync');
+        syncBottomTrackingState();
       }
     };
 
@@ -2504,10 +2364,8 @@
             if (shouldFollowLatestMessages()) {
               shouldAutoScroll = true;
               scrollMessagesToBottomSync();
-              logChatScroll('content-resize:auto-follow');
             } else {
-              syncBottomTrackingState('content-resize');
-              logChatScroll('content-resize:no-follow');
+              syncBottomTrackingState();
             }
           });
           resizeObserver.observe(scrollContentElement);

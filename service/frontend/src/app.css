@@ -1894,6 +1894,7 @@ a {
 }
 
 .llama-composer-shell {
+  position: relative;
   display: grid;
   gap: 0.45rem;
   width: min(600px, 100%);
@@ -1901,9 +1902,14 @@ a {
 }
 
 .llama-jump-to-bottom-slot {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 0.35rem);
   display: flex;
   justify-content: center;
-  padding-bottom: 0.1rem;
+  pointer-events: none;
+  z-index: 1;
 }
 
 .llama-jump-to-bottom {
@@ -1912,6 +1918,7 @@ a {
   justify-content: center;
   width: 2.75rem;
   height: 2.75rem;
+  pointer-events: auto;
   border: 1px solid rgba(29, 29, 24, 0.12);
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.94);
