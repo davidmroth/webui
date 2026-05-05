@@ -21,6 +21,7 @@
   import ThemeModeToggle from '$lib/components/ThemeModeToggle.svelte';
   import ConversationList from '$components/chat/ConversationList.svelte';
   import MessagePane from '$components/chat/MessagePane.svelte';
+  import { CHAT_INPUT_HISTORY_LOCALSTORAGE_KEY } from '$lib/constants';
   import {
     deleteConversation as deleteConversationRequest,
     exportConversation as exportConversationRequest,
@@ -48,6 +49,13 @@
     shouldNotifyAssistantReply
   } from '$lib/utils/chat-notification-policy';
   import { getAuthHeaders } from '$lib/utils/api-headers';
+  import {
+    appendInputHistory,
+    loadInputHistory,
+    navigateInputHistory,
+    saveInputHistory,
+    type InputHistoryDirection
+  } from '$lib/utils/input-history';
   import { readTimingSummary } from '$lib/utils/chat-timings';
   import { isCurrentConversationRequest } from '$lib/utils/current-conversation-request';
 
@@ -101,6 +109,9 @@
   let attachmentMenuOpen = $state(false);
   let searchQuery = $state('');
   let draftMessage = $state('');
+  let composerInputHistory = $state<string[]>([]);
+  let composerInputHistoryIndex = $state<number | null>(null);
+  let composerHistoryDraft = $state<string | null>(null);
   let isSending = $state(false);
   let isClearingStalled = $state(false);
   let copiedMessageId = $state<string | null>(null);
@@ -210,6 +221,77 @@
     }
 
     use24HourTime = window.localStorage.getItem(TIME_FORMAT_24H_LOCALSTORAGE_KEY) === '1';
+  }
+
+  function loadComposerInputHistory() {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    composerInputHistory = loadInputHistory(
+      window.localStorage,
+      CHAT_INPUT_HISTORY_LOCALSTORAGE_KEY
+    );
+  }
+
+  function saveComposerInputHistory(nextHistory: string[]) {
+    composerInputHistory = nextHistory;
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    saveInputHistory(window.localStorage, CHAT_INPUT_HISTORY_LOCALSTORAGE_KEY, nextHistory);
+  }
+
+  function resetComposerInputHistoryNavigation() {
+    composerInputHistoryIndex = null;
+    composerHistoryDraft = null;
+  }
+
+  async function applyComposerHistoryNavigation(direction: InputHistoryDirection) {
+    const nextState = navigateInputHistory({
+      entries: composerInputHistory,
+      currentDraft: draftMessage,
+      direction,
+      index: composerInputHistoryIndex,
+      pendingDraft: composerHistoryDraft
+    });
+
+    if (!nextState) {
+      return;
+    }
+
+    draftMessage = nextState.nextDraft;
+    composerInputHistoryIndex = nextState.nextIndex;
+    composerHistoryDraft = nextState.nextPendingDraft;
+
+    await tick();
+    resetComposerHeight();
+    focusComposer();
+    if (composerElement) {
+      const cursor = composerElement.value.length;
+      composerElement.setSelectionRange(cursor, cursor);
+    }
+  }
+
+  function shouldNavigateComposerHistory(event: KeyboardEvent) {
+    if (slashMenuVisible) {
+      return false;
+    }
+
+    if (isMobileViewport || event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) {
+      return false;
+    }
+
+    if (event.key === 'ArrowUp') {
+      return composerInputHistoryIndex !== null || draftMessage.length === 0;
+    }
+
+    if (event.key === 'ArrowDown') {
+      return composerInputHistoryIndex !== null;
+    }
+
+    return false;
   }
 
   function setTimeFormatPreference(nextValue: boolean) {
@@ -1544,6 +1626,7 @@
 
     if (clearComposer) {
       draftMessage = '';
+      resetComposerInputHistoryNavigation();
       clearPendingFiles();
     }
   }
@@ -1994,6 +2077,10 @@
 
       const payload = await response.json();
       setPendingAssistant(conversationId, payload.messageId, optimisticAssistantMessage.id);
+      if (text) {
+        saveComposerInputHistory(appendInputHistory(composerInputHistory, originalDraft));
+      }
+      resetComposerInputHistoryNavigation();
 
       await refreshConversations();
       await loadMessages(conversationId, { forceScroll: true });
@@ -2199,8 +2286,15 @@
       if (event.key === 'Escape') {
         event.preventDefault();
         draftMessage = '';
+        resetComposerInputHistoryNavigation();
         return;
       }
+    }
+
+    if (shouldNavigateComposerHistory(event)) {
+      event.preventDefault();
+      void applyComposerHistoryNavigation(event.key === 'ArrowUp' ? 'backward' : 'forward');
+      return;
     }
 
     // On mobile, Enter inserts a newline; users send via the button.
@@ -2373,6 +2467,7 @@
       }
     });
     loadTimeFormatPreference();
+    loadComposerInputHistory();
     loadNotificationsPreference();
     rememberAssistantMessages(messages);
     if (notificationsEnabled) {
