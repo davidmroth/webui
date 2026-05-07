@@ -7,14 +7,13 @@
 <div class="login-shell">
   <div class="login-card">
     <div class="login-card-top">
-      <div class="pill">llama.cpp style shell</div>
+      <div class="pill">Hermes chat</div>
       <ThemeModeToggle compact={true} label="Login color theme" />
     </div>
 
     <h1 class="login-title">Sign in</h1>
     <p class="login-copy">
-      This frontend now follows the llama.cpp web UI shape, but authentication still runs through the
-      existing Hermes key and session flow.
+      Use your Hermes access key to continue.
     </p>
 
     <form method="POST" class="login-form">
@@ -25,7 +24,7 @@
       {#if form?.error}
         <div class="error-banner">{form.error}</div>
       {/if}
-      <button class="primary-button" type="submit">Open chat</button>
+      <button class="primary-button" type="submit">Continue</button>
     </form>
   </div>
 </div>
