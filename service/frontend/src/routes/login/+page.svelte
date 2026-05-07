@@ -7,13 +7,13 @@
 <div class="login-shell">
   <div class="login-card">
     <div class="login-card-top">
-      <div class="pill">Hermes chat</div>
+      <div class="pill">Web interface</div>
       <ThemeModeToggle compact={true} label="Login color theme" />
     </div>
 
     <h1 class="login-title">Sign in</h1>
     <p class="login-copy">
-      Use your Hermes access key to continue.
+      Use your access key to continue.
     </p>
 
     <form method="POST" class="login-form">
