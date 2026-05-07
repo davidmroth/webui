@@ -22,7 +22,7 @@
 			return;
 		}
 
-		const expectedPath = `${base}/briefings/${encodeURIComponent(preview.jobId)}`;
+		const expectedPath = `${base}/briefings/${encodeURIComponent(preview.jobId)}/player`;
 		if (window.location.pathname !== expectedPath) {
 			void goto(expectedPath, { replaceState: true, noScroll: true, keepFocus: true });
 		}
@@ -51,18 +51,18 @@
 
 	function pageTitle() {
 		if (preview.state === 'ready') {
-			return `${preview.title} · Briefing Preview`;
+			return `${preview.title} · Briefing Player`;
 		}
 
 		if (preview.state === 'processing') {
-			return 'Generating Briefing';
+			return 'Generating Briefing Player';
 		}
 
-		return 'Briefing Preview';
+		return 'Briefing Player';
 	}
 
-	function currentPreviewHref() {
-		return `/briefings/${encodeURIComponent(preview.jobId)}`;
+	function currentPlayerHref() {
+		return `/briefings/${encodeURIComponent(preview.jobId)}/player`;
 	}
 </script>
 
@@ -74,7 +74,7 @@
 	{#if preview.state === 'ready'}
 		<BriefingPlayer briefing={preview} />
 	{:else}
-		<BriefingStatusCard preview={preview} refreshHref={currentPreviewHref()} pollError={pollError} />
+		<BriefingStatusCard preview={preview} refreshHref={currentPlayerHref()} pollError={pollError} />
 	{/if}
 </div>
 

@@ -183,6 +183,14 @@ function buildProxyBasePath(jobId: string) {
 	return `/api/briefings/${encodeURIComponent(jobId)}`;
 }
 
+function buildStandaloneBriefingPath(jobId: string) {
+	return `/briefings/${encodeURIComponent(jobId)}`;
+}
+
+function buildBriefingPlayerPath(jobId: string) {
+	return `${buildStandaloneBriefingPath(jobId)}/player`;
+}
+
 function buildProxyAssetUrl(jobId: string, assetPath: string) {
 	return `${buildProxyBasePath(jobId)}/assets/${encodeAssetPath(assetPath)}`;
 }
@@ -413,7 +421,10 @@ function toAssetLink(jobId: string, asset: RendererHostedAsset): BriefingAssetLi
 	return {
 		role: asset.role,
 		path: asset.path,
-		url: buildProxyAssetUrl(jobId, asset.path),
+		url:
+			asset.role === 'standalone_html'
+				? buildStandaloneBriefingPath(jobId)
+				: buildProxyAssetUrl(jobId, asset.path),
 		contentType: asset.content_type,
 		sizeBytes: asset.size_bytes,
 		sha256: asset.sha256,

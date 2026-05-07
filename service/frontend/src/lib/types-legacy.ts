@@ -54,6 +54,7 @@ export interface BriefingReference {
   summary?: string | null;
   generatedAt?: string | null;
   previewUrl: string;
+  standaloneHtmlUrl?: string;
   validation: BriefingReferenceValidation;
 }
 

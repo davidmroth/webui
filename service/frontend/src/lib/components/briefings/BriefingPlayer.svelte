@@ -125,7 +125,7 @@
 		<div class="briefing-hero-actions">
 			{#if briefing.exportHtmlAsset}
 				<a class="secondary-button" href={briefing.exportHtmlAsset.url} target="_blank" rel="noreferrer">
-					Open export HTML
+					Open standalone HTML
 				</a>
 			{/if}
 			{#if briefing.audioAsset}

@@ -13,7 +13,9 @@ function buildBriefingReference(preview: Awaited<ReturnType<typeof loadBriefingP
     title: preview.title,
     summary: preview.summary,
     generatedAt: preview.generatedAt,
-    previewUrl: `/briefings/${encodeURIComponent(preview.jobId)}`,
+    previewUrl: `/briefings/${encodeURIComponent(preview.jobId)}/player`,
+    standaloneHtmlUrl:
+      preview.exportHtmlAsset?.url ?? `/briefings/${encodeURIComponent(preview.jobId)}`,
     validation: {
       valid: preview.validation.valid,
       warningCount: preview.validation.warnings.length,
@@ -69,7 +71,8 @@ function previewErrorPayload(preview: Awaited<ReturnType<typeof loadBriefingPrev
 }
 
 function defaultSeedMessage(reference: BriefingReference) {
-  return `Created briefing preview: [${reference.title}](${reference.previewUrl})`;
+  const linkUrl = reference.standaloneHtmlUrl ?? reference.previewUrl;
+  return `Created briefing HTML: [${reference.title}](${linkUrl})`;
 }
 
 export async function POST(event) {
