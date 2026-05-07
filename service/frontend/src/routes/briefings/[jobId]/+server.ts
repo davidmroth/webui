@@ -1,13 +1,44 @@
 import { json } from '@sveltejs/kit';
 import { requireSession } from '$server/auth';
-import { fetchBriefingAsset } from '$server/briefings';
+import { fetchBriefingAsset, loadBriefingPreview } from '$server/briefings';
+
+function injectStandaloneAssetBase(html: string, jobId: string) {
+	const assetBaseHref = `/api/briefings/${encodeURIComponent(jobId)}/assets/`;
+	const baseTag = `  <base href="${assetBaseHref}" />`;
+
+	if (html.includes('<base ')) {
+		return html;
+	}
+
+	if (html.includes('<head>')) {
+		return html.replace('<head>', `<head>\n${baseTag}`);
+	}
+
+	return html;
+}
 
 export async function GET(event) {
 	await requireSession(event);
 
+	const preview = await loadBriefingPreview(event.params.jobId);
+	if (preview.state !== 'ready') {
+		const status =
+			preview.state === 'missing'
+				? 404
+				: preview.state === 'failed'
+					? 409
+					: preview.state === 'processing'
+						? 202
+						: 502;
+		return json(preview, { status });
+	}
+
+	const resolvedJobId = preview.jobId;
+	const standaloneAssetPath = preview.exportHtmlAsset?.path ?? 'standalone.html';
+
 	let upstream: Response;
 	try {
-		upstream = await fetchBriefingAsset(event.params.jobId, 'standalone.html', {
+		upstream = await fetchBriefingAsset(resolvedJobId, standaloneAssetPath, {
 			requestHeaders: event.request.headers
 		});
 	} catch (error) {
@@ -30,15 +61,11 @@ export async function GET(event) {
 		});
 	}
 
+	const standaloneHtml = injectStandaloneAssetBase(await upstream.text(), resolvedJobId);
 	const headers = new Headers();
 	for (const headerName of [
 		'content-type',
-		'content-length',
 		'cache-control',
-		'accept-ranges',
-		'content-range',
-		'etag',
-		'last-modified',
 		'content-disposition'
 	]) {
 		const headerValue = upstream.headers.get(headerName);
@@ -49,9 +76,10 @@ export async function GET(event) {
 	if (!headers.has('cache-control')) {
 		headers.set('cache-control', 'private, max-age=60');
 	}
+	headers.set('content-type', 'text/html; charset=utf-8');
 	headers.set('x-content-type-options', 'nosniff');
 
-	return new Response(upstream.body, {
+	return new Response(standaloneHtml, {
 		status: upstream.status,
 		headers
 	});
