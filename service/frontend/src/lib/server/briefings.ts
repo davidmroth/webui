@@ -138,6 +138,8 @@ interface RendererJobStatus {
 	asset_count?: number;
 }
 
+type RendererJobStatusList = RendererJobStatus[];
+
 interface BriefingClientOptions {
 	baseUrl?: string;
 	serviceToken?: string;
@@ -317,6 +319,10 @@ function isRendererJobStatus(value: unknown): value is RendererJobStatus {
 	return isObjectRecord(value) && typeof value.job_id === 'string' && typeof value.status === 'string';
 }
 
+function isRendererJobStatusList(value: unknown): value is RendererJobStatusList {
+	return Array.isArray(value) && value.every((entry) => isRendererJobStatus(entry));
+}
+
 function isRendererBriefingResult(value: unknown): value is RendererBriefingResult {
 	return (
 		isObjectRecord(value) &&
@@ -357,6 +363,50 @@ async function requestRendererJson(path: string, options: BriefingClientOptions 
 		response,
 		payload: parseJsonResponse(text)
 	};
+}
+
+function parseTimestamp(value: string | null | undefined) {
+	if (typeof value !== 'string' || value.trim().length === 0) {
+		return Number.NEGATIVE_INFINITY;
+	}
+
+	const timestamp = Date.parse(value);
+	return Number.isFinite(timestamp) ? timestamp : Number.NEGATIVE_INFINITY;
+}
+
+async function findReplacementJobStatus(
+	jobId: string,
+	status: RendererJobStatus,
+	options: BriefingClientOptions
+): Promise<RendererJobStatus | null> {
+	const briefingId = typeof status.briefing_id === 'string' ? status.briefing_id.trim() : '';
+	if (!briefingId) {
+		return null;
+	}
+
+	let jobsResult;
+	try {
+		jobsResult = await requestRendererJson('/v1/briefings', options);
+	} catch {
+		return null;
+	}
+
+	if (!jobsResult.response.ok || !isRendererJobStatusList(jobsResult.payload)) {
+		return null;
+	}
+
+	const currentCreatedAt = parseTimestamp(status.created_at);
+	const replacement = jobsResult.payload
+		.filter((candidate) => {
+			if (candidate.job_id === jobId) {
+				return false;
+			}
+			return typeof candidate.briefing_id === 'string' && candidate.briefing_id.trim() === briefingId;
+		})
+		.sort((left, right) => parseTimestamp(right.created_at) - parseTimestamp(left.created_at))
+		.find((candidate) => parseTimestamp(candidate.created_at) >= currentCreatedAt);
+
+	return replacement ?? null;
 }
 
 function toAssetLink(jobId: string, asset: RendererHostedAsset): BriefingAssetLink {
@@ -464,11 +514,26 @@ function normalizeReadyPreview(jobId: string, result: RendererBriefingResult): B
 	};
 }
 
-export async function loadBriefingPreview(jobId: string, options: BriefingClientOptions = {}): Promise<BriefingPreview> {
+async function loadBriefingPreviewInternal(
+	jobId: string,
+	options: BriefingClientOptions = {},
+	seenJobIds: Set<string> = new Set()
+): Promise<BriefingPreview> {
 	const normalizedJobId = jobId.trim();
 	if (!normalizedJobId) {
 		return toMissingState(jobId, 'Briefing job id is required.');
 	}
+
+	if (seenJobIds.has(normalizedJobId)) {
+		return toErrorState(
+			normalizedJobId,
+			'Briefing preview could not resolve the latest renderer job.',
+			'The current briefing job appears to reference a missing result and a replacement loop was detected.'
+		);
+	}
+
+	const nextSeenJobIds = new Set(seenJobIds);
+	nextSeenJobIds.add(normalizedJobId);
 
 	let statusResult;
 	try {
@@ -520,17 +585,16 @@ export async function loadBriefingPreview(jobId: string, options: BriefingClient
 	}
 
 	if (previewResult.response.status === 404) {
-		return {
-			state: 'processing',
-			status: 'processing',
-			jobId: normalizedJobId,
-			briefingId: typeof statusResult.payload.briefing_id === 'string' ? statusResult.payload.briefing_id : null,
-			createdAt: statusResult.payload.created_at,
-			completedAt: typeof statusResult.payload.completed_at === 'string' ? statusResult.payload.completed_at : null,
-			error: null,
-			validation: statusResult.payload.validation ? normalizeValidation(statusResult.payload.validation) : null,
-			assetCount: typeof statusResult.payload.asset_count === 'number' ? statusResult.payload.asset_count : 0
-		};
+		const replacementStatus = await findReplacementJobStatus(normalizedJobId, statusResult.payload, options);
+		if (replacementStatus !== null) {
+			return loadBriefingPreviewInternal(replacementStatus.job_id, options, nextSeenJobIds);
+		}
+
+		return toErrorState(
+			normalizedJobId,
+			'The briefing result is no longer available for this job.',
+			'This briefing may have been regenerated into a new job. Return to chat or reload from the latest briefing link.'
+		);
 	}
 
 	if (previewResult.response.status === 401 || previewResult.response.status === 403) {
@@ -550,6 +614,10 @@ export async function loadBriefingPreview(jobId: string, options: BriefingClient
 	}
 
 	return normalizeReadyPreview(normalizedJobId, previewResult.payload);
+}
+
+export async function loadBriefingPreview(jobId: string, options: BriefingClientOptions = {}): Promise<BriefingPreview> {
+	return loadBriefingPreviewInternal(jobId, options);
 }
 
 export async function fetchBriefingAsset(jobId: string, assetPath: string, options: BriefingClientOptions = {}) {

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
+	import { goto } from '$app/navigation';
 	import { base } from '$app/paths';
 	import BriefingStatusCard from '$lib/components/briefings/BriefingStatusCard.svelte';
 	import { startBriefingPreviewPolling } from '$lib/services/briefing-preview';
@@ -14,6 +15,17 @@
 	$effect(() => {
 		preview = data.preview;
 		pollError = null;
+	});
+
+	$effect(() => {
+		if (!browser) {
+			return;
+		}
+
+		const expectedPath = `${base}/briefings/${encodeURIComponent(preview.jobId)}`;
+		if (window.location.pathname !== expectedPath) {
+			void goto(expectedPath, { replaceState: true, noScroll: true, keepFocus: true });
+		}
 	});
 
 	$effect(() => {
