@@ -1,3 +1,5 @@
+import { execute, query } from './db';
+
 export type HermesSlashCommand = {
   command: string;
   description: string;
@@ -7,8 +9,18 @@ export type HermesSlashCommand = {
   requiresConfirmation?: boolean;
 };
 
+interface SlashCommandCacheRow {
+  commands_json: string;
+  synced_at: Date | string;
+}
+
+const SLASH_COMMAND_CACHE_KEY = 'hermes';
+
 let cachedCommands: HermesSlashCommand[] = [];
 let lastSyncedAt: string | null = null;
+let cacheLoaded = false;
+let cacheLoadPromise: Promise<void> | null = null;
+let ensureTablePromise: Promise<void> | null = null;
 
 function normalizeCommand(entry: unknown): HermesSlashCommand | null {
   if (!entry || typeof entry !== 'object') {
@@ -49,7 +61,72 @@ function normalizeCommand(entry: unknown): HermesSlashCommand | null {
   };
 }
 
-export function updateHermesSlashCommands(input: unknown) {
+async function loadCachedCommands() {
+  await ensureSlashCommandCacheTable();
+
+  if (cacheLoaded) {
+    return;
+  }
+  if (cacheLoadPromise) {
+    return cacheLoadPromise;
+  }
+
+  cacheLoadPromise = (async () => {
+    try {
+      const rows = await query<SlashCommandCacheRow>(
+        `SELECT commands_json, synced_at
+         FROM slash_command_cache
+         WHERE cache_key = :cache_key
+         LIMIT 1`,
+        { cache_key: SLASH_COMMAND_CACHE_KEY }
+      );
+      const row = rows[0];
+      if (!row) {
+        cacheLoaded = true;
+        return;
+      }
+
+      const parsed = JSON.parse(String(row.commands_json)) as unknown;
+      const next = Array.isArray(parsed)
+        ? parsed.map(normalizeCommand).filter((entry): entry is HermesSlashCommand => Boolean(entry))
+        : [];
+
+      cachedCommands = next;
+      lastSyncedAt = row.synced_at instanceof Date ? row.synced_at.toISOString() : new Date(row.synced_at).toISOString();
+      cacheLoaded = true;
+    } catch {
+      cacheLoaded = true;
+    } finally {
+      cacheLoadPromise = null;
+    }
+  })();
+
+  return cacheLoadPromise;
+}
+
+async function ensureSlashCommandCacheTable() {
+  if (ensureTablePromise) {
+    return ensureTablePromise;
+  }
+
+  ensureTablePromise = execute(`
+    CREATE TABLE IF NOT EXISTS slash_command_cache (
+      cache_key VARCHAR(64) PRIMARY KEY,
+      commands_json LONGTEXT NOT NULL,
+      synced_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    )
+  `).then(() => undefined).catch((error) => {
+    ensureTablePromise = null;
+    throw error;
+  });
+
+  return ensureTablePromise;
+}
+
+export async function updateHermesSlashCommands(input: unknown) {
+  await ensureSlashCommandCacheTable();
+
   const list = Array.isArray(input) ? input : [];
   const next = list
     .map(normalizeCommand)
@@ -69,12 +146,30 @@ export function updateHermesSlashCommands(input: unknown) {
     deduped.push(entry);
   }
 
+  const syncedAt = new Date();
   cachedCommands = deduped;
-  lastSyncedAt = new Date().toISOString();
+  lastSyncedAt = syncedAt.toISOString();
+  cacheLoaded = true;
+
+  await execute(
+    `INSERT INTO slash_command_cache (cache_key, commands_json, synced_at)
+     VALUES (:cache_key, :commands_json, :synced_at)
+     ON DUPLICATE KEY UPDATE
+       commands_json = VALUES(commands_json),
+       synced_at = VALUES(synced_at)`,
+    {
+      cache_key: SLASH_COMMAND_CACHE_KEY,
+      commands_json: JSON.stringify(deduped),
+      synced_at: syncedAt,
+    }
+  );
+
   return true;
 }
 
-export function getHermesSlashCommands() {
+export async function getHermesSlashCommands() {
+  await loadCachedCommands();
+
   return {
     commands: cachedCommands,
     source: lastSyncedAt ? 'hermes' : 'empty',

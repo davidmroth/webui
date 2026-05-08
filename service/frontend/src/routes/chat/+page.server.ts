@@ -35,7 +35,7 @@ export async function load(event) {
     assistantBusy,
     runState,
     buildInfo,
-    slashCommands: getHermesSlashCommands().commands
+    slashCommands: (await getHermesSlashCommands()).commands
   };
 }
 

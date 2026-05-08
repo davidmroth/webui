@@ -4,5 +4,5 @@ import { getHermesSlashCommands } from '$server/slash-commands';
 
 export async function GET(event) {
   await requireSession(event);
-  return json(getHermesSlashCommands());
+  return json(await getHermesSlashCommands());
 }

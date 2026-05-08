@@ -16,7 +16,7 @@ export async function POST({ request }) {
   }
 
   const payload = await request.json().catch(() => ({}));
-  const updated = updateHermesSlashCommands(payload?.commands);
+  const updated = await updateHermesSlashCommands(payload?.commands);
   noteHermesWorkerHeartbeat('commands');
 
   if (!updated) {
