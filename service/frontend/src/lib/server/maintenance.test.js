@@ -4,6 +4,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
+  buildHermesSlashCommandValidationTelemetry,
   buildRecentAssistantTimingsTelemetry,
   buildHermesConnectionStatus,
   buildHermesInboxContractPreview,
@@ -266,4 +267,43 @@ test('buildRecentAssistantTimingsTelemetry surfaces stored llama timings for the
   assert.equal(telemetry.recent[1].timingsRaw, JSON.stringify({ prompt_eval_count: 12, eval_count: 34 }));
   assert.equal(telemetry.recent[2].timings, null);
   assert.equal(telemetry.recent[2].timingsRaw, null);
+});
+
+test('buildHermesSlashCommandValidationTelemetry surfaces served command metadata for maintenance validation', () => {
+  const telemetry = buildHermesSlashCommandValidationTelemetry({
+    source: 'hermes',
+    syncedAt: '2026-05-08T15:03:04.000Z',
+    commands: [
+      {
+        command: '/new',
+        description: 'Start a new session',
+        category: 'Session',
+        aliases: ['/reset'],
+        requiresConfirmation: true
+      },
+      {
+        command: '/retry',
+        description: 'Retry the last message',
+        category: 'Session'
+      },
+      {
+        command: '/help',
+        description: 'Show available commands',
+        category: 'Info'
+      }
+    ]
+  });
+
+  assert.equal(telemetry.ok, true);
+  assert.equal(telemetry.source, 'hermes');
+  assert.equal(telemetry.totalCount, 3);
+  assert.equal(telemetry.syncedAt, '2026-05-08T15:03:04.000Z');
+  assert.equal(telemetry.includesNewCommand, true);
+  assert.equal(telemetry.includesRetryCommand, true);
+  assert.equal(telemetry.newRequiresConfirmation, true);
+  assert.equal(telemetry.aliasCount, 1);
+  assert.equal(telemetry.requiresConfirmationCount, 1);
+  assert.deepEqual(telemetry.categories, ['Info', 'Session']);
+  assert.equal(telemetry.commands[0]?.command, '/new');
+  assert.equal(telemetry.error, null);
 });

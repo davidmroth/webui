@@ -7,6 +7,7 @@ import { getHermesQueueStats } from './chat';
 import { getConfig } from './env';
 import { query } from './db';
 import { getHermesWorkerHeartbeat } from './hermes-heartbeat';
+import { getHermesSlashCommands, type HermesSlashCommand } from './slash-commands';
 import { getSchemaMigrationStatus, type SchemaMigrationStatus } from './schema';
 import type { RequestEvent } from '@sveltejs/kit';
 
@@ -233,6 +234,21 @@ interface HermesConnectionStatus {
   };
   workerHeartbeat: HermesWorkerHeartbeatSnapshot;
   pendingEvent: HermesConnectionPendingEvent;
+}
+
+interface HermesSlashCommandValidationTelemetry {
+  ok: boolean;
+  source: 'hermes' | 'empty' | 'error';
+  totalCount: number;
+  syncedAt: string | null;
+  includesNewCommand: boolean;
+  includesRetryCommand: boolean;
+  newRequiresConfirmation: boolean;
+  aliasCount: number;
+  requiresConfirmationCount: number;
+  categories: string[];
+  commands: HermesSlashCommand[];
+  error: string | null;
 }
 
 interface CountRow {
@@ -923,6 +939,59 @@ export function buildHermesConnectionStatus(params: {
   };
 }
 
+export function buildHermesSlashCommandValidationTelemetry(params: {
+  source: 'hermes' | 'empty';
+  syncedAt: string | null;
+  commands: HermesSlashCommand[];
+}): HermesSlashCommandValidationTelemetry {
+  const commands = Array.isArray(params.commands) ? params.commands : [];
+  const commandNames = new Set(commands.map((entry) => entry.command));
+  const newCommand = commands.find((entry) => entry.command === '/new');
+  const categories = [...new Set(commands.map((entry) => entry.category?.trim()).filter(Boolean))].sort();
+  const aliasCount = commands.reduce((total, entry) => total + (entry.aliases?.length ?? 0), 0);
+  const requiresConfirmationCount = commands.reduce(
+    (total, entry) => total + (entry.requiresConfirmation ? 1 : 0),
+    0
+  );
+
+  return {
+    ok: true,
+    source: params.source,
+    totalCount: commands.length,
+    syncedAt: params.syncedAt,
+    includesNewCommand: commandNames.has('/new'),
+    includesRetryCommand: commandNames.has('/retry'),
+    newRequiresConfirmation: newCommand?.requiresConfirmation === true,
+    aliasCount,
+    requiresConfirmationCount,
+    categories,
+    commands,
+    error: null
+  };
+}
+
+async function getHermesSlashCommandValidationTelemetry(): Promise<HermesSlashCommandValidationTelemetry> {
+  try {
+    const snapshot = await getHermesSlashCommands();
+    return buildHermesSlashCommandValidationTelemetry(snapshot);
+  } catch (error) {
+    return {
+      ok: false,
+      source: 'error',
+      totalCount: 0,
+      syncedAt: null,
+      includesNewCommand: false,
+      includesRetryCommand: false,
+      newRequiresConfirmation: false,
+      aliasCount: 0,
+      requiresConfirmationCount: 0,
+      categories: [],
+      commands: [],
+      error: error instanceof Error ? error.message : 'Slash command validation query failed.'
+    };
+  }
+}
+
 function deriveFileDeliveryDiagnosis(params: {
   database: DatabaseTelemetry;
   storage: Awaited<ReturnType<typeof getStorageTelemetry>>;
@@ -1068,7 +1137,7 @@ export async function collectMaintenanceSnapshot(event: RequestEvent) {
   const workerHeartbeat = getHermesWorkerHeartbeat();
   const hermesServiceTokenConfigured =
     config.hermesServiceToken !== 'change-me' && config.hermesServiceToken.length > 0;
-  const [build, database, storage, deliveryTraces, inboxContract, queue, recentAssistantTimings] = await Promise.all([
+  const [build, database, storage, deliveryTraces, inboxContract, queue, recentAssistantTimings, slashCommands] = await Promise.all([
     getBuildInfo(),
     getDatabaseTelemetry(),
     getStorageTelemetry(),
@@ -1082,7 +1151,8 @@ export async function collectMaintenanceSnapshot(event: RequestEvent) {
       leaseSeconds: config.hermesEventLeaseSeconds,
       error: error instanceof Error ? error.message : 'Queue query failed.'
     })),
-    getRecentAssistantTimingsTelemetry()
+    getRecentAssistantTimingsTelemetry(),
+    getHermesSlashCommandValidationTelemetry()
   ]);
 
   return {
@@ -1145,6 +1215,7 @@ export async function collectMaintenanceSnapshot(event: RequestEvent) {
       hermesServiceTokenConfigured
     }),
     recentAssistantTimings,
+    slashCommands,
     fileDeliveryDiagnosis: deriveFileDeliveryDiagnosis({
       database,
       storage,

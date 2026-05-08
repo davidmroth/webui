@@ -703,6 +703,88 @@
           </div>
 
           <div class="rounded-xl border border-border bg-card p-5 shadow-sm">
+            <h2 class="text-lg font-semibold">Hermes slash command validation</h2>
+            <p class="mt-2 text-sm text-muted-foreground">
+              The exact slash-command catalog this WebUI server would return to the chat page right now. Use this to validate freshness, count, and critical command metadata without reproducing through the composer.
+            </p>
+
+            <div class="mt-4 grid gap-3 text-sm sm:grid-cols-2">
+              <div class="rounded-md bg-muted/40 p-4">
+                <div><span class="font-medium">Query OK:</span> {snapshot.slashCommands.ok ? 'yes' : 'no'}</div>
+                <div><span class="font-medium">Source:</span> {snapshot.slashCommands.source}</div>
+                <div><span class="font-medium">Command count:</span> {snapshot.slashCommands.totalCount}</div>
+                <div><span class="font-medium">Last synced:</span> {snapshot.slashCommands.syncedAt ?? 'never'}</div>
+              </div>
+
+              <div class="rounded-md bg-muted/40 p-4">
+                <div><span class="font-medium">Includes /new:</span> {snapshot.slashCommands.includesNewCommand ? 'yes' : 'no'}</div>
+                <div><span class="font-medium">/new requires confirmation:</span> {snapshot.slashCommands.newRequiresConfirmation ? 'yes' : 'no'}</div>
+                <div><span class="font-medium">Includes /retry:</span> {snapshot.slashCommands.includesRetryCommand ? 'yes' : 'no'}</div>
+                <div><span class="font-medium">Alias count:</span> {snapshot.slashCommands.aliasCount}</div>
+                <div><span class="font-medium">Commands requiring confirmation:</span> {snapshot.slashCommands.requiresConfirmationCount}</div>
+              </div>
+            </div>
+
+            <div class="mt-4 rounded-md bg-muted/40 p-4 text-sm [overflow-wrap:anywhere]">
+              <div><span class="font-medium">Categories:</span> {snapshot.slashCommands.categories.length ? snapshot.slashCommands.categories.join(', ') : 'none'}</div>
+              {#if snapshot.slashCommands.error}
+                <div class="mt-2 text-destructive">{snapshot.slashCommands.error}</div>
+              {/if}
+              {#if snapshot.slashCommands.ok && snapshot.slashCommands.totalCount === 0}
+                <div class="mt-2 text-muted-foreground">
+                  No slash commands are currently cached for this deployment. Debug the Hermes push to <code>/api/internal/hermes/commands</code> or the receiver-side cache persistence.
+                </div>
+              {/if}
+            </div>
+
+            {#if snapshot.slashCommands.commands.length > 0}
+              <div class="mt-4 rounded-md bg-muted/40 p-4 text-sm">
+                <div class="font-medium">Key commands</div>
+                <div class="mt-3 flex flex-wrap gap-2 [overflow-wrap:anywhere]">
+                  {#each snapshot.slashCommands.commands.slice(0, 8) as command}
+                    <span class={`rounded-full border px-2.5 py-1 text-xs ${command.requiresConfirmation ? 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300' : 'border-border bg-background/70 text-foreground'}`}>
+                      {command.command}
+                    </span>
+                  {/each}
+                  {#if snapshot.slashCommands.commands.length > 8}
+                    <span class="rounded-full border border-dashed border-border px-2.5 py-1 text-xs text-muted-foreground">
+                      +{snapshot.slashCommands.commands.length - 8} more
+                    </span>
+                  {/if}
+                </div>
+              </div>
+
+              <details class="mt-4 rounded-lg border border-border bg-muted/20 p-4">
+                <summary class="cursor-pointer list-none text-sm font-medium text-foreground">
+                  Browse full command catalog ({snapshot.slashCommands.totalCount})
+                </summary>
+
+                <div class="mt-4 space-y-3">
+                  {#each snapshot.slashCommands.commands as command}
+                    <div class="min-w-0 rounded-lg border border-border bg-muted/30 p-4 text-sm">
+                      <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div class="min-w-0 [overflow-wrap:anywhere]">
+                          <div class="font-medium">{command.command}</div>
+                          <div class="mt-1 text-muted-foreground">{command.description}</div>
+                        </div>
+                        <span class={`shrink-0 whitespace-nowrap rounded-full px-2 py-1 text-xs font-medium ${command.requiresConfirmation ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300' : 'bg-muted text-muted-foreground'}`}>
+                          {command.requiresConfirmation ? 'requires confirmation' : 'no confirmation'}
+                        </span>
+                      </div>
+
+                      <div class="mt-3 grid gap-2 [overflow-wrap:anywhere] sm:grid-cols-2">
+                        <div>Category: {command.category ?? 'uncategorized'}</div>
+                        <div>Args hint: {command.argsHint ?? 'none'}</div>
+                        <div class="sm:col-span-2">Aliases: {command.aliases?.length ? command.aliases.join(', ') : 'none'}</div>
+                      </div>
+                    </div>
+                  {/each}
+                </div>
+              </details>
+            {/if}
+          </div>
+
+          <div class="rounded-xl border border-border bg-card p-5 shadow-sm">
             <h2 class="text-lg font-semibold">Recent assistant timings</h2>
             <p class="mt-2 text-sm text-muted-foreground">
               llama.cpp-style inference timings as stored on the most-recent assistant messages. Used to verify that the upstream sender is forwarding <code>timings</code> and that they are being persisted into the <code>messages.timings</code> JSON column. Older messages predating the timings work will show <em>none</em>.
