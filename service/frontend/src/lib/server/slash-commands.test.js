@@ -4,10 +4,9 @@ import assert from 'node:assert/strict';
 test('slash command cache preserves confirmation metadata for fallback and Hermes sync', async () => {
   const moduleUnderTest = await import(`./slash-commands.ts?case=${Date.now()}`);
 
-  const fallback = moduleUnderTest.getHermesSlashCommands();
-  const fallbackNew = fallback.commands.find((entry) => entry.command === '/new');
-  assert.equal(fallback.source, 'fallback');
-  assert.equal(fallbackNew?.requiresConfirmation, true);
+  const initial = moduleUnderTest.getHermesSlashCommands();
+  assert.equal(initial.source, 'empty');
+  assert.deepEqual(initial.commands, []);
 
   const updated = moduleUnderTest.updateHermesSlashCommands([
     {

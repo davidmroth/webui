@@ -139,21 +139,7 @@
   let lastKnownConversationUpdatedAtById = $state<Record<string, string>>({});
   let lastKnownAssistantBusyById = $state<Record<string, boolean>>({});
   let ignoreNextChatBackPopstate = false;
-  let slashCommands = $state<SlashCommand[]>([
-    {
-      command: '/new',
-      description: 'Start a new session (fresh session ID + history).',
-      requiresConfirmation: true
-    },
-    {
-      command: '/retry',
-      description: 'Retry the last message (resend to agent).'
-    },
-    {
-      command: '/undo',
-      description: 'Remove the last user/assistant exchange.'
-    }
-  ]);
+  let slashCommands = $state<SlashCommand[]>(untrack(() => data.slashCommands ?? []));
   let selectedSlashCommandIndex = $state(0);
   let composerElement = $state<HTMLTextAreaElement | null>(null);
   let messageScrollElement = $state<HTMLDivElement | null>(null);
@@ -2243,7 +2229,7 @@
         }
         lastSlashCommandsLoadAt = Date.now();
       } catch {
-        // Keep fallback commands when Hermes command metadata is unavailable.
+        // Keep the last known shared command cache when metadata refresh fails.
       } finally {
         slashCommandsLoadInFlight = null;
       }

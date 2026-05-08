@@ -7,23 +7,7 @@ export type HermesSlashCommand = {
   requiresConfirmation?: boolean;
 };
 
-const FALLBACK_COMMANDS: HermesSlashCommand[] = [
-  {
-    command: '/new',
-    description: 'Start a new session (fresh session ID + history).',
-    requiresConfirmation: true
-  },
-  {
-    command: '/retry',
-    description: 'Retry the last message (resend to agent).'
-  },
-  {
-    command: '/undo',
-    description: 'Remove the last user/assistant exchange.'
-  }
-];
-
-let cachedCommands: HermesSlashCommand[] = [...FALLBACK_COMMANDS];
+let cachedCommands: HermesSlashCommand[] = [];
 let lastSyncedAt: string | null = null;
 
 function normalizeCommand(entry: unknown): HermesSlashCommand | null {
@@ -93,7 +77,7 @@ export function updateHermesSlashCommands(input: unknown) {
 export function getHermesSlashCommands() {
   return {
     commands: cachedCommands,
-    source: lastSyncedAt ? 'hermes' : 'fallback',
+    source: lastSyncedAt ? 'hermes' : 'empty',
     syncedAt: lastSyncedAt
   } as const;
 }

@@ -9,6 +9,7 @@ import {
 } from '$server/chat';
 import { getBuildInfo } from '$server/maintenance';
 import { requireSession } from '$server/auth';
+import { getHermesSlashCommands } from '$server/slash-commands';
 
 export async function load(event) {
   const session = await requireSession(event);
@@ -33,7 +34,8 @@ export async function load(event) {
     messages,
     assistantBusy,
     runState,
-    buildInfo
+    buildInfo,
+    slashCommands: getHermesSlashCommands().commands
   };
 }
 
