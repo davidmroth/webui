@@ -1,25 +1,11 @@
 import { json } from '@sveltejs/kit';
+import { rewriteStandaloneAssetUrls } from '$lib/server/briefing-standalone-html';
 import { requireSession } from '$server/auth';
 import { fetchBriefingAsset, loadBriefingPreview } from '$server/briefings';
 import {
 	renderBriefingStatusPage,
 	statusCodeForBriefingPreviewState
 } from '$lib/server/briefing-status-page';
-
-function injectStandaloneAssetBase(html: string, jobId: string) {
-	const assetBaseHref = `/api/briefings/${encodeURIComponent(jobId)}/assets/`;
-	const baseTag = `  <base href="${assetBaseHref}" />`;
-
-	if (html.includes('<base ')) {
-		return html;
-	}
-
-	if (html.includes('<head>')) {
-		return html.replace('<head>', `<head>\n${baseTag}`);
-	}
-
-	return html;
-}
 
 export async function GET(event) {
 	await requireSession(event);
@@ -64,7 +50,7 @@ export async function GET(event) {
 		});
 	}
 
-	const standaloneHtml = injectStandaloneAssetBase(await upstream.text(), resolvedJobId);
+	const standaloneHtml = rewriteStandaloneAssetUrls(await upstream.text(), resolvedJobId);
 	const headers = new Headers();
 	for (const headerName of [
 		'content-type',

@@ -203,7 +203,6 @@ export function renderBriefingStatusPage(preview: PendingBriefingPreview) {
 	const title = pageTitle(preview);
 	const badgeLabel = stateLabel(preview);
 	const badgeClass = stateClass(preview);
-	const rawStatusHref = `/api/briefings/${encodeURIComponent(preview.jobId)}`;
 	const headerTitle = preview.state === 'missing' ? preview.message : preview.briefingId ?? preview.jobId;
 	const subtitle =
 		preview.state === 'processing'
@@ -488,8 +487,7 @@ export function renderBriefingStatusPage(preview: PendingBriefingPreview) {
 			${detailsMarkup}
 			${errorMessage ? `<p class="callout">${escapeHtml(errorMessage)}</p>` : ''}
 			<div class="actions">
-				<a class="primary" href="${rawStatusHref}">Open raw status JSON</a>
-				<a href="/chat">Return to chat</a>
+				<a class="primary" href="/chat">Return to chat</a>
 			</div>
 		</section>
 	</main>

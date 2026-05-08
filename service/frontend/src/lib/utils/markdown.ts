@@ -9,17 +9,107 @@ import remarkRehype from 'remark-rehype';
 import { unified } from 'unified';
 
 const LINK_REL = 'noopener noreferrer';
+const BRIEFING_PATH_PATTERN = /\/briefings\/[A-Za-z0-9-]+(?:\/player)?/g;
+const BRIEFING_INLINE_CODE_PATTERN = /^\/briefings\/[A-Za-z0-9-]+(?:\/player)?$/;
 
 const processor = unified()
 	.use(remarkParse)
 	.use(remarkGfm)
 	.use(remarkBreaks)
 	.use(remarkMath)
+	.use(remarkLinkifyBriefingPaths)
 	.use(remarkRehype)
 	.use(rehypeKatex)
 	.use(rehypeHighlight, { detect: true, ignoreMissing: true })
 	.use(rehypeOpenLinksInNewWindow)
 	.use(rehypeStringify);
+
+type MarkdownNode = {
+	type?: unknown;
+	value?: unknown;
+	url?: unknown;
+	children?: MarkdownNode[];
+};
+
+function remarkLinkifyBriefingPaths() {
+	return (tree: unknown) => {
+		linkifyBriefingPaths(tree);
+	};
+}
+
+function linkifyBriefingPaths(node: unknown) {
+	if (!node || typeof node !== 'object') {
+		return;
+	}
+
+	const element = node as MarkdownNode;
+	if (!Array.isArray(element.children)) {
+		return;
+	}
+
+	element.children = element.children.flatMap(rewriteMarkdownNode);
+
+	for (const child of element.children) {
+		if (child.type === 'link') {
+			continue;
+		}
+
+		linkifyBriefingPaths(child);
+	}
+}
+
+function rewriteMarkdownNode(node: MarkdownNode): MarkdownNode[] {
+	if (node.type === 'text' && typeof node.value === 'string') {
+		return splitTextWithBriefingLinks(node.value);
+	}
+
+	if (node.type === 'inlineCode' && typeof node.value === 'string') {
+		if (BRIEFING_INLINE_CODE_PATTERN.test(node.value)) {
+			return [createLinkNode(node.value)];
+		}
+	}
+
+	return [node];
+}
+
+function splitTextWithBriefingLinks(value: string): MarkdownNode[] {
+	const matches = Array.from(value.matchAll(BRIEFING_PATH_PATTERN));
+	if (matches.length === 0) {
+		return [{ type: 'text', value }];
+	}
+
+	const nodes: MarkdownNode[] = [];
+	let cursor = 0;
+
+	for (const match of matches) {
+		const path = match[0];
+		const index = match.index ?? -1;
+		if (index < 0) {
+			continue;
+		}
+
+		if (index > cursor) {
+			nodes.push({ type: 'text', value: value.slice(cursor, index) });
+		}
+
+		nodes.push(createLinkNode(path));
+		cursor = index + path.length;
+	}
+
+	if (cursor < value.length) {
+		nodes.push({ type: 'text', value: value.slice(cursor) });
+	}
+
+	return nodes;
+}
+
+function createLinkNode(url: string): MarkdownNode {
+	return {
+		type: 'link',
+		url,
+		children: [{ type: 'text', value: url }]
+	};
+}
 
 function rehypeOpenLinksInNewWindow() {
 	return (tree: unknown) => {

@@ -37,7 +37,8 @@ test('renderBriefingStatusPage builds an auto-refreshing processing page', () =>
 	assert.match(html, /briefing-202/);
 	assert.match(html, /Rendered narration chunk 3 of 19\./);
 	assert.match(html, /58%/);
-	assert.match(html, /Open raw status JSON/);
+	assert.match(html, /Return to chat/);
+	assert.doesNotMatch(html, /Open raw status JSON/);
 });
 
 test('renderBriefingStatusPage surfaces failure details without auto-refresh', () => {
