@@ -1,6 +1,10 @@
 import { json } from '@sveltejs/kit';
 import { requireSession } from '$server/auth';
 import { fetchBriefingAsset, loadBriefingPreview } from '$server/briefings';
+import {
+	renderBriefingStatusPage,
+	statusCodeForBriefingPreviewState
+} from '$lib/server/briefing-status-page';
 
 function injectStandaloneAssetBase(html: string, jobId: string) {
 	const assetBaseHref = `/api/briefings/${encodeURIComponent(jobId)}/assets/`;
@@ -22,15 +26,14 @@ export async function GET(event) {
 
 	const preview = await loadBriefingPreview(event.params.jobId);
 	if (preview.state !== 'ready') {
-		const status =
-			preview.state === 'missing'
-				? 404
-				: preview.state === 'failed'
-					? 409
-					: preview.state === 'processing'
-						? 202
-						: 502;
-		return json(preview, { status });
+			return new Response(renderBriefingStatusPage(preview), {
+				status: statusCodeForBriefingPreviewState(preview.state),
+				headers: {
+					'cache-control': preview.state === 'processing' ? 'no-store' : 'private, max-age=0, must-revalidate',
+					'content-type': 'text/html; charset=utf-8',
+					'x-content-type-options': 'nosniff'
+				}
+			});
 	}
 
 	const resolvedJobId = preview.jobId;
