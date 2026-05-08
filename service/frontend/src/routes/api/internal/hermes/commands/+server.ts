@@ -23,5 +23,5 @@ export async function POST({ request }) {
     return json({ error: 'No valid slash commands received.' }, { status: 400 });
   }
 
-  return json({ ok: true });
+  return json({ ok: true, ...updated });
 }

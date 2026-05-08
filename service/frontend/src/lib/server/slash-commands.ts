@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { execute, query } from './db';
 
 export type HermesSlashCommand = {
@@ -21,6 +22,23 @@ let lastSyncedAt: string | null = null;
 let cacheLoaded = false;
 let cacheLoadPromise: Promise<void> | null = null;
 let ensureTablePromise: Promise<void> | null = null;
+
+function serializeCommandCatalog(commands: HermesSlashCommand[]) {
+  return JSON.stringify(
+    commands.map((entry) => ({
+      command: entry.command,
+      description: entry.description,
+      ...(entry.argsHint ? { argsHint: entry.argsHint } : {}),
+      ...(entry.category ? { category: entry.category } : {}),
+      ...(entry.aliases && entry.aliases.length > 0 ? { aliases: entry.aliases } : {}),
+      ...(entry.requiresConfirmation ? { requiresConfirmation: true } : {})
+    }))
+  );
+}
+
+export function getHermesSlashCommandCatalogHash(commands: HermesSlashCommand[]) {
+  return createHash('sha256').update(serializeCommandCatalog(commands)).digest('hex');
+}
 
 function normalizeCommand(entry: unknown): HermesSlashCommand | null {
   if (!entry || typeof entry !== 'object') {
@@ -133,7 +151,7 @@ export async function updateHermesSlashCommands(input: unknown) {
     .filter((entry): entry is HermesSlashCommand => Boolean(entry));
 
   if (next.length === 0) {
-    return false;
+    return null;
   }
 
   const deduped: HermesSlashCommand[] = [];
@@ -164,7 +182,11 @@ export async function updateHermesSlashCommands(input: unknown) {
     }
   );
 
-  return true;
+  return {
+    acceptedCount: deduped.length,
+    catalogHash: getHermesSlashCommandCatalogHash(deduped),
+    syncedAt: lastSyncedAt
+  } as const;
 }
 
 export async function getHermesSlashCommands() {

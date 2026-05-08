@@ -26,11 +26,15 @@ test('slash command cache preserves confirmation metadata for fallback and Herme
     }
   ]);
 
-  assert.equal(updated, true);
+  assert.equal(updated.acceptedCount, 2);
+  assert.equal(typeof updated.catalogHash, 'string');
+  assert.equal(updated.catalogHash.length, 64);
+  assert.equal(typeof updated.syncedAt, 'string');
 
   const synced = await moduleUnderTest.getHermesSlashCommands();
   const syncedNew = synced.commands.find((entry) => entry.command === '/new');
   assert.equal(synced.source, 'hermes');
+  assert.equal(moduleUnderTest.getHermesSlashCommandCatalogHash(synced.commands), updated.catalogHash);
   assert.deepEqual(syncedNew, {
     command: '/new',
     description: 'Start a new session (fresh session ID + history).',
