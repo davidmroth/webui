@@ -1345,3 +1345,38 @@ export async function collectMaintenanceHermesConnectionStatus(): Promise<Hermes
     hermesServiceTokenConfigured
   });
 }
+
+export async function collectMaintenanceSlashCommandStatus() {
+  const config = getConfig();
+  const workerHeartbeat = getHermesWorkerHeartbeat();
+  const hermesServiceTokenConfigured =
+    config.hermesServiceToken !== 'change-me' && config.hermesServiceToken.length > 0;
+  const [queue, inboxContract, slashCommands] = await Promise.all([
+    getHermesQueueStats().catch((error) => ({
+      queued: 0,
+      processing: 0,
+      acked: 0,
+      staleProcessing: 0,
+      leaseSeconds: config.hermesEventLeaseSeconds,
+      error: error instanceof Error ? error.message : 'Queue query failed.'
+    })),
+    getHermesInboxContractTelemetry(),
+    getHermesSlashCommandValidationTelemetry()
+  ]);
+  const hermesConnection = buildHermesConnectionStatus({
+    queue,
+    workerHeartbeat,
+    inboxContract,
+    hermesServiceTokenConfigured
+  });
+
+  return {
+    collectedAt: new Date().toISOString(),
+    hermesConnection,
+    slashCommands,
+    slashCommandFailureMode: deriveHermesSlashCommandFailureMode({
+      slashCommands,
+      hermesConnection
+    })
+  };
+}
