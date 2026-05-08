@@ -8,6 +8,7 @@ import {
   buildRecentAssistantTimingsTelemetry,
   buildHermesConnectionStatus,
   buildHermesInboxContractPreview,
+  deriveHermesSlashCommandFailureMode,
   getBuildInfo,
   resolveBuildFingerprint
 } from './maintenance.ts';
@@ -306,4 +307,109 @@ test('buildHermesSlashCommandValidationTelemetry surfaces served command metadat
   assert.deepEqual(telemetry.categories, ['Info', 'Session']);
   assert.equal(telemetry.commands[0]?.command, '/new');
   assert.equal(telemetry.error, null);
+});
+
+test('deriveHermesSlashCommandFailureMode reports empty cache while Hermes is connected as a receiver failure', () => {
+  const diagnosis = deriveHermesSlashCommandFailureMode({
+    slashCommands: buildHermesSlashCommandValidationTelemetry({
+      source: 'empty',
+      syncedAt: null,
+      commands: []
+    }),
+    hermesConnection: buildHermesConnectionStatus({
+      queue: {
+        queued: 0,
+        processing: 0,
+        acked: 10,
+        staleProcessing: 0,
+        leaseSeconds: 60
+      },
+      workerHeartbeat: {
+        seen: true,
+        lastSeenAt: '2026-05-08T18:22:55.000Z',
+        ageSeconds: 0,
+        staleAfterSeconds: 45,
+        isOnline: true,
+        source: 'inbox-next',
+        authFailure: {
+          seen: false,
+          lastSeenAt: null,
+          ageSeconds: null,
+          source: null,
+          reason: null
+        }
+      },
+      inboxContract: {
+        ok: true,
+        hasPendingEvent: false,
+        preview: null,
+        error: null
+      },
+      hermesServiceTokenConfigured: true,
+      nowMs: Date.parse('2026-05-08T18:23:00.000Z')
+    })
+  });
+
+  assert.equal(diagnosis.code, 'cache-empty-while-hermes-connected');
+  assert.equal(diagnosis.severity, 'error');
+  assert.equal(diagnosis.checks.cachePopulated, false);
+  assert.equal(diagnosis.checks.hermesConnected, true);
+});
+
+test('deriveHermesSlashCommandFailureMode reports healthy backend when the served catalog is populated', () => {
+  const diagnosis = deriveHermesSlashCommandFailureMode({
+    slashCommands: buildHermesSlashCommandValidationTelemetry({
+      source: 'hermes',
+      syncedAt: '2026-05-08T18:22:00.000Z',
+      commands: [
+        {
+          command: '/new',
+          description: 'Start a new session',
+          category: 'Session',
+          requiresConfirmation: true
+        },
+        {
+          command: '/retry',
+          description: 'Retry the last message',
+          category: 'Session'
+        }
+      ]
+    }),
+    hermesConnection: buildHermesConnectionStatus({
+      queue: {
+        queued: 0,
+        processing: 0,
+        acked: 10,
+        staleProcessing: 0,
+        leaseSeconds: 60
+      },
+      workerHeartbeat: {
+        seen: true,
+        lastSeenAt: '2026-05-08T18:22:55.000Z',
+        ageSeconds: 0,
+        staleAfterSeconds: 45,
+        isOnline: true,
+        source: 'inbox-next',
+        authFailure: {
+          seen: false,
+          lastSeenAt: null,
+          ageSeconds: null,
+          source: null,
+          reason: null
+        }
+      },
+      inboxContract: {
+        ok: true,
+        hasPendingEvent: false,
+        preview: null,
+        error: null
+      },
+      hermesServiceTokenConfigured: true,
+      nowMs: Date.parse('2026-05-08T18:23:00.000Z')
+    })
+  });
+
+  assert.equal(diagnosis.code, 'backend-healthy');
+  assert.equal(diagnosis.severity, 'healthy');
+  assert.match(diagnosis.summary, /frontend state|browser caching|another deployment/);
 });

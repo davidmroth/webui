@@ -251,6 +251,24 @@ interface HermesSlashCommandValidationTelemetry {
   error: string | null;
 }
 
+interface HermesSlashCommandFailureModeChecks {
+  queryOk: boolean;
+  cachePopulated: boolean;
+  hermesConnected: boolean;
+  includesNewCommand: boolean;
+  includesRetryCommand: boolean;
+  newRequiresConfirmation: boolean;
+  hasCategories: boolean;
+}
+
+interface HermesSlashCommandFailureModeDiagnosis {
+  code: string;
+  severity: 'healthy' | 'warning' | 'error';
+  verdict: string;
+  summary: string;
+  checks: HermesSlashCommandFailureModeChecks;
+}
+
 interface CountRow {
   count: number | string;
 }
@@ -947,7 +965,13 @@ export function buildHermesSlashCommandValidationTelemetry(params: {
   const commands = Array.isArray(params.commands) ? params.commands : [];
   const commandNames = new Set(commands.map((entry) => entry.command));
   const newCommand = commands.find((entry) => entry.command === '/new');
-  const categories = [...new Set(commands.map((entry) => entry.category?.trim()).filter(Boolean))].sort();
+  const categories = [
+    ...new Set(
+      commands
+        .map((entry) => entry.category?.trim())
+        .filter((category): category is string => Boolean(category))
+    )
+  ].sort();
   const aliasCount = commands.reduce((total, entry) => total + (entry.aliases?.length ?? 0), 0);
   const requiresConfirmationCount = commands.reduce(
     (total, entry) => total + (entry.requiresConfirmation ? 1 : 0),
@@ -990,6 +1014,70 @@ async function getHermesSlashCommandValidationTelemetry(): Promise<HermesSlashCo
       error: error instanceof Error ? error.message : 'Slash command validation query failed.'
     };
   }
+}
+
+export function deriveHermesSlashCommandFailureMode(params: {
+  slashCommands: HermesSlashCommandValidationTelemetry;
+  hermesConnection: HermesConnectionStatus;
+}): HermesSlashCommandFailureModeDiagnosis {
+  const { slashCommands, hermesConnection } = params;
+  const checks: HermesSlashCommandFailureModeChecks = {
+    queryOk: slashCommands.ok,
+    cachePopulated: slashCommands.totalCount > 0,
+    hermesConnected: hermesConnection.state === 'connected',
+    includesNewCommand: slashCommands.includesNewCommand,
+    includesRetryCommand: slashCommands.includesRetryCommand,
+    newRequiresConfirmation: slashCommands.newRequiresConfirmation,
+    hasCategories: slashCommands.categories.length > 0
+  };
+
+  if (!slashCommands.ok) {
+    return {
+      code: 'slash-query-failed',
+      severity: 'error',
+      verdict: 'Slash command validation query failed',
+      summary: 'The maintenance page could not read the WebUI slash-command catalog at all, so diagnose the receiver query path before assuming Hermes or the frontend is at fault.',
+      checks
+    };
+  }
+
+  if (!checks.cachePopulated && checks.hermesConnected) {
+    return {
+      code: 'cache-empty-while-hermes-connected',
+      severity: 'error',
+      verdict: 'Hermes is connected but the command cache is empty',
+      summary: 'This deployment is receiving live Hermes heartbeats, but its slash-command cache is still empty. The likely failure is the Hermes push to /api/internal/hermes/commands or the receiver-side cache write path.',
+      checks
+    };
+  }
+
+  if (!checks.cachePopulated) {
+    return {
+      code: 'cache-empty',
+      severity: 'warning',
+      verdict: 'No cached slash-command catalog yet',
+      summary: 'This deployment has not cached a slash-command catalog yet. If this is unexpected, inspect whether Hermes has connected to this instance and whether a command push has been attempted.',
+      checks
+    };
+  }
+
+  if (!checks.includesNewCommand || !checks.includesRetryCommand || !checks.newRequiresConfirmation) {
+    return {
+      code: 'catalog-incomplete-or-stale',
+      severity: 'warning',
+      verdict: 'Cached catalog looks incomplete or stale',
+      summary: 'The receiver is serving a non-empty slash-command catalog, but critical command entries or metadata are missing. That points to an outdated sender catalog or a normalization bug in the receiver path.',
+      checks
+    };
+  }
+
+  return {
+    code: 'backend-healthy',
+    severity: 'healthy',
+    verdict: 'No backend slash-command failure mode detected',
+    summary: 'The receiver is serving a populated slash-command catalog with critical commands and confirmation metadata intact. If commands still fail in chat, investigate frontend state, browser caching, or the possibility that the browser is hitting another deployment.',
+    checks
+  };
 }
 
 function deriveFileDeliveryDiagnosis(params: {
@@ -1154,6 +1242,16 @@ export async function collectMaintenanceSnapshot(event: RequestEvent) {
     getRecentAssistantTimingsTelemetry(),
     getHermesSlashCommandValidationTelemetry()
   ]);
+  const hermesConnection = buildHermesConnectionStatus({
+    queue,
+    workerHeartbeat,
+    inboxContract,
+    hermesServiceTokenConfigured
+  });
+  const slashCommandFailureMode = deriveHermesSlashCommandFailureMode({
+    slashCommands,
+    hermesConnection
+  });
 
   return {
     collectedAt: new Date().toISOString(),
@@ -1208,14 +1306,10 @@ export async function collectMaintenanceSnapshot(event: RequestEvent) {
     inboxContract,
     queue,
     workerHeartbeat,
-    hermesConnection: buildHermesConnectionStatus({
-      queue,
-      workerHeartbeat,
-      inboxContract,
-      hermesServiceTokenConfigured
-    }),
+    hermesConnection,
     recentAssistantTimings,
     slashCommands,
+    slashCommandFailureMode,
     fileDeliveryDiagnosis: deriveFileDeliveryDiagnosis({
       database,
       storage,

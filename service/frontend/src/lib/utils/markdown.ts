@@ -9,8 +9,8 @@ import remarkRehype from 'remark-rehype';
 import { unified } from 'unified';
 
 const LINK_REL = 'noopener noreferrer';
-const BRIEFING_PATH_PATTERN = /\/briefings\/[A-Za-z0-9-]+(?:\/player)?/g;
-const BRIEFING_INLINE_CODE_PATTERN = /^\/briefings\/[A-Za-z0-9-]+(?:\/player)?$/;
+const BRIEFING_PATH_PATTERN = /\/briefings\/[A-Za-z0-9._~%-]+(?:\/player)?/g;
+const BRIEFING_INLINE_CODE_PATTERN = /^\/briefings\/[A-Za-z0-9._~%-]+(?:\/player)?$/;
 
 const processor = unified()
 	.use(remarkParse)

@@ -183,12 +183,12 @@ function buildProxyBasePath(jobId: string) {
 	return `/api/briefings/${encodeURIComponent(jobId)}`;
 }
 
-function buildStandaloneBriefingPath(jobId: string) {
-	return `/briefings/${encodeURIComponent(jobId)}`;
+function buildStandaloneBriefingPath(identifier: string) {
+	return `/briefings/${encodeURIComponent(identifier)}`;
 }
 
-function buildBriefingPlayerPath(jobId: string) {
-	return `${buildStandaloneBriefingPath(jobId)}/player`;
+function buildBriefingPlayerPath(identifier: string) {
+	return `${buildStandaloneBriefingPath(identifier)}/player`;
 }
 
 function buildProxyAssetUrl(jobId: string, assetPath: string) {
@@ -373,6 +373,21 @@ async function requestRendererJson(path: string, options: BriefingClientOptions 
 	};
 }
 
+async function listRendererJobStatuses(options: BriefingClientOptions = {}) {
+	let jobsResult;
+	try {
+		jobsResult = await requestRendererJson('/v1/briefings', options);
+	} catch {
+		return null;
+	}
+
+	if (!jobsResult.response.ok || !isRendererJobStatusList(jobsResult.payload)) {
+		return null;
+	}
+
+	return jobsResult.payload;
+}
+
 function parseTimestamp(value: string | null | undefined) {
 	if (typeof value !== 'string' || value.trim().length === 0) {
 		return Number.NEGATIVE_INFINITY;
@@ -392,19 +407,13 @@ async function findReplacementJobStatus(
 		return null;
 	}
 
-	let jobsResult;
-	try {
-		jobsResult = await requestRendererJson('/v1/briefings', options);
-	} catch {
-		return null;
-	}
-
-	if (!jobsResult.response.ok || !isRendererJobStatusList(jobsResult.payload)) {
+	const jobs = await listRendererJobStatuses(options);
+	if (jobs === null) {
 		return null;
 	}
 
 	const currentCreatedAt = parseTimestamp(status.created_at);
-	const replacement = jobsResult.payload
+	const replacement = jobs
 		.filter((candidate) => {
 			if (candidate.job_id === jobId) {
 				return false;
@@ -417,13 +426,40 @@ async function findReplacementJobStatus(
 	return replacement ?? null;
 }
 
-function toAssetLink(jobId: string, asset: RendererHostedAsset): BriefingAssetLink {
+async function findLatestJobStatusForBriefing(
+	briefingId: string,
+	options: BriefingClientOptions,
+	minimumCreatedAt = Number.NEGATIVE_INFINITY
+): Promise<RendererJobStatus | null> {
+	const normalizedBriefingId = briefingId.trim();
+	if (!normalizedBriefingId) {
+		return null;
+	}
+
+	const jobs = await listRendererJobStatuses(options);
+	if (jobs === null) {
+		return null;
+	}
+
+	const match = jobs
+		.filter(
+			(candidate) =>
+				typeof candidate.briefing_id === 'string' &&
+				candidate.briefing_id.trim() === normalizedBriefingId &&
+				parseTimestamp(candidate.created_at) >= minimumCreatedAt
+		)
+		.sort((left, right) => parseTimestamp(right.created_at) - parseTimestamp(left.created_at))[0];
+
+	return match ?? null;
+}
+
+function toAssetLink(jobId: string, briefingId: string, asset: RendererHostedAsset): BriefingAssetLink {
 	return {
 		role: asset.role,
 		path: asset.path,
 		url:
 			asset.role === 'standalone_html'
-				? buildStandaloneBriefingPath(jobId)
+				? buildStandaloneBriefingPath(briefingId)
 				: buildProxyAssetUrl(jobId, asset.path),
 		contentType: asset.content_type,
 		sizeBytes: asset.size_bytes,
@@ -433,6 +469,7 @@ function toAssetLink(jobId: string, asset: RendererHostedAsset): BriefingAssetLi
 }
 
 function normalizeReadyPreview(jobId: string, result: RendererBriefingResult): BriefingPreviewReady {
+	const assets = result.assets.map((asset) => toAssetLink(jobId, result.briefing_id, asset));
 	const timelineCues: BriefingTimelineCue[] = result.timeline_cues.map((cue) => ({
 		cueId: cue.cue_id,
 		elementId: cue.element_id,
@@ -451,7 +488,6 @@ function normalizeReadyPreview(jobId: string, result: RendererBriefingResult): B
 		excerpt: source.excerpt ?? null
 	}));
 	const sourceById = new Map<string, BriefingSourceRef>(sources.map((source) => [source.id, source]));
-	const assets = result.assets.map((asset) => toAssetLink(jobId, asset));
 	const assetByPath = new Map<string, BriefingAssetLink>(assets.map((asset) => [asset.path, asset]));
 
 	const sections: BriefingSection[] = result.sections.map((section) => {
@@ -526,44 +562,49 @@ function normalizeReadyPreview(jobId: string, result: RendererBriefingResult): B
 }
 
 async function loadBriefingPreviewInternal(
-	jobId: string,
+	identifier: string,
 	options: BriefingClientOptions = {},
 	seenJobIds: Set<string> = new Set()
 ): Promise<BriefingPreview> {
-	const normalizedJobId = jobId.trim();
-	if (!normalizedJobId) {
-		return toMissingState(jobId, 'Briefing job id is required.');
+	const normalizedIdentifier = identifier.trim();
+	if (!normalizedIdentifier) {
+		return toMissingState(identifier, 'Briefing id or job id is required.');
 	}
 
-	if (seenJobIds.has(normalizedJobId)) {
+	if (seenJobIds.has(normalizedIdentifier)) {
 		return toErrorState(
-			normalizedJobId,
+			normalizedIdentifier,
 			'Briefing preview could not resolve the latest renderer job.',
 			'The current briefing job appears to reference a missing result and a replacement loop was detected.'
 		);
 	}
 
 	const nextSeenJobIds = new Set(seenJobIds);
-	nextSeenJobIds.add(normalizedJobId);
+	nextSeenJobIds.add(normalizedIdentifier);
 
 	let statusResult;
 	try {
-		statusResult = await requestRendererJson(`/v1/briefings/${encodeURIComponent(normalizedJobId)}`, options);
+		statusResult = await requestRendererJson(`/v1/briefings/${encodeURIComponent(normalizedIdentifier)}`, options);
 	} catch (error) {
 		return toErrorState(
-			normalizedJobId,
+			normalizedIdentifier,
 			'Briefing preview is temporarily unavailable.',
 			error instanceof Error ? error.message : 'Unknown network error.'
 		);
 	}
 
 	if (statusResult.response.status === 404) {
-		return toMissingState(normalizedJobId, 'No briefing job was found for this id.');
+		const latestStatus = await findLatestJobStatusForBriefing(normalizedIdentifier, options);
+		if (latestStatus !== null) {
+			return loadBriefingPreviewInternal(latestStatus.job_id, options, nextSeenJobIds);
+		}
+
+		return toMissingState(normalizedIdentifier, 'No briefing job was found for this id.');
 	}
 
 	if (statusResult.response.status === 401 || statusResult.response.status === 403) {
 		return toErrorState(
-			normalizedJobId,
+			normalizedIdentifier,
 			'WebUI could not authenticate with the briefing service.',
 			errorDetailFromPayload(statusResult.payload)
 		);
@@ -571,38 +612,42 @@ async function loadBriefingPreviewInternal(
 
 	if (!statusResult.response.ok || !isRendererJobStatus(statusResult.payload)) {
 		return toErrorState(
-			normalizedJobId,
+			normalizedIdentifier,
 			'WebUI could not load briefing status.',
 			errorDetailFromPayload(statusResult.payload)
 		);
 	}
 
 	if (statusResult.payload.status !== 'completed') {
-		return toStatusState(normalizedJobId, statusResult.payload);
+		return toStatusState(statusResult.payload.job_id, statusResult.payload);
 	}
 
 	let previewResult;
 	try {
 		previewResult = await requestRendererJson(
-			`/v1/briefings/${encodeURIComponent(normalizedJobId)}/result`,
+			`/v1/briefings/${encodeURIComponent(statusResult.payload.job_id)}/result`,
 			options
 		);
 	} catch (error) {
 		return toErrorState(
-			normalizedJobId,
+			statusResult.payload.job_id,
 			'Briefing result is temporarily unavailable.',
 			error instanceof Error ? error.message : 'Unknown network error.'
 		);
 	}
 
 	if (previewResult.response.status === 404) {
-		const replacementStatus = await findReplacementJobStatus(normalizedJobId, statusResult.payload, options);
+		const replacementStatus = await findReplacementJobStatus(
+			statusResult.payload.job_id,
+			statusResult.payload,
+			options
+		);
 		if (replacementStatus !== null) {
 			return loadBriefingPreviewInternal(replacementStatus.job_id, options, nextSeenJobIds);
 		}
 
 		return toErrorState(
-			normalizedJobId,
+			statusResult.payload.job_id,
 			'The briefing result is no longer available for this job.',
 			'This briefing may have been regenerated into a new job. Return to chat or reload from the latest briefing link.'
 		);
@@ -610,7 +655,7 @@ async function loadBriefingPreviewInternal(
 
 	if (previewResult.response.status === 401 || previewResult.response.status === 403) {
 		return toErrorState(
-			normalizedJobId,
+			statusResult.payload.job_id,
 			'WebUI could not authenticate with the briefing service.',
 			errorDetailFromPayload(previewResult.payload)
 		);
@@ -618,17 +663,17 @@ async function loadBriefingPreviewInternal(
 
 	if (!previewResult.response.ok || !isRendererBriefingResult(previewResult.payload)) {
 		return toErrorState(
-			normalizedJobId,
+			statusResult.payload.job_id,
 			'WebUI could not load the completed briefing result.',
 			errorDetailFromPayload(previewResult.payload)
 		);
 	}
 
-	return normalizeReadyPreview(normalizedJobId, previewResult.payload);
+	return normalizeReadyPreview(statusResult.payload.job_id, previewResult.payload);
 }
 
-export async function loadBriefingPreview(jobId: string, options: BriefingClientOptions = {}): Promise<BriefingPreview> {
-	return loadBriefingPreviewInternal(jobId, options);
+export async function loadBriefingPreview(identifier: string, options: BriefingClientOptions = {}): Promise<BriefingPreview> {
+	return loadBriefingPreviewInternal(identifier, options);
 }
 
 export async function fetchBriefingAsset(jobId: string, assetPath: string, options: BriefingClientOptions = {}) {

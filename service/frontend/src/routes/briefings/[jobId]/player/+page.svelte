@@ -22,7 +22,10 @@
 			return;
 		}
 
-		const expectedPath = `${base}/briefings/${encodeURIComponent(preview.jobId)}/player`;
+		const routeId = preview.state !== 'missing' && preview.state !== 'error' && preview.briefingId
+			? preview.briefingId
+			: preview.jobId;
+		const expectedPath = `${base}/briefings/${encodeURIComponent(routeId)}/player`;
 		if (window.location.pathname !== expectedPath) {
 			void goto(expectedPath, { replaceState: true, noScroll: true, keepFocus: true });
 		}
@@ -62,7 +65,10 @@
 	}
 
 	function currentPlayerHref() {
-		return `/briefings/${encodeURIComponent(preview.jobId)}/player`;
+		const routeId = preview.state !== 'missing' && preview.state !== 'error' && preview.briefingId
+			? preview.briefingId
+			: preview.jobId;
+		return `/briefings/${encodeURIComponent(routeId)}/player`;
 	}
 </script>
 

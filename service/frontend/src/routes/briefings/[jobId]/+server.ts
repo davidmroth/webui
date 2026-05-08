@@ -1,4 +1,4 @@
-import { json } from '@sveltejs/kit';
+import { json, redirect } from '@sveltejs/kit';
 import { rewriteStandaloneAssetUrls } from '$lib/server/briefing-standalone-html';
 import { requireSession } from '$server/auth';
 import { fetchBriefingAsset, loadBriefingPreview } from '$server/briefings';
@@ -11,6 +11,13 @@ export async function GET(event) {
 	await requireSession(event);
 
 	const preview = await loadBriefingPreview(event.params.jobId);
+	if (preview.state !== 'missing' && preview.state !== 'error' && preview.briefingId) {
+		const canonicalPath = `/briefings/${encodeURIComponent(preview.briefingId)}`;
+		if (event.url.pathname !== canonicalPath) {
+			throw redirect(308, canonicalPath);
+		}
+	}
+
 	if (preview.state !== 'ready') {
 			return new Response(renderBriefingStatusPage(preview), {
 				status: statusCodeForBriefingPreviewState(preview.state),

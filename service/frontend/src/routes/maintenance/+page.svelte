@@ -708,6 +708,32 @@
               The exact slash-command catalog this WebUI server would return to the chat page right now. Use this to validate freshness, count, and critical command metadata without reproducing through the composer.
             </p>
 
+            <div class="mt-4 rounded-lg border border-border bg-muted/20 p-4 text-sm">
+              <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <div class="font-medium">Likely failure mode</div>
+                  <div class="mt-1 text-base font-semibold text-foreground">{snapshot.slashCommandFailureMode.verdict}</div>
+                </div>
+                <span class={`shrink-0 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium ${snapshot.slashCommandFailureMode.severity === 'healthy' ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300' : snapshot.slashCommandFailureMode.severity === 'warning' ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300' : 'bg-destructive/15 text-destructive'}`}>
+                  {snapshot.slashCommandFailureMode.severity}
+                </span>
+              </div>
+
+              <p class="mt-3 text-muted-foreground [overflow-wrap:anywhere]">
+                {snapshot.slashCommandFailureMode.summary}
+              </p>
+
+              <div class="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                <div>Query OK: {snapshot.slashCommandFailureMode.checks.queryOk ? 'yes' : 'no'}</div>
+                <div>Cache populated: {snapshot.slashCommandFailureMode.checks.cachePopulated ? 'yes' : 'no'}</div>
+                <div>Hermes connected: {snapshot.slashCommandFailureMode.checks.hermesConnected ? 'yes' : 'no'}</div>
+                <div>Has categories: {snapshot.slashCommandFailureMode.checks.hasCategories ? 'yes' : 'no'}</div>
+                <div>Includes /new: {snapshot.slashCommandFailureMode.checks.includesNewCommand ? 'yes' : 'no'}</div>
+                <div>Includes /retry: {snapshot.slashCommandFailureMode.checks.includesRetryCommand ? 'yes' : 'no'}</div>
+                <div>/new keeps confirmation: {snapshot.slashCommandFailureMode.checks.newRequiresConfirmation ? 'yes' : 'no'}</div>
+              </div>
+            </div>
+
             <div class="mt-4 grid gap-3 text-sm sm:grid-cols-2">
               <div class="rounded-md bg-muted/40 p-4">
                 <div><span class="font-medium">Query OK:</span> {snapshot.slashCommands.ok ? 'yes' : 'no'}</div>
