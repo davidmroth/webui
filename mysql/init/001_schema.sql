@@ -41,7 +41,6 @@ CREATE TABLE IF NOT EXISTS messages (
   source ENUM('browser', 'hermes') NOT NULL,
   status ENUM('complete', 'streaming', 'error') NOT NULL DEFAULT 'complete',
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   CONSTRAINT fk_messages_conversation FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
 );
 
@@ -51,21 +50,15 @@ CREATE TABLE IF NOT EXISTS hermes_events (
   conversation_id CHAR(36) NOT NULL,
   message_id CHAR(36) NOT NULL,
   event_type ENUM('message') NOT NULL DEFAULT 'message',
-  status ENUM('queued', 'processing', 'acked', 'cancelled') NOT NULL DEFAULT 'queued',
-  run_status ENUM('queued', 'processing', 'completed', 'failed', 'cancelled', 'stale') NOT NULL DEFAULT 'queued',
+  status ENUM('queued', 'processing', 'acked') NOT NULL DEFAULT 'queued',
   payload JSON NOT NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   claimed_at DATETIME NULL,
   acked_at DATETIME NULL,
-  cancelled_at DATETIME NULL,
-  run_completed_at DATETIME NULL,
-  run_error_code VARCHAR(64) NULL,
-  run_error_message TEXT NULL,
   CONSTRAINT fk_hermes_events_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
   CONSTRAINT fk_hermes_events_conversation FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
   CONSTRAINT fk_hermes_events_message FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE,
-  INDEX idx_hermes_events_status_created (status, created_at),
-  INDEX idx_hermes_events_run_status (conversation_id, run_status, created_at)
+  INDEX idx_hermes_events_status_created (status, created_at)
 );
 
 CREATE TABLE IF NOT EXISTS attachments (
