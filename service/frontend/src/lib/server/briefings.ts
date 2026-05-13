@@ -155,6 +155,12 @@ interface BriefingClientConfig {
 	fetchImpl: FetchImpl;
 }
 
+interface PublicBriefingIssue {
+	message: string;
+	detail: string | null;
+	canRetry: boolean;
+}
+
 function normalizeBaseUrl(baseUrl: string) {
 	return baseUrl.replace(/\/+$/, '');
 }
@@ -215,6 +221,71 @@ function parseJsonResponse(text: string): unknown {
 	}
 }
 
+function normalizeIssueMessage(rawMessage: string | null | undefined) {
+	return typeof rawMessage === 'string' ? rawMessage.trim().toLowerCase() : '';
+}
+
+function buildPublicBriefingIssue(
+	rawMessage: string | null | undefined,
+	fallbackMessage: string,
+	options: {
+		detail?: string | null;
+		retryable?: boolean;
+		timeoutMessage?: string;
+		timeoutDetail?: string | null;
+	} = {}
+): PublicBriefingIssue {
+	const normalizedMessage = normalizeIssueMessage(rawMessage);
+	const retryable = options.retryable ?? false;
+	const genericDetail = options.detail ?? (retryable ? 'Retry loading the briefing in a moment.' : null);
+
+	if (
+		normalizedMessage.includes('timeout') ||
+		normalizedMessage.includes('timed out') ||
+		normalizedMessage.includes('read timeout')
+	) {
+		return {
+			message: options.timeoutMessage ?? fallbackMessage,
+			detail: options.timeoutDetail ?? genericDetail,
+			canRetry: true
+		};
+	}
+
+	if (
+		normalizedMessage.includes('connection reset') ||
+		normalizedMessage.includes('econnreset') ||
+		normalizedMessage.includes('econnrefused') ||
+		normalizedMessage.includes('network error') ||
+		normalizedMessage.includes('failed to fetch')
+	) {
+		return {
+			message: fallbackMessage,
+			detail: genericDetail,
+			canRetry: true
+		};
+	}
+
+	if (
+		normalizedMessage.includes('401') ||
+		normalizedMessage.includes('403') ||
+		normalizedMessage.includes('unauthorized') ||
+		normalizedMessage.includes('forbidden') ||
+		normalizedMessage.includes('auth')
+	) {
+		return {
+			message: fallbackMessage,
+			detail: null,
+			canRetry: false
+		};
+	}
+
+	return {
+		message: fallbackMessage,
+		detail: genericDetail,
+		canRetry: retryable
+	};
+}
+
 function normalizeStringArray(value: unknown) {
 	if (!Array.isArray(value)) {
 		return [];
@@ -273,13 +344,14 @@ function buildClientConfig(options: BriefingClientOptions = {}): BriefingClientC
 	};
 }
 
-function toErrorState(jobId: string, message: string, detail: string | null = null): BriefingPreviewError {
+function toErrorState(jobId: string, issue: PublicBriefingIssue): BriefingPreviewError {
 	return {
 		state: 'error',
 		status: 'error',
 		jobId,
-		message,
-		detail
+		message: issue.message,
+		detail: issue.detail,
+		canRetry: issue.canRetry
 	};
 }
 
@@ -293,12 +365,23 @@ function toMissingState(jobId: string, message: string): BriefingPreviewMissing 
 }
 
 function toStatusState(jobId: string, status: RendererJobStatus): BriefingPreviewProcessing | BriefingPreviewFailed {
+	const failedIssue =
+		status.status === 'failed'
+			? buildPublicBriefingIssue(status.error, 'The renderer could not finish this briefing.', {
+					retryable: true,
+					detail: 'Retry loading the briefing. If it still fails, regenerate the briefing from chat.',
+					timeoutMessage: 'The renderer timed out while verifying the briefing assets.',
+					timeoutDetail: 'Retry loading the briefing. The export may already be available.'
+				})
+			: null;
+
 	const common = {
 		jobId,
 		briefingId: typeof status.briefing_id === 'string' ? status.briefing_id : null,
 		createdAt: status.created_at,
 		completedAt: typeof status.completed_at === 'string' ? status.completed_at : null,
-		error: typeof status.error === 'string' ? status.error : null,
+		error: failedIssue?.message ?? null,
+		detail: failedIssue?.detail ?? null,
 		validation: status.validation ? normalizeValidation(status.validation) : null,
 		assetCount: typeof status.asset_count === 'number' ? status.asset_count : 0,
 		renderProgress: normalizeRendererProgress(status)
@@ -308,6 +391,7 @@ function toStatusState(jobId: string, status: RendererJobStatus): BriefingPrevie
 		return {
 			state: 'failed',
 			status: 'failed',
+			canRetry: failedIssue?.canRetry ?? false,
 			...common
 		};
 	}
@@ -574,8 +658,11 @@ async function loadBriefingPreviewInternal(
 	if (seenJobIds.has(normalizedIdentifier)) {
 		return toErrorState(
 			normalizedIdentifier,
-			'Briefing preview could not resolve the latest renderer job.',
-			'The current briefing job appears to reference a missing result and a replacement loop was detected.'
+			{
+				message: 'Briefing preview could not resolve the latest renderer job.',
+				detail: 'Open the latest briefing link from chat or regenerate the briefing.',
+				canRetry: false
+			}
 		);
 	}
 
@@ -588,8 +675,11 @@ async function loadBriefingPreviewInternal(
 	} catch (error) {
 		return toErrorState(
 			normalizedIdentifier,
-			'Briefing preview is temporarily unavailable.',
-			error instanceof Error ? error.message : 'Unknown network error.'
+			buildPublicBriefingIssue(
+				error instanceof Error ? error.message : 'Unknown network error.',
+				'Briefing preview is temporarily unavailable.',
+				{ retryable: true }
+			)
 		);
 	}
 
@@ -605,16 +695,21 @@ async function loadBriefingPreviewInternal(
 	if (statusResult.response.status === 401 || statusResult.response.status === 403) {
 		return toErrorState(
 			normalizedIdentifier,
-			'WebUI could not authenticate with the briefing service.',
-			errorDetailFromPayload(statusResult.payload)
+			buildPublicBriefingIssue(
+				errorDetailFromPayload(statusResult.payload),
+				'WebUI could not authenticate with the briefing service.'
+			)
 		);
 	}
 
 	if (!statusResult.response.ok || !isRendererJobStatus(statusResult.payload)) {
 		return toErrorState(
 			normalizedIdentifier,
-			'WebUI could not load briefing status.',
-			errorDetailFromPayload(statusResult.payload)
+			buildPublicBriefingIssue(
+				errorDetailFromPayload(statusResult.payload),
+				'WebUI could not load briefing status.',
+				{ retryable: true }
+			)
 		);
 	}
 
@@ -631,8 +726,15 @@ async function loadBriefingPreviewInternal(
 	} catch (error) {
 		return toErrorState(
 			statusResult.payload.job_id,
-			'Briefing result is temporarily unavailable.',
-			error instanceof Error ? error.message : 'Unknown network error.'
+			buildPublicBriefingIssue(
+				error instanceof Error ? error.message : 'Unknown network error.',
+				'Briefing result is temporarily unavailable.',
+				{
+					retryable: true,
+					timeoutMessage: 'The briefing result timed out while loading from storage.',
+					timeoutDetail: 'Retry loading the briefing. The export may already be available.'
+				}
+			)
 		);
 	}
 
@@ -648,24 +750,32 @@ async function loadBriefingPreviewInternal(
 
 		return toErrorState(
 			statusResult.payload.job_id,
-			'The briefing result is no longer available for this job.',
-			'This briefing may have been regenerated into a new job. Return to chat or reload from the latest briefing link.'
+			{
+				message: 'The briefing result is no longer available for this job.',
+				detail: 'This briefing may have been regenerated into a new job. Return to chat or reload from the latest briefing link.',
+				canRetry: false
+			}
 		);
 	}
 
 	if (previewResult.response.status === 401 || previewResult.response.status === 403) {
 		return toErrorState(
 			statusResult.payload.job_id,
-			'WebUI could not authenticate with the briefing service.',
-			errorDetailFromPayload(previewResult.payload)
+			buildPublicBriefingIssue(
+				errorDetailFromPayload(previewResult.payload),
+				'WebUI could not authenticate with the briefing service.'
+			)
 		);
 	}
 
 	if (!previewResult.response.ok || !isRendererBriefingResult(previewResult.payload)) {
 		return toErrorState(
 			statusResult.payload.job_id,
-			'WebUI could not load the completed briefing result.',
-			errorDetailFromPayload(previewResult.payload)
+			buildPublicBriefingIssue(
+				errorDetailFromPayload(previewResult.payload),
+				'WebUI could not load the completed briefing result.',
+				{ retryable: true }
+			)
 		);
 	}
 
@@ -703,4 +813,4 @@ export async function fetchBriefingAsset(jobId: string, assetPath: string, optio
 	);
 }
 
-export { normalizeAssetPath };
+export { buildPublicBriefingIssue, normalizeAssetPath };

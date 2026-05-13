@@ -199,7 +199,10 @@ export function statusCodeForBriefingPreviewState(state: PendingBriefingPreview[
 	}
 }
 
-export function renderBriefingStatusPage(preview: PendingBriefingPreview) {
+export function renderBriefingStatusPage(
+	preview: PendingBriefingPreview,
+	options: { retryHref?: string | null } = {}
+) {
 	const title = pageTitle(preview);
 	const badgeLabel = stateLabel(preview);
 	const badgeClass = stateClass(preview);
@@ -257,14 +260,25 @@ export function renderBriefingStatusPage(preview: PendingBriefingPreview) {
 				</div>
 			</dl>`;
 
-	const errorMessage =
+	const calloutMarkup =
 		preview.state === 'failed'
-			? preview.error ?? 'The renderer did not provide a specific error.'
+			? `<div class="callout">
+				<p>${escapeHtml(preview.error ?? 'The renderer did not provide a specific error.')}</p>
+				${preview.detail ? `<p class="detail">${escapeHtml(preview.detail)}</p>` : ''}
+			</div>`
 			: preview.state === 'missing'
-				? preview.message
+				? `<p class="callout">${escapeHtml(preview.message)}</p>`
 				: preview.state === 'error'
-					? preview.detail ?? preview.message
-					: null;
+					? `<div class="callout">
+						<p>${escapeHtml(preview.message)}</p>
+						${preview.detail ? `<p class="detail">${escapeHtml(preview.detail)}</p>` : ''}
+					</div>`
+					: '';
+
+	const retryActionMarkup =
+		options.retryHref && ((preview.state === 'failed' && preview.canRetry) || (preview.state === 'error' && preview.canRetry))
+			? `<a href="${escapeHtml(options.retryHref)}">Retry loading briefing</a>`
+			: '';
 
 	return `<!doctype html>
 <html lang="en">
@@ -485,8 +499,9 @@ export function renderBriefingStatusPage(preview: PendingBriefingPreview) {
 			<p class="lead">${escapeHtml(subtitle)}</p>
 			${progressMarkup}
 			${detailsMarkup}
-			${errorMessage ? `<p class="callout">${escapeHtml(errorMessage)}</p>` : ''}
+			${calloutMarkup}
 			<div class="actions">
+				${retryActionMarkup}
 				<a class="primary" href="/chat">Return to chat</a>
 			</div>
 		</section>

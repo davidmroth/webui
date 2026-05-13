@@ -107,6 +107,9 @@
 		</div>
 	{:else if preview.state === 'failed'}
 		<p>{preview.error ?? 'The renderer reported a failure for this job.'}</p>
+		{#if preview.detail}
+			<p class="briefing-status-meta">{preview.detail}</p>
+		{/if}
 		<p class="briefing-status-meta">Job id: {preview.jobId}</p>
 	{:else if preview.state === 'missing'}
 		<p>{preview.message}</p>
@@ -122,6 +125,9 @@
 	{/if}
 
 	<div class="briefing-status-actions">
+		{#if (preview.state === 'failed' && preview.canRetry) || (preview.state === 'error' && preview.canRetry)}
+			<a class="secondary-button" href={refreshHref}>Retry loading briefing</a>
+		{/if}
 		<a class="secondary-button" href={refreshHref}>Reload page</a>
 		<a class="secondary-button" href="/chat">Back to chat</a>
 	</div>

@@ -141,9 +141,11 @@ export interface BriefingPreviewFailed {
 	createdAt: string;
 	completedAt: string | null;
 	error: string | null;
+	detail: string | null;
 	validation: BriefingValidationResult | null;
 	assetCount: number;
 	renderProgress: BriefingRenderProgress | null;
+	canRetry: boolean;
 }
 
 export interface BriefingPreviewMissing {
@@ -159,6 +161,7 @@ export interface BriefingPreviewError {
 	jobId: string;
 	message: string;
 	detail: string | null;
+	canRetry: boolean;
 }
 
 export type BriefingPreview =

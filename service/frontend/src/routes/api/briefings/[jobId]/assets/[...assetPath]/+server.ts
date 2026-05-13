@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
 import { requireSession } from '$server/auth';
-import { fetchBriefingAsset, normalizeAssetPath } from '$server/briefings';
+import { buildPublicBriefingIssue, fetchBriefingAsset, normalizeAssetPath } from '$server/briefings';
 
 export async function GET(event) {
 	await requireSession(event);
@@ -17,19 +17,36 @@ export async function GET(event) {
 	} catch (error) {
 		return json(
 			{
-				error: error instanceof Error ? error.message : 'Unable to reach the briefing service.'
+				error: buildPublicBriefingIssue(
+					error instanceof Error ? error.message : 'Unable to reach the briefing service.',
+					'Unable to reach the briefing service.',
+					{
+						retryable: true,
+						timeoutMessage: 'The briefing service timed out while loading the requested asset.',
+						timeoutDetail: 'Retry loading the briefing asset in a moment.'
+					}
+				).message
 			},
 			{ status: 502 }
 		);
 	}
 
 	if (!upstream.ok) {
-		const errorText = await upstream.text();
+		await upstream.text();
 		const safeStatus = upstream.status === 401 || upstream.status === 403 ? 502 : upstream.status;
-		return new Response(errorText || JSON.stringify({ error: 'Unable to fetch briefing asset.' }), {
+		const issue = buildPublicBriefingIssue(
+			null,
+			'Unable to fetch briefing asset.',
+			{
+				retryable: safeStatus >= 500,
+				timeoutMessage: 'The briefing asset timed out while loading.',
+				timeoutDetail: 'Retry loading the briefing asset in a moment.'
+			}
+		);
+		return new Response(JSON.stringify({ error: issue.message }), {
 			status: safeStatus,
 			headers: {
-				'content-type': upstream.headers.get('content-type') ?? 'application/json; charset=utf-8'
+				'content-type': 'application/json; charset=utf-8'
 			}
 		});
 	}

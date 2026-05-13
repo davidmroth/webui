@@ -49,14 +49,43 @@ test('renderBriefingStatusPage surfaces failure details without auto-refresh', (
 		briefingId: 'briefing-fail',
 		createdAt: '2026-05-07T07:00:00.000Z',
 		completedAt: '2026-05-07T07:02:00.000Z',
-		error: 'ffmpeg MP3 encoding failed',
+		error: 'The renderer timed out while verifying the briefing assets.',
+		detail: 'Retry loading the briefing. The export may already be available.',
 		validation: null,
 		assetCount: 0,
-		renderProgress: null
+		renderProgress: null,
+		canRetry: true
+	}, {
+		retryHref: '/briefings/briefing-fail?retry=1'
 	});
 
 	assert.doesNotMatch(html, /http-equiv="refresh"/);
 	assert.match(html, /Briefing render failed/);
-	assert.match(html, /ffmpeg MP3 encoding failed/);
+	assert.match(html, /The renderer timed out while verifying the briefing assets\./);
+	assert.match(html, /Retry loading the briefing\. The export may already be available\./);
+	assert.match(html, /Retry loading briefing/);
 	assert.match(html, /Return to chat/);
+});
+
+test('renderBriefingStatusPage escapes retry links and does not expose raw endpoint urls', () => {
+	const html = renderBriefingStatusPage({
+		state: 'failed',
+		status: 'failed',
+		jobId: 'job-timeout',
+		briefingId: 'briefing-timeout',
+		createdAt: '2026-05-07T07:00:00.000Z',
+		completedAt: '2026-05-07T07:02:00.000Z',
+		error: 'The renderer timed out while verifying the briefing assets.',
+		detail: 'Retry loading the briefing. The export may already be available.',
+		validation: null,
+		assetCount: 1,
+		renderProgress: null,
+		canRetry: true
+	}, {
+		retryHref: '/briefings/briefing-timeout?retry=1&from=status'
+	});
+
+	assert.match(html, /Retry loading briefing/);
+	assert.doesNotMatch(html, /https:\/\//);
+	assert.match(html, /\?retry=1&amp;from=status/);
 });
