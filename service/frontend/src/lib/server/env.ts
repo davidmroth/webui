@@ -30,6 +30,7 @@ export function getConfig() {
     objectStorageBucket: getEnv('OBJECT_STORAGE_BUCKET', 'hermes-webui'),
     objectStoragePrefix: getEnv('OBJECT_STORAGE_PREFIX', ''),
     objectStorageRegion: getEnv('OBJECT_STORAGE_REGION', 'us-east-1'),
+    briefingStoragePrefix: getEnv('BRIEFING_STORAGE_PREFIX', 'webui/briefings'),
     sessionCookieName: getEnv('SESSION_COOKIE_NAME', 'hermes_webui_session'),
     hermesServiceToken: getEnv('HERMES_WEBCHAT_SERVICE_TOKEN', 'change-me'),
     briefingRendererBaseUrl: getEnv('BRIEFING_RENDERER_BASE_URL', 'http://host.docker.internal:9910'),

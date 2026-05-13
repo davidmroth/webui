@@ -22,9 +22,7 @@
 			return;
 		}
 
-		const routeId = preview.state !== 'missing' && preview.state !== 'error' && preview.briefingId
-			? preview.briefingId
-			: preview.jobId;
+		const routeId = preview.jobId;
 		const expectedPath = `${base}/briefings/${encodeURIComponent(routeId)}/player`;
 		if (window.location.pathname !== expectedPath) {
 			void goto(expectedPath, { replaceState: true, noScroll: true, keepFocus: true });
@@ -65,10 +63,7 @@
 	}
 
 	function currentPlayerHref() {
-		const routeId = preview.state !== 'missing' && preview.state !== 'error' && preview.briefingId
-			? preview.briefingId
-			: preview.jobId;
-		return `/briefings/${encodeURIComponent(routeId)}/player`;
+		return `/briefings/${encodeURIComponent(preview.jobId)}/player`;
 	}
 </script>
 
@@ -76,18 +71,28 @@
 	<title>{pageTitle()}</title>
 </svelte:head>
 
-<div class="briefing-preview-page">
-	{#if preview.state === 'ready'}
-		<BriefingPlayer briefing={preview} />
-	{:else}
-		<BriefingStatusCard preview={preview} refreshHref={currentPlayerHref()} pollError={pollError} />
-	{/if}
-</div>
+<section class="briefing-preview-page">
+	<div class="briefing-preview-shell">
+		{#if preview.state === 'ready'}
+			<BriefingPlayer briefing={preview} />
+		{:else}
+			<BriefingStatusCard preview={preview} refreshHref={currentPlayerHref()} pollError={pollError} />
+		{/if}
+	</div>
+</section>
 
 <style>
 	.briefing-preview-page {
+		min-height: 100dvh;
+		padding: 2rem 1.25rem 4rem;
+		background:
+			radial-gradient(circle at top left, rgba(14, 116, 144, 0.12), transparent 28%),
+			radial-gradient(circle at top right, rgba(15, 118, 110, 0.08), transparent 32%),
+			linear-gradient(180deg, #f8fafc 0%, #eef6ff 48%, #f8fafc 100%);
+	}
+
+	.briefing-preview-shell {
 		max-width: 1320px;
 		margin: 0 auto;
-		padding: 2rem 1.25rem 4rem;
 	}
 </style>

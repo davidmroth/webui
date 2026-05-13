@@ -392,10 +392,10 @@ function getMessageBriefingReference(row: Pick<MessageRow, 'extra'>): BriefingRe
     summary: normalizeOptionalExtraString(source.summary),
     generatedAt: normalizeOptionalExtraString(source.generatedAt),
     previewUrl:
-      normalizeOptionalExtraString(source.previewUrl) ?? `/briefings/${encodeURIComponent(briefingId)}/player`,
+	  normalizeOptionalExtraString(source.previewUrl) ?? `/briefings/${encodeURIComponent(jobId)}/player`,
     standaloneHtmlUrl:
       normalizeOptionalExtraString(source.standaloneHtmlUrl) ??
-      `/briefings/${encodeURIComponent(briefingId)}`,
+	  `/briefings/${encodeURIComponent(jobId)}`,
     validation: {
       valid: validationRaw.valid !== false,
       warningCount: normalizeNonNegativeExtraInteger(validationRaw.warningCount),

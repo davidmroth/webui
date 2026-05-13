@@ -1,4 +1,5 @@
 import { getConfig } from '$server/env';
+import { getObjectBuffer } from '$server/storage';
 import type {
 	BriefingAssetLink,
 	BriefingCitationRef,
@@ -146,6 +147,7 @@ interface BriefingClientOptions {
 	timeoutMs?: number;
 	fetchImpl?: FetchImpl;
 	requestHeaders?: HeadersInit;
+	readObjectBuffer?: (storageKey: string) => Promise<Buffer>;
 }
 
 interface BriefingClientConfig {
@@ -161,8 +163,15 @@ interface PublicBriefingIssue {
 	canRetry: boolean;
 }
 
+const DEFAULT_BRIEFING_MANIFEST_PATH = 'briefing.json';
+const LOCAL_RENDERER_FALLBACK_URL = 'http://host.docker.internal:9910';
+
 function normalizeBaseUrl(baseUrl: string) {
 	return baseUrl.replace(/\/+$/, '');
+}
+
+function isLocalRendererFallbackUrl(baseUrl: string | null | undefined) {
+	return normalizeBaseUrl(baseUrl ?? '') === LOCAL_RENDERER_FALLBACK_URL;
 }
 
 function normalizeAssetPath(assetPath: string) {
@@ -199,6 +208,67 @@ function buildBriefingPlayerPath(identifier: string) {
 
 function buildProxyAssetUrl(jobId: string, assetPath: string) {
 	return `${buildProxyBasePath(jobId)}/assets/${encodeAssetPath(assetPath)}`;
+}
+
+function normalizeStoragePrefix(value: string) {
+	return value
+		.trim()
+		.replace(/\\/g, '/')
+		.replace(/^\/+/, '')
+		.replace(/\/+$/, '');
+}
+
+function buildPublishedStorageKey(jobId: string, assetPath: string) {
+	const prefix = normalizeStoragePrefix(getConfig().briefingStoragePrefix);
+	return prefix ? `${prefix}/${jobId}/${assetPath}` : `${jobId}/${assetPath}`;
+}
+
+function objectErrorCode(error: unknown) {
+	if (error && typeof error === 'object' && 'code' in error) {
+		return String((error as { code?: unknown }).code ?? '');
+	}
+	return '';
+}
+
+function isMissingStorageObject(error: unknown) {
+	const code = objectErrorCode(error);
+	if (code === 'NoSuchKey' || code === 'NoSuchObject' || code === 'NotFound' || code === 'NoSuchBucket') {
+		return true;
+	}
+	const message = error instanceof Error ? error.message.toLowerCase() : '';
+	return message.includes('not found') || message.includes('no such key');
+}
+
+function inferAssetContentType(assetPath: string) {
+	const lowered = assetPath.toLowerCase();
+	if (lowered.endsWith('.json')) {
+		return 'application/vnd.hermes.briefing+json; charset=utf-8';
+	}
+	if (lowered.endsWith('.html')) {
+		return 'text/html; charset=utf-8';
+	}
+	if (lowered.endsWith('.css')) {
+		return 'text/css; charset=utf-8';
+	}
+	if (lowered.endsWith('.js')) {
+		return 'application/javascript; charset=utf-8';
+	}
+	if (lowered.endsWith('.mp3')) {
+		return 'audio/mpeg';
+	}
+	if (lowered.endsWith('.wav')) {
+		return 'audio/wav';
+	}
+	if (lowered.endsWith('.svg')) {
+		return 'image/svg+xml';
+	}
+	return 'application/octet-stream';
+}
+
+function inferAssetCacheControl(assetPath: string) {
+	return assetPath.toLowerCase().endsWith('.html') || assetPath.toLowerCase().endsWith('.json')
+		? 'private, max-age=0, must-revalidate'
+		: 'private, max-age=300';
 }
 
 function buildRendererHeaders(serviceToken: string, accept: string) {
@@ -283,6 +353,79 @@ function buildPublicBriefingIssue(
 		message: fallbackMessage,
 		detail: genericDetail,
 		canRetry: retryable
+	};
+}
+
+function buildRendererConnectionIssue(
+	rawMessage: string | null | undefined,
+	baseUrl: string,
+	fallbackMessage: string,
+	options: {
+		timeoutMessage?: string;
+		timeoutDetail?: string | null;
+	} = {}
+): PublicBriefingIssue {
+	const normalizedMessage = normalizeIssueMessage(rawMessage);
+
+	if (normalizedMessage.includes('fetch failed')) {
+		if (isLocalRendererFallbackUrl(baseUrl)) {
+			return {
+				message: fallbackMessage,
+				detail:
+					'The WebUI server is still using the local development briefing renderer address. Set BRIEFING_RENDERER_BASE_URL and BRIEFING_RENDERER_SERVICE_TOKEN in production so this container can reach the renderer.',
+				canRetry: false
+			};
+		}
+
+		return {
+			message: fallbackMessage,
+			detail:
+				'The WebUI server could not reach the briefing renderer. Verify the renderer URL, token, and network access, then retry.',
+			canRetry: true
+		};
+	}
+
+	return buildPublicBriefingIssue(rawMessage, fallbackMessage, {
+		retryable: true,
+		timeoutMessage: options.timeoutMessage,
+		timeoutDetail: options.timeoutDetail,
+	});
+}
+
+async function loadPublishedBriefingResult(jobId: string, options: BriefingClientOptions = {}) {
+	const readObjectBuffer = options.readObjectBuffer ?? getObjectBuffer;
+	try {
+		const buffer = await readObjectBuffer(buildPublishedStorageKey(jobId, DEFAULT_BRIEFING_MANIFEST_PATH));
+		const payload = parseJsonResponse(buffer.toString('utf-8'));
+		return isRendererBriefingResult(payload) ? payload : null;
+	} catch (error) {
+		if (isMissingStorageObject(error)) {
+			return null;
+		}
+		throw error;
+	}
+}
+
+async function loadPublishedBriefingAsset(jobId: string, assetPath: string, options: BriefingClientOptions = {}) {
+	const readObjectBuffer = options.readObjectBuffer ?? getObjectBuffer;
+	const manifest = await loadPublishedBriefingResult(jobId, options);
+	if (manifest === null) {
+		return null;
+	}
+
+	const buffer = await readObjectBuffer(buildPublishedStorageKey(jobId, assetPath));
+	const asset =
+		assetPath === manifest.manifest_path
+			? {
+				content_type: 'application/vnd.hermes.briefing+json; charset=utf-8',
+				cache_control: 'private, max-age=0, must-revalidate'
+			}
+			: manifest.assets.find((entry) => entry.path === assetPath) ?? null;
+
+	return {
+		buffer,
+		contentType: asset?.content_type ?? inferAssetContentType(assetPath),
+		cacheControl: asset?.cache_control ?? inferAssetCacheControl(assetPath),
 	};
 }
 
@@ -543,7 +686,7 @@ function toAssetLink(jobId: string, briefingId: string, asset: RendererHostedAss
 		path: asset.path,
 		url:
 			asset.role === 'standalone_html'
-				? buildStandaloneBriefingPath(briefingId)
+				? buildStandaloneBriefingPath(jobId)
 				: buildProxyAssetUrl(jobId, asset.path),
 		contentType: asset.content_type,
 		sizeBytes: asset.size_bytes,
@@ -669,16 +812,39 @@ async function loadBriefingPreviewInternal(
 	const nextSeenJobIds = new Set(seenJobIds);
 	nextSeenJobIds.add(normalizedIdentifier);
 
+	try {
+		const publishedResult = await loadPublishedBriefingResult(normalizedIdentifier, options);
+		if (publishedResult !== null) {
+			return normalizeReadyPreview(publishedResult.job_id, publishedResult);
+		}
+	} catch (error) {
+		console.error('Failed to load published briefing manifest from object storage', {
+			jobId: normalizedIdentifier,
+			error
+		});
+		return toErrorState(
+			normalizedIdentifier,
+			buildPublicBriefingIssue(
+				null,
+				'Briefing preview is temporarily unavailable.',
+				{
+					retryable: true,
+					detail: 'The WebUI could not read the published briefing bundle from object storage. Retry in a moment.'
+				}
+			)
+		);
+	}
+
 	let statusResult;
 	try {
 		statusResult = await requestRendererJson(`/v1/briefings/${encodeURIComponent(normalizedIdentifier)}`, options);
 	} catch (error) {
 		return toErrorState(
 			normalizedIdentifier,
-			buildPublicBriefingIssue(
+			buildRendererConnectionIssue(
 				error instanceof Error ? error.message : 'Unknown network error.',
-				'Briefing preview is temporarily unavailable.',
-				{ retryable: true }
+				buildClientConfig(options).baseUrl,
+				'Briefing preview is temporarily unavailable.'
 			)
 		);
 	}
@@ -726,11 +892,11 @@ async function loadBriefingPreviewInternal(
 	} catch (error) {
 		return toErrorState(
 			statusResult.payload.job_id,
-			buildPublicBriefingIssue(
+			buildRendererConnectionIssue(
 				error instanceof Error ? error.message : 'Unknown network error.',
+				buildClientConfig(options).baseUrl,
 				'Briefing result is temporarily unavailable.',
 				{
-					retryable: true,
 					timeoutMessage: 'The briefing result timed out while loading from storage.',
 					timeoutDetail: 'Retry loading the briefing. The export may already be available.'
 				}
@@ -791,6 +957,28 @@ export async function fetchBriefingAsset(jobId: string, assetPath: string, optio
 	const normalizedAssetPath = normalizeAssetPath(assetPath);
 	if (!normalizedJobId || !normalizedAssetPath) {
 		throw new Error('A valid briefing job id and asset path are required.');
+	}
+
+	let publishedAsset;
+	try {
+		publishedAsset = await loadPublishedBriefingAsset(normalizedJobId, normalizedAssetPath, options);
+	} catch (error) {
+		console.error('Failed to load published briefing asset from object storage', {
+			jobId: normalizedJobId,
+			assetPath: normalizedAssetPath,
+			error
+		});
+		throw new Error('Unable to read the published briefing asset.');
+	}
+	if (publishedAsset !== null) {
+		return new Response(publishedAsset.buffer, {
+			status: 200,
+			headers: {
+				'content-type': publishedAsset.contentType,
+				'cache-control': publishedAsset.cacheControl,
+				'x-content-type-options': 'nosniff'
+			}
+		});
 	}
 
 	const config = buildClientConfig(options);

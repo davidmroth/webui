@@ -13,9 +13,9 @@ function buildBriefingReference(preview: Awaited<ReturnType<typeof loadBriefingP
     title: preview.title,
     summary: preview.summary,
     generatedAt: preview.generatedAt,
-    previewUrl: `/briefings/${encodeURIComponent(preview.briefingId)}/player`,
+    previewUrl: `/briefings/${encodeURIComponent(preview.jobId)}/player`,
     standaloneHtmlUrl:
-      preview.exportHtmlAsset?.url ?? `/briefings/${encodeURIComponent(preview.briefingId)}`,
+      preview.exportHtmlAsset?.url ?? `/briefings/${encodeURIComponent(preview.jobId)}`,
     validation: {
       valid: preview.validation.valid,
       warningCount: preview.validation.warnings.length,
