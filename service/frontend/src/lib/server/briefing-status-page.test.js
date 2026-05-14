@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+	renderBriefingUnauthorizedPage,
 	renderBriefingStatusPage,
 	statusCodeForBriefingPreviewState
 } from './briefing-status-page.ts';
@@ -88,4 +89,13 @@ test('renderBriefingStatusPage escapes retry links and does not expose raw endpo
 	assert.match(html, /Retry loading briefing/);
 	assert.doesNotMatch(html, /https:\/\//);
 	assert.match(html, /\?retry=1&amp;from=status/);
+});
+
+test('renderBriefingUnauthorizedPage shows a private standalone message without login prompts', () => {
+	const html = renderBriefingUnauthorizedPage('job-private');
+
+	assert.match(html, /This standalone briefing is private\./);
+	assert.match(html, /The owner has not enabled public access for this standalone export\./);
+	assert.doesNotMatch(html, /\/login/);
+	assert.doesNotMatch(html, /Sign in/i);
 });

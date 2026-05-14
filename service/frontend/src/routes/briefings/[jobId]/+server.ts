@@ -1,9 +1,9 @@
-import { error, redirect } from '@sveltejs/kit';
+import { redirect } from '@sveltejs/kit';
 import { rewriteStandaloneAssetUrls } from '$lib/server/briefing-standalone-html';
-import { requireSession } from '$server/auth';
 import { getBriefingViewerAccess } from '$server/briefing-sharing';
 import { buildPublicBriefingIssue, fetchBriefingAsset, loadBriefingPreview } from '$server/briefings';
 import {
+	renderBriefingUnauthorizedPage,
 	renderBriefingStatusPage,
 	statusCodeForBriefingPreviewState
 } from '$lib/server/briefing-status-page';
@@ -116,11 +116,14 @@ export async function GET(event) {
 	const session = event.locals.session;
 	const access = await getBriefingViewerAccess(event.params.jobId, session?.userId ?? null);
 	if (!access.canView) {
-		if (!session) {
-			await requireSession(event);
-		}
-
-		throw error(404, 'Briefing not found.');
+		return new Response(renderBriefingUnauthorizedPage(event.params.jobId), {
+			status: 401,
+			headers: {
+				'cache-control': 'private, max-age=0, must-revalidate',
+				'content-type': 'text/html; charset=utf-8',
+				'x-content-type-options': 'nosniff'
+			}
+		});
 	}
 
 	const preview = await loadBriefingPreview(event.params.jobId);

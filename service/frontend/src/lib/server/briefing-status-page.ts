@@ -199,6 +199,17 @@ export function statusCodeForBriefingPreviewState(state: PendingBriefingPreview[
 	}
 }
 
+export function renderBriefingUnauthorizedPage(jobId: string) {
+	return renderBriefingStatusPage({
+		state: 'error',
+		status: 'error',
+		jobId,
+		message: 'This standalone briefing is private.',
+		detail: 'The owner has not enabled public access for this standalone export.',
+		canRetry: false
+	});
+}
+
 export function renderBriefingStatusPage(
 	preview: PendingBriefingPreview,
 	options: { retryHref?: string | null } = {}
