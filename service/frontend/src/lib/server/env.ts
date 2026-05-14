@@ -16,26 +16,31 @@ function clampNumber(value: number, min: number, max: number): number {
 }
 
 export function getConfig() {
+  const objectStorageEndpoint = getEnv('OBJECT_STORAGE_ENDPOINT', 'minio');
+  const objectStoragePort = getNumber('OBJECT_STORAGE_PORT', 9000);
+  const objectStorageUseSsl = getEnv('OBJECT_STORAGE_USE_SSL', 'false') === 'true';
+  const objectStorageAccessKey = getEnv('OBJECT_STORAGE_ACCESS_KEY', 'minioadmin');
+  const objectStorageSecretKey = getEnv('OBJECT_STORAGE_SECRET_KEY', 'minioadmin');
+  const objectStorageBucket = getEnv('OBJECT_STORAGE_BUCKET', 'hermes-webui');
+  const objectStorageRegion = getEnv('OBJECT_STORAGE_REGION', 'us-east-1');
+
   return {
     databaseHost: getEnv('DATABASE_HOST', 'mysql'),
     databasePort: getNumber('DATABASE_PORT', 3306),
     databaseName: getEnv('DATABASE_NAME', 'hermes_webui'),
     databaseUser: getEnv('DATABASE_USER', 'hermes'),
     databasePassword: getEnv('DATABASE_PASSWORD', 'hermes'),
-    objectStorageEndpoint: getEnv('OBJECT_STORAGE_ENDPOINT', 'minio'),
-    objectStoragePort: getNumber('OBJECT_STORAGE_PORT', 9000),
-    objectStorageUseSsl: getEnv('OBJECT_STORAGE_USE_SSL', 'false') === 'true',
-    objectStorageAccessKey: getEnv('OBJECT_STORAGE_ACCESS_KEY', 'minioadmin'),
-    objectStorageSecretKey: getEnv('OBJECT_STORAGE_SECRET_KEY', 'minioadmin'),
-    objectStorageBucket: getEnv('OBJECT_STORAGE_BUCKET', 'hermes-webui'),
+    objectStorageEndpoint,
+    objectStoragePort,
+    objectStorageUseSsl,
+    objectStorageAccessKey,
+    objectStorageSecretKey,
+    objectStorageBucket,
     objectStoragePrefix: getEnv('OBJECT_STORAGE_PREFIX', ''),
-    objectStorageRegion: getEnv('OBJECT_STORAGE_REGION', 'us-east-1'),
+    objectStorageRegion,
     briefingStoragePrefix: getEnv('BRIEFING_STORAGE_PREFIX', 'webui/briefings'),
     sessionCookieName: getEnv('SESSION_COOKIE_NAME', 'hermes_webui_session'),
     hermesServiceToken: getEnv('HERMES_WEBCHAT_SERVICE_TOKEN', 'change-me'),
-    briefingRendererBaseUrl: getEnv('BRIEFING_RENDERER_BASE_URL', 'http://host.docker.internal:9910'),
-    briefingRendererServiceToken: getEnv('BRIEFING_RENDERER_SERVICE_TOKEN', ''),
-    briefingRendererTimeoutMs: clampNumber(getNumber('BRIEFING_RENDERER_TIMEOUT_MS', 15000), 1000, 120000),
     hermesEventLeaseSeconds: getNumber('HERMES_EVENT_LEASE_SECONDS', 120),
     hermesWorkerHeartbeatStaleSeconds: getNumber('HERMES_WORKER_HEARTBEAT_STALE_SECONDS', 45),
     diagnosticsToken: getEnv('DIAGNOSTICS_TOKEN', ''),

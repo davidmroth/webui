@@ -1,5 +1,5 @@
 import { getConfig } from '$server/env';
-import { getObjectBuffer } from '$server/storage';
+import { getBriefingObjectBuffer } from '$server/storage';
 import type {
 	BriefingAssetLink,
 	BriefingCitationRef,
@@ -16,8 +16,6 @@ import type {
 	BriefingTimelineCue,
 	BriefingValidationResult
 } from '$lib/types/briefing';
-
-type FetchImpl = typeof fetch;
 type RendererJobState = 'processing' | 'completed' | 'failed';
 type RendererJobStage =
 	| 'queued'
@@ -138,23 +136,8 @@ interface RendererJobStatus {
 	validation?: RendererValidationResult | null;
 	asset_count?: number;
 }
-
-type RendererJobStatusList = RendererJobStatus[];
-
 interface BriefingClientOptions {
-	baseUrl?: string;
-	serviceToken?: string;
-	timeoutMs?: number;
-	fetchImpl?: FetchImpl;
-	requestHeaders?: HeadersInit;
 	readObjectBuffer?: (storageKey: string) => Promise<Buffer>;
-}
-
-interface BriefingClientConfig {
-	baseUrl: string;
-	serviceToken: string;
-	timeoutMs: number;
-	fetchImpl: FetchImpl;
 }
 
 interface PublicBriefingIssue {
@@ -164,15 +147,7 @@ interface PublicBriefingIssue {
 }
 
 const DEFAULT_BRIEFING_MANIFEST_PATH = 'briefing.json';
-const LOCAL_RENDERER_FALLBACK_URL = 'http://host.docker.internal:9910';
-
-function normalizeBaseUrl(baseUrl: string) {
-	return baseUrl.replace(/\/+$/, '');
-}
-
-function isLocalRendererFallbackUrl(baseUrl: string | null | undefined) {
-	return normalizeBaseUrl(baseUrl ?? '') === LOCAL_RENDERER_FALLBACK_URL;
-}
+const DEFAULT_BRIEFING_STATUS_PATH = 'status.json';
 
 function normalizeAssetPath(assetPath: string) {
 	const segments = assetPath
@@ -271,14 +246,6 @@ function inferAssetCacheControl(assetPath: string) {
 		: 'private, max-age=300';
 }
 
-function buildRendererHeaders(serviceToken: string, accept: string) {
-	const headers = new Headers({ Accept: accept });
-	if (serviceToken.trim()) {
-		headers.set('Authorization', `Bearer ${serviceToken.trim()}`);
-	}
-	return headers;
-}
-
 function parseJsonResponse(text: string): unknown {
 	if (!text) {
 		return null;
@@ -355,45 +322,8 @@ function buildPublicBriefingIssue(
 		canRetry: retryable
 	};
 }
-
-function buildRendererConnectionIssue(
-	rawMessage: string | null | undefined,
-	baseUrl: string,
-	fallbackMessage: string,
-	options: {
-		timeoutMessage?: string;
-		timeoutDetail?: string | null;
-	} = {}
-): PublicBriefingIssue {
-	const normalizedMessage = normalizeIssueMessage(rawMessage);
-
-	if (normalizedMessage.includes('fetch failed')) {
-		if (isLocalRendererFallbackUrl(baseUrl)) {
-			return {
-				message: fallbackMessage,
-				detail:
-					'The WebUI server is still using the local development briefing renderer address. Set BRIEFING_RENDERER_BASE_URL and BRIEFING_RENDERER_SERVICE_TOKEN in production so this container can reach the renderer.',
-				canRetry: false
-			};
-		}
-
-		return {
-			message: fallbackMessage,
-			detail:
-				'The WebUI server could not reach the briefing renderer. Verify the renderer URL, token, and network access, then retry.',
-			canRetry: true
-		};
-	}
-
-	return buildPublicBriefingIssue(rawMessage, fallbackMessage, {
-		retryable: true,
-		timeoutMessage: options.timeoutMessage,
-		timeoutDetail: options.timeoutDetail,
-	});
-}
-
 async function loadPublishedBriefingResult(jobId: string, options: BriefingClientOptions = {}) {
-	const readObjectBuffer = options.readObjectBuffer ?? getObjectBuffer;
+	const readObjectBuffer = options.readObjectBuffer ?? getBriefingObjectBuffer;
 	try {
 		const buffer = await readObjectBuffer(buildPublishedStorageKey(jobId, DEFAULT_BRIEFING_MANIFEST_PATH));
 		const payload = parseJsonResponse(buffer.toString('utf-8'));
@@ -406,8 +336,22 @@ async function loadPublishedBriefingResult(jobId: string, options: BriefingClien
 	}
 }
 
+async function loadPublishedBriefingStatus(jobId: string, options: BriefingClientOptions = {}) {
+	const readObjectBuffer = options.readObjectBuffer ?? getBriefingObjectBuffer;
+	try {
+		const buffer = await readObjectBuffer(buildPublishedStorageKey(jobId, DEFAULT_BRIEFING_STATUS_PATH));
+		const payload = parseJsonResponse(buffer.toString('utf-8'));
+		return isRendererJobStatus(payload) ? payload : null;
+	} catch (error) {
+		if (isMissingStorageObject(error)) {
+			return null;
+		}
+		throw error;
+	}
+}
+
 async function loadPublishedBriefingAsset(jobId: string, assetPath: string, options: BriefingClientOptions = {}) {
-	const readObjectBuffer = options.readObjectBuffer ?? getObjectBuffer;
+	const readObjectBuffer = options.readObjectBuffer ?? getBriefingObjectBuffer;
 	const manifest = await loadPublishedBriefingResult(jobId, options);
 	if (manifest === null) {
 		return null;
@@ -476,17 +420,6 @@ function normalizeRendererProgress(status: RendererJobStatus) {
 		sentenceCompleted
 	};
 }
-
-function buildClientConfig(options: BriefingClientOptions = {}): BriefingClientConfig {
-	const config = getConfig();
-	return {
-		baseUrl: normalizeBaseUrl(options.baseUrl ?? config.briefingRendererBaseUrl),
-		serviceToken: options.serviceToken ?? config.briefingRendererServiceToken,
-		timeoutMs: options.timeoutMs ?? config.briefingRendererTimeoutMs,
-		fetchImpl: options.fetchImpl ?? fetch
-	};
-}
-
 function toErrorState(jobId: string, issue: PublicBriefingIssue): BriefingPreviewError {
 	return {
 		state: 'error',
@@ -554,10 +487,6 @@ function isRendererJobStatus(value: unknown): value is RendererJobStatus {
 	return isObjectRecord(value) && typeof value.job_id === 'string' && typeof value.status === 'string';
 }
 
-function isRendererJobStatusList(value: unknown): value is RendererJobStatusList {
-	return Array.isArray(value) && value.every((entry) => isRendererJobStatus(entry));
-}
-
 function isRendererBriefingResult(value: unknown): value is RendererBriefingResult {
 	return (
 		isObjectRecord(value) &&
@@ -569,115 +498,6 @@ function isRendererBriefingResult(value: unknown): value is RendererBriefingResu
 		Array.isArray(value.timeline_cues) &&
 		Array.isArray(value.sources)
 	);
-}
-
-function errorDetailFromPayload(payload: unknown) {
-	if (isObjectRecord(payload) && typeof payload.error === 'string') {
-		return payload.error;
-	}
-
-	return null;
-}
-
-async function requestRendererJson(path: string, options: BriefingClientOptions = {}) {
-	const config = buildClientConfig(options);
-	let response: Response;
-
-	try {
-		response = await config.fetchImpl(`${config.baseUrl}${path}`, {
-			method: 'GET',
-			headers: buildRendererHeaders(config.serviceToken, 'application/json'),
-			signal: AbortSignal.timeout(config.timeoutMs)
-		});
-	} catch (error) {
-		throw new Error(error instanceof Error ? error.message : 'Unknown network error.');
-	}
-
-	const text = await response.text();
-	return {
-		response,
-		payload: parseJsonResponse(text)
-	};
-}
-
-async function listRendererJobStatuses(options: BriefingClientOptions = {}) {
-	let jobsResult;
-	try {
-		jobsResult = await requestRendererJson('/v1/briefings', options);
-	} catch {
-		return null;
-	}
-
-	if (!jobsResult.response.ok || !isRendererJobStatusList(jobsResult.payload)) {
-		return null;
-	}
-
-	return jobsResult.payload;
-}
-
-function parseTimestamp(value: string | null | undefined) {
-	if (typeof value !== 'string' || value.trim().length === 0) {
-		return Number.NEGATIVE_INFINITY;
-	}
-
-	const timestamp = Date.parse(value);
-	return Number.isFinite(timestamp) ? timestamp : Number.NEGATIVE_INFINITY;
-}
-
-async function findReplacementJobStatus(
-	jobId: string,
-	status: RendererJobStatus,
-	options: BriefingClientOptions
-): Promise<RendererJobStatus | null> {
-	const briefingId = typeof status.briefing_id === 'string' ? status.briefing_id.trim() : '';
-	if (!briefingId) {
-		return null;
-	}
-
-	const jobs = await listRendererJobStatuses(options);
-	if (jobs === null) {
-		return null;
-	}
-
-	const currentCreatedAt = parseTimestamp(status.created_at);
-	const replacement = jobs
-		.filter((candidate) => {
-			if (candidate.job_id === jobId) {
-				return false;
-			}
-			return typeof candidate.briefing_id === 'string' && candidate.briefing_id.trim() === briefingId;
-		})
-		.sort((left, right) => parseTimestamp(right.created_at) - parseTimestamp(left.created_at))
-		.find((candidate) => parseTimestamp(candidate.created_at) >= currentCreatedAt);
-
-	return replacement ?? null;
-}
-
-async function findLatestJobStatusForBriefing(
-	briefingId: string,
-	options: BriefingClientOptions,
-	minimumCreatedAt = Number.NEGATIVE_INFINITY
-): Promise<RendererJobStatus | null> {
-	const normalizedBriefingId = briefingId.trim();
-	if (!normalizedBriefingId) {
-		return null;
-	}
-
-	const jobs = await listRendererJobStatuses(options);
-	if (jobs === null) {
-		return null;
-	}
-
-	const match = jobs
-		.filter(
-			(candidate) =>
-				typeof candidate.briefing_id === 'string' &&
-				candidate.briefing_id.trim() === normalizedBriefingId &&
-				parseTimestamp(candidate.created_at) >= minimumCreatedAt
-		)
-		.sort((left, right) => parseTimestamp(right.created_at) - parseTimestamp(left.created_at))[0];
-
-	return match ?? null;
 }
 
 function toAssetLink(jobId: string, briefingId: string, asset: RendererHostedAsset): BriefingAssetLink {
@@ -835,117 +655,46 @@ async function loadBriefingPreviewInternal(
 		);
 	}
 
-	let statusResult;
+	let publishedStatus: RendererJobStatus | null;
 	try {
-		statusResult = await requestRendererJson(`/v1/briefings/${encodeURIComponent(normalizedIdentifier)}`, options);
+		publishedStatus = await loadPublishedBriefingStatus(normalizedIdentifier, options);
 	} catch (error) {
-		return toErrorState(
-			normalizedIdentifier,
-			buildRendererConnectionIssue(
-				error instanceof Error ? error.message : 'Unknown network error.',
-				buildClientConfig(options).baseUrl,
-				'Briefing preview is temporarily unavailable.'
-			)
-		);
-	}
-
-	if (statusResult.response.status === 404) {
-		const latestStatus = await findLatestJobStatusForBriefing(normalizedIdentifier, options);
-		if (latestStatus !== null) {
-			return loadBriefingPreviewInternal(latestStatus.job_id, options, nextSeenJobIds);
-		}
-
-		return toMissingState(normalizedIdentifier, 'No briefing job was found for this id.');
-	}
-
-	if (statusResult.response.status === 401 || statusResult.response.status === 403) {
+		console.error('Failed to load published briefing status from object storage', {
+			jobId: normalizedIdentifier,
+			error
+		});
 		return toErrorState(
 			normalizedIdentifier,
 			buildPublicBriefingIssue(
-				errorDetailFromPayload(statusResult.payload),
-				'WebUI could not authenticate with the briefing service.'
-			)
-		);
-	}
-
-	if (!statusResult.response.ok || !isRendererJobStatus(statusResult.payload)) {
-		return toErrorState(
-			normalizedIdentifier,
-			buildPublicBriefingIssue(
-				errorDetailFromPayload(statusResult.payload),
-				'WebUI could not load briefing status.',
-				{ retryable: true }
-			)
-		);
-	}
-
-	if (statusResult.payload.status !== 'completed') {
-		return toStatusState(statusResult.payload.job_id, statusResult.payload);
-	}
-
-	let previewResult;
-	try {
-		previewResult = await requestRendererJson(
-			`/v1/briefings/${encodeURIComponent(statusResult.payload.job_id)}/result`,
-			options
-		);
-	} catch (error) {
-		return toErrorState(
-			statusResult.payload.job_id,
-			buildRendererConnectionIssue(
-				error instanceof Error ? error.message : 'Unknown network error.',
-				buildClientConfig(options).baseUrl,
-				'Briefing result is temporarily unavailable.',
+				null,
+				'Briefing preview is temporarily unavailable.',
 				{
-					timeoutMessage: 'The briefing result timed out while loading from storage.',
-					timeoutDetail: 'Retry loading the briefing. The export may already be available.'
+					retryable: true,
+					detail: 'The WebUI could not read the published briefing status from object storage. Retry in a moment.'
 				}
 			)
 		);
 	}
 
-	if (previewResult.response.status === 404) {
-		const replacementStatus = await findReplacementJobStatus(
-			statusResult.payload.job_id,
-			statusResult.payload,
-			options
-		);
-		if (replacementStatus !== null) {
-			return loadBriefingPreviewInternal(replacementStatus.job_id, options, nextSeenJobIds);
+	if (publishedStatus !== null) {
+		if (publishedStatus.status === 'completed') {
+			return toErrorState(publishedStatus.job_id, {
+				message: 'Briefing export is not available yet.',
+				detail:
+					'The briefing finished rendering, but the published bundle is not available in object storage yet. Retry in a moment.',
+				canRetry: true
+			});
 		}
 
-		return toErrorState(
-			statusResult.payload.job_id,
-			{
-				message: 'The briefing result is no longer available for this job.',
-				detail: 'This briefing may have been regenerated into a new job. Return to chat or reload from the latest briefing link.',
-				canRetry: false
-			}
-		);
+		return toStatusState(publishedStatus.job_id, publishedStatus);
 	}
 
-	if (previewResult.response.status === 401 || previewResult.response.status === 403) {
-		return toErrorState(
-			statusResult.payload.job_id,
-			buildPublicBriefingIssue(
-				errorDetailFromPayload(previewResult.payload),
-				'WebUI could not authenticate with the briefing service.'
-			)
-		);
-	}
-
-	if (!previewResult.response.ok || !isRendererBriefingResult(previewResult.payload)) {
-		return toErrorState(
-			statusResult.payload.job_id,
-			buildPublicBriefingIssue(
-				errorDetailFromPayload(previewResult.payload),
-				'WebUI could not load the completed briefing result.',
-				{ retryable: true }
-			)
-		);
-	}
-
-	return normalizeReadyPreview(statusResult.payload.job_id, previewResult.payload);
+	return toErrorState(normalizedIdentifier, {
+		message: 'Briefing export is not available yet.',
+		detail:
+			'The WebUI is waiting for the published briefing bundle in object storage. Retry in a moment.',
+		canRetry: true
+	});
 }
 
 export async function loadBriefingPreview(identifier: string, options: BriefingClientOptions = {}): Promise<BriefingPreview> {
@@ -981,24 +730,14 @@ export async function fetchBriefingAsset(jobId: string, assetPath: string, optio
 		});
 	}
 
-	const config = buildClientConfig(options);
-	const headers = buildRendererHeaders(config.serviceToken, '*/*');
-	const requestHeaders = new Headers(options.requestHeaders);
-	for (const headerName of ['range', 'if-range']) {
-		const headerValue = requestHeaders.get(headerName);
-		if (headerValue) {
-			headers.set(headerName, headerValue);
+	return new Response(JSON.stringify({ error: 'Published briefing asset not found.' }), {
+		status: 404,
+		headers: {
+			'content-type': 'application/json; charset=utf-8',
+			'cache-control': 'private, max-age=0, must-revalidate',
+			'x-content-type-options': 'nosniff'
 		}
-	}
-
-	return config.fetchImpl(
-		`${config.baseUrl}/v1/briefings/${encodeURIComponent(normalizedJobId)}/assets/${encodeAssetPath(normalizedAssetPath)}`,
-		{
-			method: 'GET',
-			headers,
-			signal: AbortSignal.timeout(config.timeoutMs)
-		}
-	);
+	});
 }
 
 export { buildPublicBriefingIssue, normalizeAssetPath };

@@ -1,4 +1,4 @@
-import { json } from '@sveltejs/kit';
+import { redirect } from '@sveltejs/kit';
 import { rewriteStandaloneAssetUrls } from '$lib/server/briefing-standalone-html';
 import { requireSession } from '$server/auth';
 import { buildPublicBriefingIssue, fetchBriefingAsset, loadBriefingPreview } from '$server/briefings';
@@ -18,40 +18,68 @@ async function loadStandaloneHtml(jobId: string, assetPath: string, requestHeade
 			requestHeaders
 		});
 	} catch (error) {
-		return json(
+		const issue = buildPublicBriefingIssue(
+			error instanceof Error ? error.message : 'Unable to load the published briefing export.',
+			'Unable to load the published briefing export.',
 			{
-				error: buildPublicBriefingIssue(
-					error instanceof Error ? error.message : 'Unable to reach the briefing service.',
-					'Unable to reach the briefing service.',
-					{
-						retryable: true,
-						timeoutMessage: 'The briefing service timed out while loading the requested export.',
-						timeoutDetail: 'Retry loading the briefing. The export may already be available.'
-					}
-				).message
-			},
-			{ status: 502 }
+				retryable: true,
+				timeoutMessage: 'The published briefing export timed out while loading.',
+				timeoutDetail: 'Retry loading the briefing. The export may already be available.'
+			}
+		);
+		return new Response(
+			renderBriefingStatusPage({
+				state: 'error',
+				status: 'error',
+				jobId,
+				message: issue.message,
+				detail: issue.detail,
+				canRetry: issue.canRetry
+			}),
+			{
+				status: 502,
+				headers: {
+					'cache-control': 'private, max-age=0, must-revalidate',
+					'content-type': 'text/html; charset=utf-8',
+					'x-content-type-options': 'nosniff'
+				}
+			}
 		);
 	}
 
 	if (!upstream.ok) {
 		await upstream.text();
 		const safeStatus = upstream.status === 401 || upstream.status === 403 ? 502 : upstream.status;
+		if (safeStatus === 404) {
+			throw redirect(307, `/briefings/${encodeURIComponent(jobId)}/player`);
+		}
 		const issue = buildPublicBriefingIssue(
 			null,
-			'Unable to fetch briefing HTML.',
+			'Unable to load the published briefing HTML.',
 			{
 				retryable: safeStatus >= 500,
-				timeoutMessage: 'The briefing export timed out while loading.',
+				timeoutMessage: 'The published briefing export timed out while loading.',
 				timeoutDetail: 'Retry loading the briefing. The export may already be available.'
 			}
 		);
-		return new Response(JSON.stringify({ error: issue.message }), {
-			status: safeStatus,
-			headers: {
-				'content-type': 'application/json; charset=utf-8'
+		return new Response(
+			renderBriefingStatusPage({
+				state: 'error',
+				status: 'error',
+				jobId,
+				message: issue.message,
+				detail: issue.detail,
+				canRetry: issue.canRetry
+			}),
+			{
+				status: safeStatus,
+				headers: {
+					'cache-control': 'private, max-age=0, must-revalidate',
+					'content-type': 'text/html; charset=utf-8',
+					'x-content-type-options': 'nosniff'
+				}
 			}
-		});
+		);
 	}
 
 	const standaloneHtml = rewriteStandaloneAssetUrls(await upstream.text(), jobId);

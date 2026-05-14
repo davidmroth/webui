@@ -1,7 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { loadBriefingPreview } from './briefings.ts';
+import { fetchBriefingAsset, loadBriefingPreview } from './briefings.ts';
+
+function storageJson(payload) {
+	return Buffer.from(JSON.stringify(payload), 'utf-8');
+}
 
 test('loadBriefingPreview reads a published briefing manifest from storage without calling the renderer', async () => {
 	const manifest = {
@@ -28,9 +32,6 @@ test('loadBriefingPreview reads a published briefing manifest from storage witho
 	};
 
 	const preview = await loadBriefingPreview('job-storage-123', {
-		fetchImpl: async () => {
-			throw new Error('renderer should not be called');
-		},
 		readObjectBuffer: async (storageKey) => {
 			assert.equal(storageKey, 'webui/briefings/job-storage-123/briefing.json');
 			return Buffer.from(JSON.stringify(manifest), 'utf-8');
@@ -43,23 +44,86 @@ test('loadBriefingPreview reads a published briefing manifest from storage witho
 	assert.equal(preview.audioAsset?.url, '/api/briefings/job-storage-123/assets/audio.mp3');
 });
 
-test('loadBriefingPreview explains production misconfiguration when renderer uses local fallback url', async () => {
+test('loadBriefingPreview returns published processing status when the bundle is missing', async () => {
+	const preview = await loadBriefingPreview('job-processing-123', {
+		readObjectBuffer: async (storageKey) => {
+			if (storageKey === 'webui/briefings/job-processing-123/briefing.json') {
+				throw Object.assign(new Error('NoSuchKey'), { code: 'NoSuchKey' });
+			}
+			assert.equal(storageKey, 'webui/briefings/job-processing-123/status.json');
+			return storageJson({
+				job_id: 'job-processing-123',
+				briefing_id: 'briefing-processing-123',
+				status: 'processing',
+				stage: 'packaging_assets',
+				progress_percent: 97,
+				progress_detail: 'Writing packaged briefing assets.',
+				sentence_total: 59,
+				sentence_completed: 59,
+				created_at: '2026-05-13T17:03:53.185024+00:00',
+				completed_at: null,
+				error: null,
+				validation: null,
+				asset_count: 0
+			});
+		}
+	});
+
+	assert.equal(preview.state, 'processing');
+	assert.equal(preview.status, 'processing');
+	assert.equal(preview.jobId, 'job-processing-123');
+	assert.equal(preview.briefingId, 'briefing-processing-123');
+	assert.equal(preview.renderProgress?.stage, 'packaging_assets');
+	assert.equal(preview.renderProgress?.percent, 97);
+	assert.equal(preview.renderProgress?.detail, 'Writing packaged briefing assets.');
+	assert.equal(preview.renderProgress?.sentenceTotal, 59);
+	assert.equal(preview.renderProgress?.sentenceCompleted, 59);
+});
+
+test('loadBriefingPreview reports export unavailable when status is completed but the manifest is still missing', async () => {
 	const preview = await loadBriefingPreview('job-prod-fail', {
-		baseUrl: 'http://host.docker.internal:9910',
-		fetchImpl: async () => {
-			throw new TypeError('fetch failed');
+		readObjectBuffer: async (storageKey) => {
+			if (storageKey === 'webui/briefings/job-prod-fail/briefing.json') {
+				throw Object.assign(new Error('NoSuchKey'), { code: 'NoSuchKey' });
+			}
+			assert.equal(storageKey, 'webui/briefings/job-prod-fail/status.json');
+			return storageJson({
+				job_id: 'job-prod-fail',
+				briefing_id: 'briefing-prod-fail',
+				status: 'completed',
+				stage: 'completed',
+				progress_percent: 100,
+				progress_detail: 'Briefing ready.',
+				created_at: '2026-05-13T17:03:53.185024+00:00',
+				completed_at: '2026-05-13T17:05:53.185024+00:00',
+				validation: null,
+				asset_count: 0
+			});
 		}
 	});
 
 	assert.equal(preview.state, 'error');
-	assert.equal(preview.message, 'Briefing preview is temporarily unavailable.');
-	assert.match(preview.detail ?? '', /BRIEFING_RENDERER_BASE_URL/);
-	assert.equal(preview.canRetry, false);
+	assert.equal(preview.message, 'Briefing export is not available yet.');
+	assert.match(preview.detail ?? '', /published bundle is not available/i);
+	assert.doesNotMatch(preview.detail ?? '', /BRIEFING_RENDERER_/);
+	assert.equal(preview.canRetry, true);
+});
+
+test('loadBriefingPreview reports export unavailable when neither the manifest nor status snapshot exists', async () => {
+	const preview = await loadBriefingPreview('job-missing-123', {
+		readObjectBuffer: async () => {
+			throw Object.assign(new Error('NoSuchKey'), { code: 'NoSuchKey' });
+		}
+	});
+
+	assert.equal(preview.state, 'error');
+	assert.equal(preview.message, 'Briefing export is not available yet.');
+	assert.match(preview.detail ?? '', /published briefing bundle/i);
+	assert.equal(preview.canRetry, true);
 });
 
 test('loadBriefingPreview does not expose storage paths when object storage reads fail', async () => {
 	const preview = await loadBriefingPreview('job-storage-error', {
-		baseUrl: '',
 		readObjectBuffer: async () => {
 			throw new Error('S3 getObject failed for s3://secret-bucket/webui/briefings/job-storage-error/briefing.json');
 		}
@@ -73,16 +137,13 @@ test('loadBriefingPreview does not expose storage paths when object storage read
 	assert.match(preview.detail ?? '', /object storage/i);
 });
 
-test('loadBriefingPreview marks reachable renderer network failures as retryable', async () => {
-	const preview = await loadBriefingPreview('job-network-fail', {
-		baseUrl: 'https://briefing.example.internal',
-		fetchImpl: async () => {
-			throw new TypeError('fetch failed');
+test('fetchBriefingAsset returns 404 instead of calling the renderer when a published asset is missing', async () => {
+	const response = await fetchBriefingAsset('job-network-fail', 'audio.mp3', {
+		readObjectBuffer: async () => {
+			throw Object.assign(new Error('NoSuchKey'), { code: 'NoSuchKey' });
 		}
 	});
 
-	assert.equal(preview.state, 'error');
-	assert.equal(preview.message, 'Briefing preview is temporarily unavailable.');
-	assert.match(preview.detail ?? '', /could not reach the briefing renderer/i);
-	assert.equal(preview.canRetry, true);
+	assert.equal(response.status, 404);
+	assert.match(await response.text(), /published briefing asset not found/i);
 });

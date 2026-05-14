@@ -9,32 +9,32 @@ const PROGRESS_CEILING = 94;
 const RENDERER_STAGE_COPY = {
 	queued: {
 		defaultPercent: 1,
-		stageLabel: 'Queued for renderer availability',
-		summary: 'The briefing has been accepted and is waiting for the renderer.',
-		detail: 'Another briefing is already using the local renderer. This job will start automatically when a slot is free.'
+		stageLabel: 'Queued for export generation',
+		summary: 'The briefing has been accepted and is waiting for an export slot.',
+		detail: 'Another briefing is already being processed. This job will start automatically when a slot is free.'
 	},
 	rendering_narration: {
 		defaultPercent: 36,
 		stageLabel: 'Rendering narration and timing cues',
-		summary: 'The renderer is actively generating spoken narration for this briefing.',
+		summary: 'The export pipeline is actively generating spoken narration for this briefing.',
 		detail: 'Long narrated briefings can take several minutes on the local TTS sidecar, especially when multiple jobs are queued.'
 	},
 	encoding_audio: {
 		defaultPercent: 84,
 		stageLabel: 'Encoding the final audio track',
-		summary: 'Narration is complete and the renderer is encoding the final audio track.',
+		summary: 'Narration is complete and the export pipeline is encoding the final audio track.',
 		detail: 'The synthesized narration is being converted into the export audio asset.'
 	},
 	assembling_briefing: {
 		defaultPercent: 92,
 		stageLabel: 'Building timeline and briefing bundle',
-		summary: 'The renderer is assembling timeline cues, validation, and HTML output.',
+		summary: 'The export pipeline is assembling timeline cues, validation, and HTML output.',
 		detail: 'The narrated briefing bundle is being assembled from the completed audio and source data.'
 	},
 	packaging_assets: {
 		defaultPercent: 97,
 		stageLabel: 'Writing packaged assets',
-		summary: 'The renderer is writing the final briefing assets and manifest.',
+		summary: 'The export pipeline is writing the final briefing assets and manifest.',
 		detail: 'The export bundle is almost ready.'
 	},
 	completed: {
@@ -46,7 +46,7 @@ const RENDERER_STAGE_COPY = {
 	failed: {
 		defaultPercent: PROGRESS_CEILING,
 		stageLabel: 'Rendering failed',
-		summary: 'The renderer reported a failure for this briefing.',
+		summary: 'The export pipeline reported a failure for this briefing.',
 		detail: 'Check the reported error for the failed stage.'
 	}
 } as const;
@@ -96,7 +96,7 @@ function estimateProgress(preview: Extract<PendingBriefingPreview, { state: 'pro
 					? `${Math.min(sentenceTotal, Math.max(0, sentenceCompleted ?? 0))} of ${sentenceTotal} narration segments completed`
 					: preview.renderProgress.stage === 'queued'
 						? 'Starts automatically when a render slot is free'
-						: 'Live renderer status'
+						: 'Live export status'
 		};
 	}
 
@@ -206,14 +206,19 @@ export function renderBriefingStatusPage(
 	const title = pageTitle(preview);
 	const badgeLabel = stateLabel(preview);
 	const badgeClass = stateClass(preview);
-	const headerTitle = preview.state === 'missing' ? preview.message : preview.briefingId ?? preview.jobId;
+	const headerTitle =
+		preview.state === 'missing'
+			? preview.message
+			: preview.state === 'error'
+				? title
+				: preview.briefingId ?? preview.jobId;
 	const subtitle =
 		preview.state === 'processing'
 			? 'This page refreshes automatically until the narrated briefing is ready.'
 			: preview.state === 'failed'
-				? 'The renderer accepted this job but could not finish it.'
+				? 'The export pipeline accepted this job but could not finish it.'
 				: preview.state === 'missing'
-					? 'No renderer job exists for this identifier.'
+					? 'No published briefing export exists for this identifier.'
 					: 'The WebUI could not retrieve the current briefing status.';
 
 	const progressEstimate = preview.state === 'processing' ? estimateProgress(preview) : null;
@@ -263,7 +268,7 @@ export function renderBriefingStatusPage(
 	const calloutMarkup =
 		preview.state === 'failed'
 			? `<div class="callout">
-				<p>${escapeHtml(preview.error ?? 'The renderer did not provide a specific error.')}</p>
+				<p>${escapeHtml(preview.error ?? 'The export pipeline did not provide a specific error.')}</p>
 				${preview.detail ? `<p class="detail">${escapeHtml(preview.detail)}</p>` : ''}
 			</div>`
 			: preview.state === 'missing'
@@ -353,8 +358,11 @@ export function renderBriefingStatusPage(
 		h1 {
 			margin: 0;
 			font-size: clamp(2rem, 3.6vw, 3.5rem);
-			line-height: 0.95;
+			line-height: 1;
 			letter-spacing: -0.03em;
+			overflow-wrap: anywhere;
+			word-break: break-word;
+			max-width: 100%;
 		}
 
 		.lead, .summary, .detail, .callout, .actions a, dt, dd {

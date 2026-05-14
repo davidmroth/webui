@@ -18,11 +18,11 @@ export async function GET(event) {
 		return json(
 			{
 				error: buildPublicBriefingIssue(
-					error instanceof Error ? error.message : 'Unable to reach the briefing service.',
-					'Unable to reach the briefing service.',
+					error instanceof Error ? error.message : 'Unable to load the published briefing asset.',
+					'Unable to load the published briefing asset.',
 					{
 						retryable: true,
-						timeoutMessage: 'The briefing service timed out while loading the requested asset.',
+						timeoutMessage: 'The published briefing asset timed out while loading.',
 						timeoutDetail: 'Retry loading the briefing asset in a moment.'
 					}
 				).message
@@ -36,10 +36,10 @@ export async function GET(event) {
 		const safeStatus = upstream.status === 401 || upstream.status === 403 ? 502 : upstream.status;
 		const issue = buildPublicBriefingIssue(
 			null,
-			'Unable to fetch briefing asset.',
+			'Unable to fetch the published briefing asset.',
 			{
 				retryable: safeStatus >= 500,
-				timeoutMessage: 'The briefing asset timed out while loading.',
+				timeoutMessage: 'The published briefing asset timed out while loading.',
 				timeoutDetail: 'Retry loading the briefing asset in a moment.'
 			}
 		);

@@ -3,28 +3,73 @@ import { randomUUID } from 'node:crypto';
 import { getConfig } from './env';
 import { DiagnosticEventType, DiagnosticHop, emitDiagnosticEvent } from './diagnostics';
 
-let initialized = false;
+type StorageConnectionConfig = {
+  endpoint: string;
+  port: number;
+  useSsl: boolean;
+  accessKey: string;
+  secretKey: string;
+  bucket: string;
+  region: string;
+};
+
+const initializedTargets = new Set<string>();
+
+function objectStorageConfig(): StorageConnectionConfig {
+  const config = getConfig();
+  return {
+    endpoint: config.objectStorageEndpoint,
+    port: config.objectStoragePort,
+    useSsl: config.objectStorageUseSsl,
+    accessKey: config.objectStorageAccessKey,
+    secretKey: config.objectStorageSecretKey,
+    bucket: config.objectStorageBucket,
+    region: config.objectStorageRegion
+  };
+}
+
+function briefingStorageConfig(): StorageConnectionConfig {
+  return objectStorageConfig();
+}
+
+function storageTargetKey(config: StorageConnectionConfig) {
+  return [config.endpoint, config.port, config.bucket, config.region, config.useSsl ? 'ssl' : 'plain'].join('|');
+}
 
 export function createStorageClient() {
-  const config = getConfig();
+  const config = objectStorageConfig();
   return new Client({
-    endPoint: config.objectStorageEndpoint,
-    port: config.objectStoragePort,
-    useSSL: config.objectStorageUseSsl,
-    accessKey: config.objectStorageAccessKey,
-    secretKey: config.objectStorageSecretKey
+    endPoint: config.endpoint,
+    port: config.port,
+    useSSL: config.useSsl,
+    accessKey: config.accessKey,
+    secretKey: config.secretKey
+  });
+}
+
+function createConfiguredStorageClient(config: StorageConnectionConfig) {
+  return new Client({
+    endPoint: config.endpoint,
+    port: config.port,
+    useSSL: config.useSsl,
+    accessKey: config.accessKey,
+    secretKey: config.secretKey
   });
 }
 
 export async function ensureStorageBucket() {
-  if (initialized) {
+  await ensureConfiguredStorageBucket(objectStorageConfig());
+}
+
+async function ensureConfiguredStorageBucket(config: StorageConnectionConfig) {
+  const targetKey = storageTargetKey(config);
+  if (initializedTargets.has(targetKey)) {
     return;
   }
-  const config = getConfig();
-  const client = createStorageClient();
+  const client = createConfiguredStorageClient(config);
   let exists: boolean | null = null;
   try {
-    exists = await client.bucketExists(config.objectStorageBucket);
+    exists = await client.bucketExists(config.bucket);
   } catch {
     // Some S3-compatible providers deny bucket existence checks unless extra IAM
     // permissions are granted. Continue and let putObject/getObject decide.
@@ -33,7 +78,7 @@ export async function ensureStorageBucket() {
 
   if (exists === false) {
     try {
-      await client.makeBucket(config.objectStorageBucket, config.objectStorageRegion);
+      await client.makeBucket(config.bucket, config.region);
     } catch (error) {
       // In production the bucket is often pre-provisioned and credentials may
       // intentionally exclude create/list permissions.
@@ -51,7 +96,7 @@ export async function ensureStorageBucket() {
       }
     }
   }
-  initialized = true;
+  initializedTargets.add(targetKey);
 }
 
 function streamToBuffer(stream: NodeJS.ReadableStream): Promise<Buffer> {
@@ -88,13 +133,13 @@ export async function uploadObject(params: {
 }) {
   const startedAt = Date.now();
   await ensureStorageBucket();
-  const config = getConfig();
-  const client = createStorageClient();
+  const config = objectStorageConfig();
+  const client = createConfiguredStorageClient(config);
   const keyBase = `${params.conversationId}/${params.messageId}/${randomUUID()}-${params.fileName}`;
-  const prefix = normalizeObjectStoragePrefix(config.objectStoragePrefix);
+  const prefix = normalizeObjectStoragePrefix(getConfig().objectStoragePrefix);
   const objectKey = prefix ? `${prefix}/${keyBase}` : keyBase;
   try {
-    await client.putObject(config.objectStorageBucket, objectKey, params.buffer, params.buffer.length, {
+    await client.putObject(config.bucket, objectKey, params.buffer, params.buffer.length, {
       'Content-Type': params.contentType
     });
   } catch (error) {
@@ -113,34 +158,41 @@ export async function uploadObject(params: {
     messageId: params.messageId,
     sizeBytes: params.buffer.length,
     durationMs: Date.now() - startedAt,
-    bucket: config.objectStorageBucket,
+    bucket: config.bucket,
     prefixConfigured: Boolean(prefix)
   }, params.conversationId);
   return {
-    bucket: config.objectStorageBucket,
+    bucket: config.bucket,
     key: objectKey,
     sizeBytes: params.buffer.length
   };
 }
 
 export async function getObjectBuffer(storageKey: string): Promise<Buffer> {
+  return getConfiguredObjectBuffer(storageKey, objectStorageConfig());
+}
+
+export async function getBriefingObjectBuffer(storageKey: string): Promise<Buffer> {
+  return getConfiguredObjectBuffer(storageKey, briefingStorageConfig());
+}
+
+async function getConfiguredObjectBuffer(storageKey: string, config: StorageConnectionConfig): Promise<Buffer> {
   const startedAt = Date.now();
-  await ensureStorageBucket();
-  const config = getConfig();
-  const client = createStorageClient();
+  await ensureConfiguredStorageBucket(config);
+  const client = createConfiguredStorageClient(config);
   try {
-    const stream = await client.getObject(config.objectStorageBucket, storageKey);
+    const stream = await client.getObject(config.bucket, storageKey);
     const buffer = await streamToBuffer(stream);
     emitDiagnosticEvent(DiagnosticEventType.AttachmentDownloadSucceeded, DiagnosticHop.ObjectStorage, {
       sizeBytes: buffer.length,
       durationMs: Date.now() - startedAt,
-      bucket: config.objectStorageBucket
+      bucket: config.bucket
     });
     return buffer;
   } catch (error) {
     emitDiagnosticEvent(DiagnosticEventType.AttachmentDownloadFailed, DiagnosticHop.ObjectStorage, {
       durationMs: Date.now() - startedAt,
-      bucket: config.objectStorageBucket,
+      bucket: config.bucket,
       errorClass: error instanceof Error ? error.constructor.name : typeof error,
       errorMessage: error instanceof Error ? error.message : 'Object download failed.'
     });

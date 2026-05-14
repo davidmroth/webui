@@ -50,11 +50,11 @@
 		}
 
 		if (preview.state === 'failed') {
-			return 'Renderer job failed';
+			return 'Briefing export failed';
 		}
 
 		if (preview.state === 'missing') {
-			return 'Renderer job not found';
+			return 'Briefing export not found';
 		}
 
 		return 'Briefing preview unavailable';
@@ -71,7 +71,7 @@
 
 		<div class="briefing-progress-shell">
 			<div class="briefing-progress-header">
-				<span>{progress.source === 'renderer' ? 'Renderer progress' : 'Estimated render progress'}</span>
+				<span>{progress.source === 'renderer' ? 'Render progress' : 'Estimated render progress'}</span>
 				<strong>{progress.percent}%</strong>
 			</div>
 			<div
@@ -91,7 +91,7 @@
 				<span>Elapsed {formatDuration(progress.elapsedMs)}</span>
 				<span>
 					{#if progress.source === 'renderer'}
-						{progress.trailingLabel ?? 'Live renderer status'}
+						{progress.trailingLabel ?? 'Live render status'}
 					{:else if progress.etaMs === null}
 						Usually any moment now
 					{:else}
@@ -106,7 +106,7 @@
 			<p class="briefing-status-meta">Auto-refreshing every few seconds</p>
 		</div>
 	{:else if preview.state === 'failed'}
-		<p>{preview.error ?? 'The renderer reported a failure for this job.'}</p>
+		<p>{preview.error ?? 'The published briefing export could not be completed.'}</p>
 		{#if preview.detail}
 			<p class="briefing-status-meta">{preview.detail}</p>
 		{/if}
