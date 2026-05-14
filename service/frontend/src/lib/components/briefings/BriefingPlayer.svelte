@@ -1,14 +1,27 @@
 <script lang="ts">
-	import type { BriefingPreviewReady, BriefingTimelineCue } from '$lib/types/briefing';
+	import { browser } from '$app/environment';
+	import type { BriefingPreviewReady, BriefingShareSettings, BriefingTimelineCue } from '$lib/types/briefing';
 
 	interface Props {
 		briefing: BriefingPreviewReady;
+		sharing: BriefingShareSettings;
 	}
 
-	let { briefing }: Props = $props();
+	let { briefing, sharing }: Props = $props();
 	let audioElement = $state<HTMLAudioElement | null>(null);
 	let currentTime = $state(0);
 	let selectedSourceId = $state<string | null>(null);
+	let shareState = $state<BriefingShareSettings>(sharing);
+	let shareBusy = $state(false);
+	let shareError = $state<string | null>(null);
+	let shareNotice = $state<string | null>(null);
+
+	$effect(() => {
+		shareState = sharing;
+		shareBusy = false;
+		shareError = null;
+		shareNotice = null;
+	});
 
 	$effect(() => {
 		const defaultSourceId = briefing.sources[0]?.id ?? null;
@@ -73,6 +86,15 @@
 		seekTo(sectionStart);
 	}
 
+	function handleSectionCardKeydown(event: KeyboardEvent, sectionStart: number) {
+		if (event.key !== 'Enter' && event.key !== ' ') {
+			return;
+		}
+
+		event.preventDefault();
+		seekTo(sectionStart);
+	}
+
 	function sourceButtonLabel(title: string, publisher: string) {
 		return publisher ? `${title} · ${publisher}` : title;
 	}
@@ -84,6 +106,74 @@
 	function audioDownloadName(assetPath: string) {
 		const extension = assetPath.split('.').pop()?.trim();
 		return extension ? `briefing-${briefing.jobId}.${extension}` : `briefing-${briefing.jobId}`;
+	}
+
+	function shareUrl(path: string) {
+		if (browser) {
+			return new URL(path, window.location.origin).toString();
+		}
+
+		return path;
+	}
+
+	async function togglePublicBriefing() {
+		if (!shareState.canManage || shareBusy) {
+			return;
+		}
+
+		shareBusy = true;
+		shareError = null;
+		shareNotice = null;
+
+		const nextPublicState = !shareState.isPublic;
+		try {
+			const response = await fetch(`/api/briefings/${encodeURIComponent(briefing.jobId)}/sharing`, {
+				method: 'POST',
+				headers: {
+					'content-type': 'application/json'
+				},
+				body: JSON.stringify({ isPublic: nextPublicState })
+			});
+
+			const payload = await response.json().catch(() => ({}));
+			if (!response.ok) {
+				throw new Error(typeof payload?.error === 'string' ? payload.error : 'Unable to update briefing sharing.');
+			}
+
+			shareState = {
+				...shareState,
+				isPublic: payload.isPublic === true,
+				playerPath: typeof payload.playerPath === 'string' ? payload.playerPath : shareState.playerPath,
+				standalonePath:
+					typeof payload.standalonePath === 'string' ? payload.standalonePath : shareState.standalonePath
+			};
+			shareNotice = nextPublicState
+				? 'Standalone HTML access enabled. Anyone with the link can open it.'
+				: 'Standalone HTML access disabled. Authentication is required again.';
+		} catch (toggleError) {
+			shareError =
+				toggleError instanceof Error ? toggleError.message : 'Unable to update briefing sharing right now.';
+		} finally {
+			shareBusy = false;
+		}
+	}
+
+	async function copyShareLink() {
+		shareError = null;
+		shareNotice = null;
+		const link = shareUrl(shareState.standalonePath);
+
+		if (!browser || !navigator.clipboard?.writeText) {
+			shareNotice = link;
+			return;
+		}
+
+		try {
+			await navigator.clipboard.writeText(link);
+			shareNotice = 'Public link copied.';
+		} catch {
+			shareNotice = link;
+		}
 	}
 
 	const selectedSource = $derived(
@@ -123,6 +213,52 @@
 		</div>
 
 		<div class="briefing-hero-actions">
+			{#if shareState.canManage}
+				<section class="briefing-share-card" aria-label="Briefing sharing controls">
+					<div class="briefing-share-copy">
+						<div class="briefing-share-kicker">Sharing</div>
+						<strong>{shareState.isPublic ? 'Standalone HTML is public' : 'Standalone HTML is private'}</strong>
+						<p>
+							{shareState.isPublic
+								? 'The standalone HTML export and its assets now bypass authentication.'
+								: 'The standalone HTML export requires authentication until you explicitly make it public.'}
+						</p>
+					</div>
+					<div class="briefing-share-actions">
+						<button
+							class="secondary-button share-toggle-button"
+							type="button"
+							onclick={togglePublicBriefing}
+							disabled={shareBusy}
+							aria-pressed={shareState.isPublic}
+						>
+							{#if shareBusy}
+								Updating...
+							{:else if shareState.isPublic}
+								Make private
+							{:else}
+								Make public
+							{/if}
+						</button>
+						{#if shareState.isPublic}
+							<button class="secondary-button share-copy-button" type="button" onclick={copyShareLink}>
+								Copy link
+							</button>
+						{/if}
+					</div>
+					{#if shareError}
+						<p class="briefing-share-error">{shareError}</p>
+					{:else if shareNotice}
+						<p class="briefing-share-notice">{shareNotice}</p>
+					{/if}
+					{#if shareState.isPublic}
+						<a class="briefing-share-link" href={shareState.standalonePath} target="_blank" rel="noreferrer">
+							{shareUrl(shareState.standalonePath)}
+						</a>
+					{/if}
+				</section>
+			{/if}
+
 			{#if briefing.exportHtmlAsset}
 				<a class="secondary-button" href={briefing.exportHtmlAsset.url} target="_blank" rel="noreferrer">
 					Open standalone HTML
@@ -155,7 +291,10 @@
 				<section
 					class:active={isCueActive(section.cue)}
 					class="briefing-section-card"
+					role="button"
+					tabindex="0"
 					onclick={(event) => handleSectionCardClick(event, section.start)}
+					onkeydown={(event) => handleSectionCardKeydown(event, section.start)}
 				>
 					<div class="briefing-section-header">
 						<button class="briefing-section-title" type="button" onclick={() => seekTo(section.start)}>
@@ -398,6 +537,67 @@
 		align-items: flex-start;
 	}
 
+	.briefing-share-card {
+		display: grid;
+		gap: 0.75rem;
+		padding: 1rem;
+		min-width: min(100%, 22rem);
+		max-width: 28rem;
+		border: 1px solid rgba(14, 116, 144, 0.16);
+		border-radius: 1rem;
+		background: rgba(255, 255, 255, 0.88);
+		box-shadow: 0 18px 40px rgba(15, 23, 42, 0.08);
+	}
+
+	.briefing-share-copy {
+		display: grid;
+		gap: 0.35rem;
+	}
+
+	.briefing-share-copy p {
+		margin: 0;
+		color: #475569;
+		font-size: 0.95rem;
+		line-height: 1.5;
+	}
+
+	.briefing-share-kicker {
+		font-size: 0.72rem;
+		font-weight: 700;
+		letter-spacing: 0.12em;
+		text-transform: uppercase;
+		color: #0f766e;
+	}
+
+	.briefing-share-actions {
+		display: flex;
+		gap: 0.75rem;
+		flex-wrap: wrap;
+	}
+
+	.briefing-share-link,
+	.briefing-share-notice,
+	.briefing-share-error {
+		font-size: 0.86rem;
+		line-height: 1.45;
+		word-break: break-word;
+	}
+
+	.briefing-share-link {
+		color: #0f172a;
+		text-decoration: underline;
+	}
+
+	.briefing-share-notice {
+		margin: 0;
+		color: #0f766e;
+	}
+
+	.briefing-share-error {
+		margin: 0;
+		color: #b91c1c;
+	}
+
 	.briefing-audio-card {
 		padding: 1.25rem 1.5rem;
 		display: grid;
@@ -592,6 +792,22 @@
 
 		.briefing-hero {
 			display: grid;
+		}
+
+		.briefing-share-card {
+			max-width: none;
+			width: 100%;
+		}
+	}
+
+	@media (max-width: 640px) {
+		.briefing-share-actions {
+			flex-direction: column;
+		}
+
+		.share-toggle-button,
+		.share-copy-button {
+			width: 100%;
 		}
 	}
 </style>

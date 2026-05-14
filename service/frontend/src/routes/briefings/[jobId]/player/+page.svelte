@@ -4,16 +4,20 @@
 	import { base } from '$app/paths';
 	import BriefingStatusCard from '$lib/components/briefings/BriefingStatusCard.svelte';
 	import { startBriefingPreviewPolling } from '$lib/services/briefing-preview';
-	import type { BriefingPreview } from '$lib/types/briefing';
+	import type { BriefingPreview, BriefingShareSettings } from '$lib/types/briefing';
 	import BriefingPlayer from '$lib/components/briefings/BriefingPlayer.svelte';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
-	let preview = $state<BriefingPreview>(data.preview);
+	const initialPreview = data.preview;
+	const initialSharing = data.sharing;
+	let preview = $state<BriefingPreview>(initialPreview);
+	let sharing = $state<BriefingShareSettings>(initialSharing);
 	let pollError = $state<string | null>(null);
 
 	$effect(() => {
 		preview = data.preview;
+		sharing = data.sharing;
 		pollError = null;
 	});
 
@@ -74,7 +78,7 @@
 <section class="briefing-preview-page">
 	<div class="briefing-preview-shell">
 		{#if preview.state === 'ready'}
-			<BriefingPlayer briefing={preview} />
+			<BriefingPlayer briefing={preview} sharing={sharing} />
 		{:else}
 			<BriefingStatusCard preview={preview} refreshHref={currentPlayerHref()} pollError={pollError} />
 		{/if}

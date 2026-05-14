@@ -98,3 +98,13 @@ CREATE TABLE IF NOT EXISTS hermes_delivery_traces (
   INDEX idx_delivery_traces_created (created_at),
   INDEX idx_delivery_traces_conversation_created (conversation_id, created_at)
 );
+
+CREATE TABLE IF NOT EXISTS briefing_shares (
+  job_id VARCHAR(191) PRIMARY KEY,
+  owner_user_id CHAR(36) NOT NULL,
+  is_public TINYINT(1) NOT NULL DEFAULT 0,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT fk_briefing_shares_owner FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE CASCADE,
+  INDEX idx_briefing_shares_owner (owner_user_id)
+);

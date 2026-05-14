@@ -13,6 +13,7 @@ import { migration as mobileResilientChatStateMigration } from './migrations/010
 import { migration as hermesRunStatusBackfillMigration } from './migrations/011_backfill_hermes_run_status';
 import { migration as repairLegacyChatSchemaMigration } from './migrations/012_repair_legacy_chat_schema';
 import { migration as slashCommandCacheMigration } from './migrations/013_slash_command_cache';
+import { migration as briefingSharesMigration } from './migrations/014_briefing_shares';
 
 interface SchemaMigrationRow {
   id: string;
@@ -54,7 +55,8 @@ const migrations: Migration[] = [
   mobileResilientChatStateMigration,
   hermesRunStatusBackfillMigration,
   repairLegacyChatSchemaMigration,
-  slashCommandCacheMigration
+  slashCommandCacheMigration,
+  briefingSharesMigration
 ];
 
 function toIsoString(value: Date | string | null | undefined): string | null {

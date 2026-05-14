@@ -1,12 +1,21 @@
 import type { PageServerLoad } from './$types';
 import { requireSession } from '$server/auth';
 import { loadBriefingPreview } from '$server/briefings';
+import { getBriefingViewerAccess } from '$server/briefing-sharing';
 
 export const load: PageServerLoad = async (event) => {
-	await requireSession(event);
+	const session = await requireSession(event);
+	const access = await getBriefingViewerAccess(event.params.jobId, session.userId);
+
 	const preview = await loadBriefingPreview(event.params.jobId);
 
 	return {
-		preview
+		preview,
+		sharing: {
+			isPublic: access.isPublic,
+			canManage: access.canManage,
+			playerPath: `/briefings/${encodeURIComponent(event.params.jobId)}/player`,
+			standalonePath: `/briefings/${encodeURIComponent(event.params.jobId)}`
+		}
 	};
 };

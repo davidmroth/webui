@@ -1,6 +1,7 @@
-import { redirect } from '@sveltejs/kit';
+import { error, redirect } from '@sveltejs/kit';
 import { rewriteStandaloneAssetUrls } from '$lib/server/briefing-standalone-html';
 import { requireSession } from '$server/auth';
+import { getBriefingViewerAccess } from '$server/briefing-sharing';
 import { buildPublicBriefingIssue, fetchBriefingAsset, loadBriefingPreview } from '$server/briefings';
 import {
 	renderBriefingStatusPage,
@@ -11,7 +12,16 @@ function buildRetryHref(pathname: string) {
 	return `${pathname}?retry=1`;
 }
 
-async function loadStandaloneHtml(jobId: string, assetPath: string, requestHeaders: Headers) {
+async function loadStandaloneHtml(
+	jobId: string,
+	assetPath: string,
+	requestHeaders: Headers,
+	management?: {
+		canManage: boolean;
+		isPublic: boolean;
+		standalonePath: string;
+	}
+) {
 	let upstream: Response;
 	try {
 		upstream = await fetchBriefingAsset(jobId, assetPath, {
@@ -82,7 +92,7 @@ async function loadStandaloneHtml(jobId: string, assetPath: string, requestHeade
 		);
 	}
 
-	const standaloneHtml = rewriteStandaloneAssetUrls(await upstream.text(), jobId);
+	const standaloneHtml = rewriteStandaloneAssetUrls(await upstream.text(), jobId, management);
 	const headers = new Headers();
 	for (const headerName of ['content-type', 'cache-control', 'content-disposition']) {
 		const headerValue = upstream.headers.get(headerName);
@@ -103,13 +113,25 @@ async function loadStandaloneHtml(jobId: string, assetPath: string, requestHeade
 }
 
 export async function GET(event) {
-	await requireSession(event);
+	const session = event.locals.session;
+	const access = await getBriefingViewerAccess(event.params.jobId, session?.userId ?? null);
+	if (!access.canView) {
+		if (!session) {
+			await requireSession(event);
+		}
+
+		throw error(404, 'Briefing not found.');
+	}
 
 	const preview = await loadBriefingPreview(event.params.jobId);
 
 	const retryRequested = event.url.searchParams.get('retry') === '1';
 	if (preview.state === 'failed' && preview.canRetry && retryRequested) {
-		const retryResponse = await loadStandaloneHtml(preview.jobId, 'standalone.html', event.request.headers);
+		const retryResponse = await loadStandaloneHtml(preview.jobId, 'standalone.html', event.request.headers, {
+			canManage: access.canManage,
+			isPublic: access.isPublic,
+			standalonePath: `/briefings/${encodeURIComponent(preview.jobId)}`
+		});
 		if (retryResponse.ok) {
 			return retryResponse;
 		}
@@ -128,5 +150,9 @@ export async function GET(event) {
 
 	const resolvedJobId = preview.jobId;
 	const standaloneAssetPath = preview.exportHtmlAsset?.path ?? 'standalone.html';
-	return loadStandaloneHtml(resolvedJobId, standaloneAssetPath, event.request.headers);
+	return loadStandaloneHtml(resolvedJobId, standaloneAssetPath, event.request.headers, {
+		canManage: access.canManage,
+		isPublic: access.isPublic,
+		standalonePath: `/briefings/${encodeURIComponent(resolvedJobId)}`
+	});
 }

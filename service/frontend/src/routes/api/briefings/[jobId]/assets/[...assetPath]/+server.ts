@@ -1,9 +1,19 @@
 import { json } from '@sveltejs/kit';
 import { requireSession } from '$server/auth';
+import { getBriefingViewerAccess } from '$server/briefing-sharing';
 import { buildPublicBriefingIssue, fetchBriefingAsset, normalizeAssetPath } from '$server/briefings';
 
 export async function GET(event) {
-	await requireSession(event);
+	const session = event.locals.session;
+	const access = await getBriefingViewerAccess(event.params.jobId, session?.userId ?? null);
+	if (!access.canView) {
+		if (!session) {
+			await requireSession(event);
+		}
+
+		return json({ error: 'Not found.' }, { status: 404 });
+	}
+
 	const assetPath = normalizeAssetPath(event.params.assetPath ?? '');
 	if (!assetPath) {
 		return json({ error: 'A valid briefing asset path is required.' }, { status: 400 });

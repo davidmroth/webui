@@ -27,3 +27,28 @@ test('rewriteStandaloneAssetUrls rewrites illustration assets', () => {
 		/src="\/api\/briefings\/job-42\/assets\/illustrations\/chart%201\.svg"/
 	);
 });
+
+test('rewriteStandaloneAssetUrls injects standalone sharing controls for managers', () => {
+	const html = rewriteStandaloneAssetUrls('<html><body><h1>Briefing</h1></body></html>', 'job-42', {
+		canManage: true,
+		isPublic: false,
+		standalonePath: '/briefings/job-42'
+	});
+
+	assert.match(html, /Standalone HTML is private/);
+	assert.match(html, /Make standalone public/);
+	assert.match(html, /Copy standalone link/);
+	assert.match(html, /data-standalone-path="\/briefings\/job-42"/);
+	assert.match(html, /fetch\('\/api\/briefings\/' \+ encodeURIComponent\(jobId\) \+ '\/sharing'/);
+});
+
+test('rewriteStandaloneAssetUrls does not inject standalone sharing controls for viewers', () => {
+	const html = rewriteStandaloneAssetUrls('<html><body><h1>Briefing</h1></body></html>', 'job-42', {
+		canManage: false,
+		isPublic: true,
+		standalonePath: '/briefings/job-42'
+	});
+
+	assert.doesNotMatch(html, /briefing-share-manager/);
+	assert.doesNotMatch(html, /Make standalone private/);
+});

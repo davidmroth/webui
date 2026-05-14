@@ -164,6 +164,13 @@ export interface BriefingPreviewError {
 	canRetry: boolean;
 }
 
+export interface BriefingShareSettings {
+	isPublic: boolean;
+	canManage: boolean;
+	playerPath: string;
+	standalonePath: string;
+}
+
 export type BriefingPreview =
 	| BriefingPreviewReady
 	| BriefingPreviewProcessing

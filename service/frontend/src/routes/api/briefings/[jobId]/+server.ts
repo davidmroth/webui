@@ -1,5 +1,6 @@
 import { json } from '@sveltejs/kit';
 import { requireSession } from '$server/auth';
+import { getBriefingViewerAccess } from '$server/briefing-sharing';
 import { loadBriefingPreview } from '$server/briefings';
 import type { BriefingPreview } from '$lib/types/briefing';
 
