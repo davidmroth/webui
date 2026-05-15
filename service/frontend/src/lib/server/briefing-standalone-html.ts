@@ -34,20 +34,73 @@ function buildManagementBar(jobId: string, options: StandaloneManagementOptions)
 <aside id="briefing-share-manager" data-job-id="${escapeAttribute(jobId)}" data-public="${options.isPublic ? 'true' : 'false'}" data-standalone-path="${escapeAttribute(options.standalonePath)}">
 	<style>
 		#briefing-share-manager {
-			position: sticky;
-			top: 0;
+			position: fixed;
+			right: 1rem;
+			bottom: 1rem;
 			z-index: 9999;
-			display: grid;
-			gap: 0.75rem;
-			padding: 0.9rem 1rem;
-			margin: 0;
-			border-bottom: 1px solid rgba(15, 23, 42, 0.08);
-			background: rgba(255, 252, 247, 0.96);
-			backdrop-filter: blur(14px);
-			-webkit-backdrop-filter: blur(14px);
-			box-shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
 			font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 			color: #1f2937;
+		}
+		#briefing-share-manager[hidden] {
+			display: none;
+		}
+		#briefing-share-launcher {
+			appearance: none;
+			border: 0;
+			border-radius: 999px;
+			padding: 0.85rem 1rem;
+			font-size: 0.95rem;
+			font-weight: 700;
+			cursor: pointer;
+			background: rgba(17, 24, 39, 0.94);
+			color: #fff;
+			box-shadow: 0 18px 42px rgba(15, 23, 42, 0.22);
+			backdrop-filter: blur(14px);
+			-webkit-backdrop-filter: blur(14px);
+		}
+		#briefing-share-dialog {
+			position: fixed;
+			inset: 0;
+			display: none;
+			align-items: flex-end;
+			justify-content: flex-end;
+			padding: 1rem;
+			background: rgba(15, 23, 42, 0.16);
+		}
+		#briefing-share-dialog[data-open="true"] {
+			display: flex;
+		}
+		#briefing-share-panel {
+			width: min(28rem, calc(100vw - 2rem));
+			display: grid;
+			gap: 0.75rem;
+			padding: 1rem;
+			margin: 0;
+			border: 1px solid rgba(15, 23, 42, 0.08);
+			border-radius: 1.25rem;
+			background: rgba(255, 252, 247, 0.98);
+			backdrop-filter: blur(14px);
+			-webkit-backdrop-filter: blur(14px);
+			box-shadow: 0 24px 54px rgba(15, 23, 42, 0.18);
+		}
+		#briefing-share-panel-header {
+			display: flex;
+			align-items: flex-start;
+			justify-content: space-between;
+			gap: 0.75rem;
+		}
+		#briefing-share-close {
+			appearance: none;
+			border: 0;
+			border-radius: 999px;
+			width: 2.25rem;
+			height: 2.25rem;
+			padding: 0;
+			font-size: 1.25rem;
+			line-height: 1;
+			cursor: pointer;
+			background: #e5e7eb;
+			color: #111827;
 		}
 		#briefing-share-manager .share-manager-copy {
 			display: grid;
@@ -74,7 +127,7 @@ function buildManagementBar(jobId: string, options: StandaloneManagementOptions)
 			flex-wrap: wrap;
 			gap: 0.75rem;
 		}
-		#briefing-share-manager button {
+		#briefing-share-manager .share-manager-actions button {
 			appearance: none;
 			border: 0;
 			border-radius: 999px;
@@ -85,11 +138,11 @@ function buildManagementBar(jobId: string, options: StandaloneManagementOptions)
 			background: #111827;
 			color: #fff;
 		}
-		#briefing-share-manager button.secondary {
+		#briefing-share-manager .share-manager-actions button.secondary {
 			background: #e5e7eb;
 			color: #111827;
 		}
-		#briefing-share-manager button[disabled] {
+		#briefing-share-manager .share-manager-actions button[disabled] {
 			opacity: 0.6;
 			cursor: wait;
 		}
@@ -103,34 +156,72 @@ function buildManagementBar(jobId: string, options: StandaloneManagementOptions)
 			color: #b91c1c;
 		}
 		@media (max-width: 640px) {
+			#briefing-share-manager {
+				right: 0.75rem;
+				bottom: 0.75rem;
+			}
+			#briefing-share-dialog {
+				align-items: flex-end;
+				justify-content: stretch;
+				padding: 0.75rem;
+			}
+			#briefing-share-panel {
+				width: 100%;
+				max-height: min(32rem, calc(100vh - 1.5rem));
+				overflow: auto;
+			}
 			#briefing-share-manager .share-manager-actions {
 				flex-direction: column;
 			}
-			#briefing-share-manager button {
+			#briefing-share-manager .share-manager-actions button,
+			#briefing-share-launcher {
 				width: 100%;
 			}
 		}
 	</style>
-	<div class="share-manager-copy">
-		<div class="share-manager-kicker">Standalone access</div>
-		<div class="share-manager-status">${statusLabel}</div>
-		<div class="share-manager-detail">${statusDescription}</div>
+	<button type="button" id="briefing-share-launcher" aria-haspopup="dialog" aria-expanded="false">Manage standalone access</button>
+	<div id="briefing-share-dialog" aria-hidden="true">
+		<section id="briefing-share-panel" role="dialog" aria-modal="true" aria-labelledby="briefing-share-title">
+			<div id="briefing-share-panel-header">
+				<div class="share-manager-copy">
+					<div class="share-manager-kicker">Standalone access</div>
+					<div class="share-manager-status" id="briefing-share-title">${statusLabel}</div>
+					<div class="share-manager-detail">${statusDescription}</div>
+				</div>
+				<button type="button" id="briefing-share-close" aria-label="Close standalone access panel">×</button>
+			</div>
+			<div class="share-manager-actions">
+				<button type="button" id="share-toggle-button">${buttonLabel}</button>
+				<button type="button" id="share-copy-button" class="secondary">Copy standalone link</button>
+			</div>
+			<div id="share-manager-message" class="share-manager-message" aria-live="polite"></div>
+		</section>
 	</div>
-	<div class="share-manager-actions">
-		<button type="button" id="share-toggle-button">${buttonLabel}</button>
-		<button type="button" id="share-copy-button" class="secondary">Copy standalone link</button>
-	</div>
-	<div id="share-manager-message" class="share-manager-message" aria-live="polite"></div>
 	<script>
 		(() => {
 			const root = document.getElementById('briefing-share-manager');
 			if (!root) return;
+			const launcher = document.getElementById('briefing-share-launcher');
+			const dialog = document.getElementById('briefing-share-dialog');
+			const panel = document.getElementById('briefing-share-panel');
+			const closeButton = document.getElementById('briefing-share-close');
 			const toggleButton = document.getElementById('share-toggle-button');
 			const copyButton = document.getElementById('share-copy-button');
 			const message = document.getElementById('share-manager-message');
 			const standalonePath = root.dataset.standalonePath || window.location.pathname;
 			const jobId = root.dataset.jobId || '';
 			let isPublic = root.dataset.public === 'true';
+			const setOpen = (open) => {
+				if (!dialog || !launcher) return;
+				dialog.dataset.open = open ? 'true' : 'false';
+				dialog.setAttribute('aria-hidden', open ? 'false' : 'true');
+				launcher.setAttribute('aria-expanded', open ? 'true' : 'false');
+				if (open) {
+					toggleButton?.focus();
+				} else {
+					launcher.focus();
+				}
+			};
 			const setMessage = (text, isError = false) => {
 				if (!message) return;
 				message.textContent = text;
@@ -154,6 +245,18 @@ function buildManagementBar(jobId: string, options: StandaloneManagementOptions)
 					? 'Anyone with this standalone link can open it.'
 					: 'Authentication is required until you explicitly make this standalone export public.';
 			};
+			launcher?.addEventListener('click', () => setOpen(true));
+			closeButton?.addEventListener('click', () => setOpen(false));
+			dialog?.addEventListener('click', (event) => {
+				if (event.target === dialog) {
+					setOpen(false);
+				}
+			});
+			document.addEventListener('keydown', (event) => {
+				if (event.key === 'Escape' && dialog?.dataset.open === 'true') {
+					setOpen(false);
+				}
+			});
 			toggleButton?.addEventListener('click', async () => {
 				setMessage('');
 				setState(isPublic, true);
@@ -184,6 +287,7 @@ function buildManagementBar(jobId: string, options: StandaloneManagementOptions)
 					setMessage(link);
 				}
 			});
+			setOpen(false);
 		})();
 	</script>
 </aside>`;

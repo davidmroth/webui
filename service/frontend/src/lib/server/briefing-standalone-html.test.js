@@ -36,9 +36,12 @@ test('rewriteStandaloneAssetUrls injects standalone sharing controls for manager
 	});
 
 	assert.match(html, /Standalone HTML is private/);
+	assert.match(html, /Manage standalone access/);
 	assert.match(html, /Make standalone public/);
 	assert.match(html, /Copy standalone link/);
+	assert.match(html, /role="dialog"/);
 	assert.match(html, /data-standalone-path="\/briefings\/job-42"/);
+	assert.match(html, /dialog\.dataset\.open = open \? 'true' : 'false'/);
 	assert.match(html, /fetch\('\/api\/briefings\/' \+ encodeURIComponent\(jobId\) \+ '\/sharing'/);
 });
 
