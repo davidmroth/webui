@@ -2,6 +2,7 @@ import { json } from '@sveltejs/kit';
 import { exportConversationForHermes } from '$server/chat';
 import { getConfig } from '$server/env';
 import { noteHermesWorkerAuthFailure, noteHermesWorkerHeartbeat } from '$server/hermes-heartbeat';
+import { derivePublicBaseUrl } from '$server/public-base-url';
 
 function isAuthorized(request: Request) {
   const expected = getConfig().hermesServiceToken;
@@ -17,7 +18,9 @@ export async function GET({ params, request }: { params: { conversationId: strin
 
   noteHermesWorkerHeartbeat('context');
 
-  const payload = await exportConversationForHermes(params.conversationId);
+  const payload = await exportConversationForHermes(params.conversationId, {
+    publicBaseUrl: derivePublicBaseUrl(request, request.url ? new URL(request.url).origin : '')
+  });
   if (!payload) {
     return json({ error: 'Conversation not found.' }, { status: 404 });
   }

@@ -252,6 +252,7 @@ interface ConversationExportMessage {
 export interface ConversationExportPayload {
   schemaVersion: 1;
   exportedAt: string;
+  publicBaseUrl: string | null;
   conversation: {
     id: string;
     title: string;
@@ -1483,6 +1484,7 @@ export async function exportConversationForUser(
   return {
     schemaVersion: 1,
     exportedAt: new Date().toISOString(),
+    publicBaseUrl: null,
     conversation: {
       id: conversation.id,
       title: conversation.title,
@@ -1518,14 +1520,23 @@ export async function exportConversationForUser(
 }
 
 export async function exportConversationForHermes(
-  conversationId: string
+  conversationId: string,
+  options: { publicBaseUrl?: string | null } = {}
 ): Promise<ConversationExportPayload | null> {
   const ownerId = await getConversationOwnerId(conversationId);
   if (!ownerId) {
     return null;
   }
 
-  return exportConversationForUser(ownerId, conversationId);
+  const payload = await exportConversationForUser(ownerId, conversationId);
+  if (!payload) {
+    return null;
+  }
+
+  return {
+    ...payload,
+    publicBaseUrl: options.publicBaseUrl?.trim() || null
+  };
 }
 
 export async function listMessages(userId: string, conversationId: string): Promise<ChatMessage[]> {
@@ -2120,7 +2131,7 @@ export async function enqueueUserMessage(
   return { messageId, eventId };
 }
 
-export async function dequeueHermesEvent() {
+export async function dequeueHermesEvent(options: { publicBaseUrl?: string | null } = {}) {
   const leaseSeconds = Math.max(30, getConfig().hermesEventLeaseSeconds);
   const connection = (await pool.getConnection()) as any;
   let transactionStarted = false;
@@ -2203,6 +2214,7 @@ export async function dequeueHermesEvent() {
       conversationName: row.conversation_title,
       sessionPlatform: 'webui-conversation',
       sessionChatId: row.conversation_id,
+      publicBaseUrl: options.publicBaseUrl?.trim() || null,
       contextUrl: `/api/internal/hermes/conversations/${row.conversation_id}/context`,
       contextVersion: {
         currNode: row.curr_node,
