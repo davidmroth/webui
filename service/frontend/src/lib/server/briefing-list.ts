@@ -1,5 +1,8 @@
 import type { BriefingReference } from '$lib/types-legacy';
-import { query } from './db';
+import { execute, query } from './db';
+import { getBriefingObjectBuffer, listBriefingObjectKeys, removeBriefingObjects } from './storage';
+import { getConfig } from './env';
+import { findBriefingOwnerUserId } from './briefing-sharing';
 
 interface BriefingCountRow {
   total: number | string;
@@ -13,14 +16,41 @@ interface BriefingListRow {
   is_public: number | null;
 }
 
+interface BriefingShareRow {
+  job_id: string;
+  owner_user_id: string;
+  is_public: number | boolean;
+}
+
+interface UserCountRow {
+  total: number | string;
+}
+
+interface StoredBriefingManifestSummary {
+  jobId: string;
+  briefingId: string;
+  title: string;
+  summary: string | null;
+  generatedAt: string | null;
+  validation: {
+    valid: boolean;
+    warningCount: number;
+    errorCount: number;
+  };
+}
+
 interface BriefingListDeps {
   queryFn?: <T>(sql: string, params?: Record<string, unknown>) => Promise<T[]>;
+  executeFn?: (sql: string, params?: Record<string, unknown>) => Promise<unknown>;
+  listObjectKeysFn?: (prefix?: string) => Promise<string[]>;
+  readObjectBufferFn?: (storageKey: string) => Promise<Buffer>;
+  deleteObjectKeysFn?: (storageKeys: string[]) => Promise<void>;
 }
 
 export interface BriefingListEntry {
-  conversationId: string;
-  conversationTitle: string;
-  createdAt: string;
+  conversationId: string | null;
+  conversationTitle: string | null;
+  createdAt: string | null;
   isPublic: boolean;
   reference: BriefingReference;
 }
@@ -54,6 +84,10 @@ function normalizeNonNegativeInteger(value: unknown): number {
   }
 
   return Math.max(0, Math.floor(normalized));
+}
+
+function normalizeBoolean(value: unknown): boolean {
+  return value === true || value === 1;
 }
 
 function parseMessageExtra(extra: string | Record<string, unknown> | null) {
@@ -115,67 +149,164 @@ function parseBriefingReference(extra: string | Record<string, unknown> | null):
   };
 }
 
-export async function listBriefingsForUser(
-  userId: string,
-  options: { page?: number; pageSize?: number } & BriefingListDeps = {}
-): Promise<BriefingListResult> {
-  const queryFn = options.queryFn ?? query;
-  const pageSize = clampInteger(options.pageSize ?? 12, 1, 100);
+function normalizeStoragePrefix(value: string) {
+  return value
+    .trim()
+    .replace(/\\/g, '/')
+    .replace(/^\/+/, '')
+    .replace(/\/+$/, '');
+}
 
-  const [countRow] = await queryFn<BriefingCountRow>(
-    `SELECT COUNT(DISTINCT JSON_UNQUOTE(JSON_EXTRACT(messages.extra, '$.briefingReference.jobId'))) AS total
+function buildPublishedStoragePrefix(jobId = '') {
+  const prefix = normalizeStoragePrefix(getConfig().briefingStoragePrefix);
+  if (!jobId.trim()) {
+    return prefix;
+  }
+
+  return prefix ? `${prefix}/${jobId.trim()}` : jobId.trim();
+}
+
+function buildPublishedStorageKey(jobId: string, assetPath: string) {
+  const prefix = buildPublishedStoragePrefix(jobId);
+  return prefix ? `${prefix}/${assetPath}` : assetPath;
+}
+
+function parseJsonRecord(buffer: Buffer) {
+  try {
+    const parsed = JSON.parse(buffer.toString('utf-8'));
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function parseStoredBriefingManifest(jobId: string, buffer: Buffer): StoredBriefingManifestSummary | null {
+  const parsed = parseJsonRecord(buffer);
+  if (!parsed) {
+    return null;
+  }
+
+  const briefingId = normalizeOptionalString(parsed.briefing_id);
+  const title = normalizeOptionalString(parsed.title);
+  if (!briefingId || !title) {
+    return null;
+  }
+
+  const validationSource =
+    parsed.validation && typeof parsed.validation === 'object' && !Array.isArray(parsed.validation)
+      ? (parsed.validation as Record<string, unknown>)
+      : {};
+
+  const warnings = Array.isArray(validationSource.warnings) ? validationSource.warnings.length : 0;
+  const errors = Array.isArray(validationSource.errors) ? validationSource.errors.length : 0;
+
+  return {
+    jobId,
+    briefingId,
+    title,
+    summary: normalizeOptionalString(parsed.summary),
+    generatedAt: normalizeOptionalString(parsed.generated_at),
+    validation: {
+      valid: validationSource.valid !== false,
+      warningCount: warnings,
+      errorCount: errors
+    }
+  };
+}
+
+function toBriefingReferenceFromManifest(manifest: StoredBriefingManifestSummary): BriefingReference {
+  return {
+    schemaVersion: 'briefing-reference/v1',
+    jobId: manifest.jobId,
+    briefingId: manifest.briefingId,
+    title: manifest.title,
+    summary: manifest.summary,
+    generatedAt: manifest.generatedAt,
+    previewUrl: `/briefings/${encodeURIComponent(manifest.jobId)}/player`,
+    standaloneHtmlUrl: `/briefings/${encodeURIComponent(manifest.jobId)}`,
+    validation: manifest.validation
+  };
+}
+
+function compareBriefingsDescending(left: BriefingListEntry, right: BriefingListEntry) {
+  const leftTime = Date.parse(left.reference.generatedAt ?? left.createdAt ?? '');
+  const rightTime = Date.parse(right.reference.generatedAt ?? right.createdAt ?? '');
+
+  const normalizedLeft = Number.isFinite(leftTime) ? leftTime : 0;
+  const normalizedRight = Number.isFinite(rightTime) ? rightTime : 0;
+  return normalizedRight - normalizedLeft;
+}
+
+function paginateBriefings(items: BriefingListEntry[], page: number, pageSize: number): BriefingListResult {
+  const total = items.length;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const safePage = clampInteger(page, 1, totalPages);
+  const offset = (safePage - 1) * pageSize;
+
+  return {
+    items: items.slice(offset, offset + pageSize),
+    page: safePage,
+    pageSize,
+    total,
+    totalPages,
+    hasPreviousPage: safePage > 1,
+    hasNextPage: safePage < totalPages
+  };
+}
+
+function buildJobIdParams(jobIds: string[], prefix: string) {
+  const placeholders: string[] = [];
+  const params: Record<string, unknown> = {};
+  jobIds.forEach((jobId, index) => {
+    const key = `${prefix}_${index}`;
+    placeholders.push(`:${key}`);
+    params[key] = jobId;
+  });
+
+  return {
+    clause: placeholders.join(', '),
+    params
+  };
+}
+
+async function listDbBriefingsForUser(
+  userId: string,
+  queryFn: NonNullable<BriefingListDeps['queryFn']>
+): Promise<BriefingListEntry[]> {
+  const rows = await queryFn<BriefingListRow>(
+    `SELECT conversations.id AS conversation_id,
+            conversations.title AS conversation_title,
+            COALESCE(messages.msg_timestamp, messages.created_at) AS sort_at,
+            messages.extra,
+            briefing_shares.is_public AS is_public
      FROM messages
      INNER JOIN conversations ON conversations.id = messages.conversation_id
+     LEFT JOIN briefing_shares
+       ON briefing_shares.job_id = JSON_UNQUOTE(JSON_EXTRACT(messages.extra, '$.briefingReference.jobId'))
      WHERE conversations.user_id = :user_id
        AND messages.role = 'assistant'
-       AND JSON_UNQUOTE(JSON_EXTRACT(messages.extra, '$.briefingReference.jobId')) IS NOT NULL`,
+       AND JSON_UNQUOTE(JSON_EXTRACT(messages.extra, '$.briefingReference.jobId')) IS NOT NULL
+       AND messages.id = (
+         SELECT candidate.id
+         FROM messages AS candidate
+         INNER JOIN conversations AS candidate_conversations
+           ON candidate_conversations.id = candidate.conversation_id
+         WHERE candidate_conversations.user_id = :user_id
+           AND candidate.role = 'assistant'
+           AND JSON_UNQUOTE(JSON_EXTRACT(candidate.extra, '$.briefingReference.jobId')) =
+               JSON_UNQUOTE(JSON_EXTRACT(messages.extra, '$.briefingReference.jobId'))
+         ORDER BY COALESCE(candidate.msg_timestamp, candidate.created_at) DESC,
+                  candidate.created_at DESC,
+                  candidate.id DESC
+         LIMIT 1
+       )
+     ORDER BY sort_at DESC, messages.created_at DESC, messages.id DESC`,
     { user_id: userId }
   );
 
-  const total = Math.max(0, Number(countRow?.total ?? 0) || 0);
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
-  const page = clampInteger(options.page ?? 1, 1, totalPages);
-  const offset = (page - 1) * pageSize;
-
-  const rows = total
-    ? await queryFn<BriefingListRow>(
-        `SELECT conversations.id AS conversation_id,
-                conversations.title AS conversation_title,
-                COALESCE(messages.msg_timestamp, messages.created_at) AS sort_at,
-                messages.extra,
-                briefing_shares.is_public AS is_public
-         FROM messages
-         INNER JOIN conversations ON conversations.id = messages.conversation_id
-         LEFT JOIN briefing_shares
-           ON briefing_shares.job_id = JSON_UNQUOTE(JSON_EXTRACT(messages.extra, '$.briefingReference.jobId'))
-         WHERE conversations.user_id = :user_id
-           AND messages.role = 'assistant'
-           AND JSON_UNQUOTE(JSON_EXTRACT(messages.extra, '$.briefingReference.jobId')) IS NOT NULL
-           AND messages.id = (
-             SELECT candidate.id
-             FROM messages AS candidate
-             INNER JOIN conversations AS candidate_conversations
-               ON candidate_conversations.id = candidate.conversation_id
-             WHERE candidate_conversations.user_id = :user_id
-               AND candidate.role = 'assistant'
-               AND JSON_UNQUOTE(JSON_EXTRACT(candidate.extra, '$.briefingReference.jobId')) =
-                   JSON_UNQUOTE(JSON_EXTRACT(messages.extra, '$.briefingReference.jobId'))
-             ORDER BY COALESCE(candidate.msg_timestamp, candidate.created_at) DESC,
-                      candidate.created_at DESC,
-                      candidate.id DESC
-             LIMIT 1
-           )
-         ORDER BY sort_at DESC, messages.created_at DESC, messages.id DESC
-         LIMIT :limit OFFSET :offset`,
-        {
-          user_id: userId,
-          limit: pageSize,
-          offset
-        }
-      )
-    : [];
-
-  const items = rows
+  return rows
     .map((row) => {
       const reference = parseBriefingReference(row.extra);
       if (!reference) {
@@ -191,14 +322,194 @@ export async function listBriefingsForUser(
       } satisfies BriefingListEntry;
     })
     .filter((item): item is BriefingListEntry => item !== null);
+}
 
-  return {
-    items,
-    page,
-    pageSize,
-    total,
-    totalPages,
-    hasPreviousPage: page > 1,
-    hasNextPage: page < totalPages
-  };
+async function loadShareRowsForJobs(
+  jobIds: string[],
+  queryFn: NonNullable<BriefingListDeps['queryFn']>
+): Promise<Map<string, { ownerUserId: string; isPublic: boolean }>> {
+  if (jobIds.length === 0) {
+    return new Map();
+  }
+
+  const { clause, params } = buildJobIdParams(jobIds, 'job_id');
+  const rows = await queryFn<BriefingShareRow>(
+    `SELECT job_id, owner_user_id, is_public
+     FROM briefing_shares
+     WHERE job_id IN (${clause})`,
+    params
+  );
+
+  return new Map(
+    rows.map((row) => [
+      row.job_id,
+      {
+        ownerUserId: row.owner_user_id,
+        isPublic: normalizeBoolean(row.is_public)
+      }
+    ])
+  );
+}
+
+async function loadVisibleStorageJobs(
+  userId: string,
+  jobIds: string[],
+  dbJobIds: Set<string>,
+  queryFn: NonNullable<BriefingListDeps['queryFn']>
+): Promise<Map<string, { isPublic: boolean }>> {
+  const shareRows = await loadShareRowsForJobs(jobIds, queryFn);
+  const visible = new Map<string, { isPublic: boolean }>();
+
+  for (const jobId of jobIds) {
+    if (dbJobIds.has(jobId)) {
+      const share = shareRows.get(jobId);
+      visible.set(jobId, { isPublic: share?.isPublic ?? false });
+    }
+  }
+
+  const unmatchedJobIds = jobIds.filter((jobId) => !visible.has(jobId));
+  if (unmatchedJobIds.length === 0) {
+    return visible;
+  }
+
+  const [countRow] = await queryFn<UserCountRow>('SELECT COUNT(*) AS total FROM users');
+  const userCount = Math.max(0, Number(countRow?.total ?? 0) || 0);
+  if (userCount <= 1) {
+    for (const jobId of unmatchedJobIds) {
+      const share = shareRows.get(jobId);
+      visible.set(jobId, { isPublic: share?.isPublic ?? false });
+    }
+    return visible;
+  }
+
+  for (const jobId of unmatchedJobIds) {
+    const share = shareRows.get(jobId);
+    if (share?.ownerUserId === userId) {
+      visible.set(jobId, { isPublic: share.isPublic });
+    }
+  }
+
+  return visible;
+}
+
+async function listStoredBriefingManifests(
+  deps: Required<Pick<BriefingListDeps, 'listObjectKeysFn' | 'readObjectBufferFn'>>
+) {
+  const manifestKeys = (await deps.listObjectKeysFn(buildPublishedStoragePrefix()))
+    .filter((key) => key.endsWith('/briefing.json'));
+  const prefix = buildPublishedStoragePrefix();
+  const uniqueJobIds = Array.from(
+    new Set(
+      manifestKeys
+        .map((key) => {
+          const relativeKey = prefix ? key.replace(`${prefix}/`, '') : key;
+          const segments = relativeKey.split('/');
+          return segments.length === 2 && segments[1] === 'briefing.json' ? segments[0] : null;
+        })
+        .filter((jobId): jobId is string => Boolean(jobId))
+    )
+  );
+
+  const manifests = await Promise.all(
+    uniqueJobIds.map(async (jobId) => {
+      try {
+        const buffer = await deps.readObjectBufferFn(buildPublishedStorageKey(jobId, 'briefing.json'));
+        return parseStoredBriefingManifest(jobId, buffer);
+      } catch {
+        return null;
+      }
+    })
+  );
+
+  return manifests.filter((manifest): manifest is StoredBriefingManifestSummary => manifest !== null);
+}
+
+export async function listBriefingsForUser(
+  userId: string,
+  options: { page?: number; pageSize?: number } & BriefingListDeps = {}
+): Promise<BriefingListResult> {
+  const queryFn = options.queryFn ?? query;
+  const pageSize = clampInteger(options.pageSize ?? 12, 1, 100);
+  const dbItems = await listDbBriefingsForUser(userId, queryFn);
+  const dbByJobId = new Map(dbItems.map((item) => [item.reference.jobId, item]));
+
+  let storageManifests: StoredBriefingManifestSummary[] = [];
+  try {
+    storageManifests = await listStoredBriefingManifests({
+      listObjectKeysFn: options.listObjectKeysFn ?? listBriefingObjectKeys,
+      readObjectBufferFn: options.readObjectBufferFn ?? getBriefingObjectBuffer
+    });
+  } catch {
+    storageManifests = [];
+  }
+
+  if (storageManifests.length === 0) {
+    return paginateBriefings(dbItems.sort(compareBriefingsDescending), options.page ?? 1, pageSize);
+  }
+
+  const visibleStorageJobs = await loadVisibleStorageJobs(
+    userId,
+    storageManifests.map((manifest) => manifest.jobId),
+    new Set(dbByJobId.keys()),
+    queryFn
+  );
+
+  const items = storageManifests
+    .filter((manifest) => visibleStorageJobs.has(manifest.jobId))
+    .map((manifest) => {
+      const dbItem = dbByJobId.get(manifest.jobId);
+      const visibility = visibleStorageJobs.get(manifest.jobId);
+
+      return {
+        conversationId: dbItem?.conversationId ?? null,
+        conversationTitle: dbItem?.conversationTitle ?? null,
+        createdAt: dbItem?.createdAt ?? manifest.generatedAt,
+        isPublic: dbItem?.isPublic ?? visibility?.isPublic ?? false,
+        reference: dbItem?.reference ?? toBriefingReferenceFromManifest(manifest)
+      } satisfies BriefingListEntry;
+    })
+    .sort(compareBriefingsDescending);
+
+  return paginateBriefings(items, options.page ?? 1, pageSize);
+}
+
+export async function deleteBriefingForUser(
+  userId: string,
+  jobId: string,
+  options: BriefingListDeps = {}
+) {
+  const normalizedUserId = userId.trim();
+  const normalizedJobId = jobId.trim();
+  if (!normalizedUserId) {
+    throw new Error('An authenticated user is required.');
+  }
+  if (!normalizedJobId) {
+    throw new Error('A briefing job id is required.');
+  }
+
+  const queryFn = options.queryFn ?? query;
+  const executeFn = options.executeFn ?? execute;
+  const listObjectKeysFn = options.listObjectKeysFn ?? listBriefingObjectKeys;
+  const deleteObjectKeysFn = options.deleteObjectKeysFn ?? removeBriefingObjects;
+
+  const shareRows = await loadShareRowsForJobs([normalizedJobId], queryFn);
+  const share = shareRows.get(normalizedJobId);
+  const ownerUserId = share?.ownerUserId ?? (await findBriefingOwnerUserId(normalizedJobId, { queryFn }));
+
+  if (ownerUserId && ownerUserId !== normalizedUserId) {
+    throw new Error('Only the briefing owner can delete it.');
+  }
+
+  if (!ownerUserId) {
+    const [countRow] = await queryFn<UserCountRow>('SELECT COUNT(*) AS total FROM users');
+    const userCount = Math.max(0, Number(countRow?.total ?? 0) || 0);
+    if (userCount > 1) {
+      throw new Error('Briefing ownership could not be verified for deletion.');
+    }
+  }
+
+  const prefix = buildPublishedStoragePrefix(normalizedJobId);
+  const storageKeys = await listObjectKeysFn(prefix);
+  await deleteObjectKeysFn(storageKeys);
+  await executeFn('DELETE FROM briefing_shares WHERE job_id = :job_id', { job_id: normalizedJobId });
 }

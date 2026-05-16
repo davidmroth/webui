@@ -176,6 +176,14 @@ export async function getBriefingObjectBuffer(storageKey: string): Promise<Buffe
   return getConfiguredObjectBuffer(storageKey, briefingStorageConfig());
 }
 
+export async function listBriefingObjectKeys(prefix = ''): Promise<string[]> {
+  return listConfiguredObjectKeys(prefix, briefingStorageConfig());
+}
+
+export async function removeBriefingObjects(storageKeys: string[]): Promise<void> {
+  return removeConfiguredObjects(storageKeys, briefingStorageConfig());
+}
+
 async function getConfiguredObjectBuffer(storageKey: string, config: StorageConnectionConfig): Promise<Buffer> {
   const startedAt = Date.now();
   await ensureConfiguredStorageBucket(config);
@@ -197,5 +205,35 @@ async function getConfiguredObjectBuffer(storageKey: string, config: StorageConn
       errorMessage: error instanceof Error ? error.message : 'Object download failed.'
     });
     throw error;
+  }
+}
+
+async function listConfiguredObjectKeys(prefix: string, config: StorageConnectionConfig): Promise<string[]> {
+  await ensureConfiguredStorageBucket(config);
+  const client = createConfiguredStorageClient(config);
+  const normalizedPrefix = normalizeObjectStoragePrefix(prefix);
+
+  return new Promise((resolve, reject) => {
+    const keys: string[] = [];
+    const stream = client.listObjectsV2(config.bucket, normalizedPrefix || undefined, true);
+    stream.on('data', (entry) => {
+      if (entry && typeof entry === 'object' && 'name' in entry && typeof entry.name === 'string') {
+        keys.push(entry.name);
+      }
+    });
+    stream.on('error', reject);
+    stream.on('end', () => resolve(keys));
+  });
+}
+
+async function removeConfiguredObjects(storageKeys: string[], config: StorageConnectionConfig): Promise<void> {
+  if (storageKeys.length === 0) {
+    return;
+  }
+
+  await ensureConfiguredStorageBucket(config);
+  const client = createConfiguredStorageClient(config);
+  for (const storageKey of storageKeys) {
+    await client.removeObject(config.bucket, storageKey);
   }
 }

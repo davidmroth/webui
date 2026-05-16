@@ -1,21 +1,54 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { listBriefingsForUser } from './briefing-list.ts';
+import { deleteBriefingForUser, listBriefingsForUser } from './briefing-list.ts';
 
 test('listBriefingsForUser clamps oversized pages and maps briefing metadata', async () => {
   const result = await listBriefingsForUser('user-1', {
     page: 9,
     pageSize: 2,
+    listObjectKeysFn: async () => [],
     queryFn: async (sql, params) => {
-      if (sql.includes('COUNT(DISTINCT')) {
-        assert.equal(params?.user_id, 'user-1');
-        return [{ total: 3 }];
-      }
-
-      assert.equal(params?.limit, 2);
-      assert.equal(params?.offset, 2);
+      assert.equal(params?.user_id, 'user-1');
       return [
+        {
+          conversation_id: 'conv-3',
+          conversation_title: 'Morning briefing',
+          sort_at: '2026-05-16 12:00:00',
+          is_public: 0,
+          extra: JSON.stringify({
+            briefingReference: {
+              jobId: 'job-1',
+              briefingId: 'briefing-1',
+              title: 'Morning Pulse',
+              generatedAt: '2026-05-16T12:00:00Z',
+              validation: {
+                valid: true,
+                warningCount: 0,
+                errorCount: 0
+              }
+            }
+          })
+        },
+        {
+          conversation_id: 'conv-2',
+          conversation_title: 'Afternoon briefing',
+          sort_at: '2026-05-16 11:00:00',
+          is_public: 0,
+          extra: JSON.stringify({
+            briefingReference: {
+              jobId: 'job-2',
+              briefingId: 'briefing-2',
+              title: 'Afternoon Pulse',
+              generatedAt: '2026-05-16T11:00:00Z',
+              validation: {
+                valid: true,
+                warningCount: 0,
+                errorCount: 0
+              }
+            }
+          })
+        },
         {
           conversation_id: 'conv-1',
           conversation_title: 'Daily briefing',
@@ -57,11 +90,8 @@ test('listBriefingsForUser clamps oversized pages and maps briefing metadata', a
 
 test('listBriefingsForUser derives default briefing urls when references omit them', async () => {
   const result = await listBriefingsForUser('user-2', {
+    listObjectKeysFn: async () => [],
     queryFn: async (sql) => {
-      if (sql.includes('COUNT(DISTINCT')) {
-        return [{ total: 1 }];
-      }
-
       return [
         {
           conversation_id: 'conv-2',
@@ -89,4 +119,95 @@ test('listBriefingsForUser derives default briefing urls when references omit th
   assert.equal(result.items[0].reference.standaloneHtmlUrl, '/briefings/job-42');
   assert.equal(result.items[0].reference.validation.valid, false);
   assert.equal(result.items[0].isPublic, false);
+});
+
+test('listBriefingsForUser falls back to stored briefing manifests when chat metadata is missing', async () => {
+  const result = await listBriefingsForUser('user-3', {
+    listObjectKeysFn: async () => [
+      'webui/briefings/job-storage-2/briefing.json',
+      'webui/briefings/job-storage-1/briefing.json',
+      'webui/briefings/job-storage-1/audio.mp3'
+    ],
+    readObjectBufferFn: async (storageKey) => {
+      if (storageKey.endsWith('job-storage-1/briefing.json')) {
+        return Buffer.from(
+          JSON.stringify({
+            job_id: 'job-storage-1',
+            briefing_id: 'briefing-storage-1',
+            title: 'Stored One',
+            summary: 'From object storage.',
+            generated_at: '2026-05-10T10:00:00Z',
+            sections: [],
+            assets: [],
+            timeline_cues: [],
+            sources: [],
+            validation: { valid: true, warnings: [], errors: [] }
+          })
+        );
+      }
+
+      return Buffer.from(
+        JSON.stringify({
+          job_id: 'job-storage-2',
+          briefing_id: 'briefing-storage-2',
+          title: 'Stored Two',
+          generated_at: '2026-05-11T10:00:00Z',
+          sections: [],
+          assets: [],
+          timeline_cues: [],
+          sources: [],
+          validation: { valid: false, warnings: ['warn'], errors: ['err'] }
+        })
+      );
+    },
+    queryFn: async (sql) => {
+      if (sql.includes('FROM users')) {
+        return [{ total: 1 }];
+      }
+
+      return [];
+    }
+  });
+
+  assert.equal(result.total, 2);
+  assert.equal(result.items[0].reference.jobId, 'job-storage-2');
+  assert.equal(result.items[1].reference.jobId, 'job-storage-1');
+  assert.equal(result.items[0].reference.validation.errorCount, 1);
+  assert.equal(result.items[1].conversationId, null);
+});
+
+test('deleteBriefingForUser removes stored briefing objects and share state', async () => {
+  const deletedKeys = [];
+  const executeCalls = [];
+
+  await deleteBriefingForUser('user-7', 'job-delete-1', {
+    queryFn: async (sql) => {
+      if (sql.includes('FROM briefing_shares')) {
+        return [{ job_id: 'job-delete-1', owner_user_id: 'user-7', is_public: 1 }];
+      }
+
+      return [];
+    },
+    listObjectKeysFn: async (prefix) => {
+      assert.match(prefix, /job-delete-1$/);
+      return [
+        'webui/briefings/job-delete-1/briefing.json',
+        'webui/briefings/job-delete-1/audio.mp3'
+      ];
+    },
+    deleteObjectKeysFn: async (storageKeys) => {
+      deletedKeys.push(...storageKeys);
+    },
+    executeFn: async (sql, params) => {
+      executeCalls.push({ sql, params });
+      return {};
+    }
+  });
+
+  assert.deepEqual(deletedKeys, [
+    'webui/briefings/job-delete-1/briefing.json',
+    'webui/briefings/job-delete-1/audio.mp3'
+  ]);
+  assert.equal(executeCalls.length, 1);
+  assert.equal(executeCalls[0].params.job_id, 'job-delete-1');
 });

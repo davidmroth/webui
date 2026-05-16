@@ -1,5 +1,5 @@
 <script lang="ts">
-  let { data } = $props();
+  let { data, form } = $props();
 
   function buildPageHref(page: number) {
     const params = new URLSearchParams();
@@ -70,6 +70,12 @@
       </div>
     </header>
 
+    {#if form?.error}
+      <div class="rounded-2xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+        {form.error}
+      </div>
+    {/if}
+
     {#if data.briefings.items.length === 0}
       <section class="rounded-2xl border border-dashed border-border bg-card/60 p-8 text-center">
         <h2 class="text-lg font-semibold">No briefings yet</h2>
@@ -99,7 +105,7 @@
                   <p class="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">{item.reference.summary}</p>
                 {/if}
                 <div class="mt-4 flex flex-wrap gap-x-6 gap-y-2 text-sm text-muted-foreground">
-                  <span>Conversation: {item.conversationTitle}</span>
+                  <span>Conversation: {item.conversationTitle ?? 'Archived briefing'}</span>
                   <span>
                     Validation: {item.reference.validation.valid ? 'Valid' : 'Needs review'}
                     ({item.reference.validation.warningCount} warnings, {item.reference.validation.errorCount} errors)
@@ -120,12 +126,29 @@
                 >
                   Standalone page
                 </a>
-                <a
-                  class="inline-flex items-center justify-center rounded-full border border-border bg-background px-4 py-2 text-sm font-medium"
-                  href={`/chat?conversation=${encodeURIComponent(item.conversationId)}`}
+                {#if item.conversationId}
+                  <a
+                    class="inline-flex items-center justify-center rounded-full border border-border bg-background px-4 py-2 text-sm font-medium"
+                    href={`/chat?conversation=${encodeURIComponent(item.conversationId)}`}
+                  >
+                    Open conversation
+                  </a>
+                {/if}
+                <form
+                  method="POST"
+                  action="?/delete"
+                  onsubmit={(event) => {
+                    if (typeof window !== 'undefined' && !window.confirm(`Delete briefing \"${item.reference.title}\"?`)) {
+                      event.preventDefault();
+                    }
+                  }}
                 >
-                  Open conversation
-                </a>
+                  <input type="hidden" name="jobId" value={item.reference.jobId} />
+                  <input type="hidden" name="page" value={data.briefings.page} />
+                  <button class="primary-button llama-danger-button" type="submit">
+                    Delete
+                  </button>
+                </form>
               </div>
             </div>
           </article>
