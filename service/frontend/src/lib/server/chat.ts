@@ -1127,6 +1127,12 @@ function isActiveRunStatus(status: ConversationRunState['status']) {
   return status === 'queued' || status === 'processing';
 }
 
+export function shouldReclaimStaleHermesProcessingEvent(
+  workerHeartbeat = getHermesWorkerHeartbeat()
+) {
+  return !workerHeartbeat.isOnline;
+}
+
 function buildConversationRunStateFromRow(row: HermesRunStateRow | null): ConversationRunState {
   if (!row) {
     return {
@@ -2133,6 +2139,7 @@ export async function enqueueUserMessage(
 
 export async function dequeueHermesEvent(options: { publicBaseUrl?: string | null } = {}) {
   const leaseSeconds = Math.max(30, getConfig().hermesEventLeaseSeconds);
+  const reclaimStaleProcessing = shouldReclaimStaleHermesProcessingEvent();
   const connection = (await pool.getConnection()) as any;
   let transactionStarted = false;
   try {
@@ -2147,19 +2154,21 @@ export async function dequeueHermesEvent(options: { publicBaseUrl?: string | nul
        INNER JOIN conversations ON conversations.id = hermes_events.conversation_id
        INNER JOIN users ON users.id = hermes_events.user_id
        INNER JOIN messages ON messages.id = hermes_events.message_id
-       WHERE hermes_events.status = 'queued'
+       WHERE hermes_events.status = 'queued'${reclaimStaleProcessing
+          ? `
           OR (
             hermes_events.status = 'processing'
             AND hermes_events.claimed_at IS NOT NULL
             AND hermes_events.claimed_at < UTC_TIMESTAMP() - INTERVAL ? SECOND
-          )
+          )`
+          : ''}
        ORDER BY
          CASE WHEN hermes_events.status = 'queued' THEN 0 ELSE 1 END,
          COALESCE(hermes_events.claimed_at, hermes_events.created_at) ASC,
          hermes_events.created_at ASC
        LIMIT 1
        FOR UPDATE SKIP LOCKED`,
-      [leaseSeconds]
+      reclaimStaleProcessing ? [leaseSeconds] : []
     );
 
     const row = (rows as EventRow[])[0];

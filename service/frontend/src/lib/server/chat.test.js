@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   resolveVisibleConversationRows,
   resolveAssistantParentMessageId,
+  shouldReclaimStaleHermesProcessingEvent,
   shouldAdvanceAssistantTail,
   updateAssistantMessage
 } from './chat.ts';
@@ -52,6 +53,11 @@ test('shouldAdvanceAssistantTail ignores Hermes status messages', () => {
     }),
     false
   );
+});
+
+test('shouldReclaimStaleHermesProcessingEvent only when worker heartbeat is offline', () => {
+  assert.equal(shouldReclaimStaleHermesProcessingEvent({ isOnline: true }), false);
+  assert.equal(shouldReclaimStaleHermesProcessingEvent({ isOnline: false }), true);
 });
 
 test('resolveVisibleConversationRows includes same-turn Hermes tool activity', () => {
