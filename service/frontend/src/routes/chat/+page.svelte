@@ -2572,6 +2572,19 @@
           <span>New chat</span>
         </button>
 
+        <a
+          class="llama-nav-item"
+          href="/briefings"
+          onclick={() => {
+            if (isMobileViewport) {
+              setSidebarCollapsed(true);
+            }
+          }}
+        >
+          <span class="llama-nav-icon"><FileText class="h-4 w-4" /></span>
+          <span>Briefings</span>
+        </a>
+
         <label class="llama-search-input">
           <span class="llama-nav-icon"><Search class="h-4 w-4" /></span>
           <input bind:value={searchQuery} placeholder="Search" />

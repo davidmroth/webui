@@ -16,7 +16,28 @@
       return 'Unknown date';
     }
 
-    const normalized = new Date(value);
+    const trimmed = value.trim();
+    if (/^\d{13}$/.test(trimmed)) {
+      const asMilliseconds = Number(trimmed);
+      if (Number.isFinite(asMilliseconds)) {
+        return new Intl.DateTimeFormat(undefined, {
+          dateStyle: 'medium',
+          timeStyle: 'short'
+        }).format(new Date(asMilliseconds));
+      }
+    }
+
+    if (/^\d{10}$/.test(trimmed)) {
+      const asSeconds = Number(trimmed);
+      if (Number.isFinite(asSeconds)) {
+        return new Intl.DateTimeFormat(undefined, {
+          dateStyle: 'medium',
+          timeStyle: 'short'
+        }).format(new Date(asSeconds * 1000));
+      }
+    }
+
+    const normalized = new Date(trimmed);
     if (Number.isNaN(normalized.getTime())) {
       return value;
     }
@@ -56,7 +77,7 @@
           Generate a briefing from chat and it will appear here.
         </p>
         <a
-          class="mt-5 inline-flex items-center justify-center rounded-full bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
+          class="primary-button mt-5"
           href="/chat"
         >
           Open chat
@@ -88,7 +109,7 @@
 
               <div class="flex shrink-0 flex-wrap gap-2">
                 <a
-                  class="inline-flex items-center justify-center rounded-full bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
+                  class="primary-button"
                   href={item.reference.previewUrl}
                 >
                   Open player
