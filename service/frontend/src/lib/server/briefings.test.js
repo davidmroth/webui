@@ -80,7 +80,7 @@ test('loadBriefingPreview returns published processing status when the bundle is
 	assert.equal(preview.renderProgress?.sentenceCompleted, 59);
 });
 
-test('loadBriefingPreview reports export unavailable when status is completed but the manifest is still missing', async () => {
+test('loadBriefingPreview reports publish-pending progress when status is completed but the manifest is still missing', async () => {
 	const preview = await loadBriefingPreview('job-prod-fail', {
 		readObjectBuffer: async (storageKey) => {
 			if (storageKey === 'webui/briefings/job-prod-fail/briefing.json') {
@@ -102,11 +102,12 @@ test('loadBriefingPreview reports export unavailable when status is completed bu
 		}
 	});
 
-	assert.equal(preview.state, 'error');
-	assert.equal(preview.message, 'Briefing export is not available yet.');
-	assert.match(preview.detail ?? '', /published bundle is not available/i);
-	assert.doesNotMatch(preview.detail ?? '', /BRIEFING_RENDERER_/);
-	assert.equal(preview.canRetry, true);
+	assert.equal(preview.state, 'processing');
+	assert.equal(preview.status, 'processing');
+	assert.equal(preview.renderProgress?.stage, 'publishing_bundle');
+	assert.equal(preview.renderProgress?.percent, 100);
+	assert.match(preview.renderProgress?.detail ?? '', /briefing ready|published bundle|object storage/i);
+	assert.doesNotMatch(preview.renderProgress?.detail ?? '', /BRIEFING_RENDERER_/);
 });
 
 test('loadBriefingPreview reports export unavailable when neither the manifest nor status snapshot exists', async () => {

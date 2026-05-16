@@ -61,7 +61,7 @@
         <div>
           <h1 class="text-3xl font-semibold tracking-tight">Briefings</h1>
           <p class="max-w-2xl text-sm text-muted-foreground">
-            Published briefings generated in your conversations, newest first.
+            Briefings generated in your conversations, newest first.
           </p>
         </div>
         <p class="text-sm text-muted-foreground">

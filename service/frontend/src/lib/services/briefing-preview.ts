@@ -69,6 +69,12 @@ const RENDERER_STAGE_COPY: Record<
 		summary: 'The renderer is writing the final briefing assets and manifest.',
 		detail: 'The export bundle is almost ready.'
 	},
+	publishing_bundle: {
+		defaultPercent: 100,
+		stageLabel: 'Publishing briefing bundle',
+		summary: 'Rendering finished and the WebUI is waiting for the published briefing bundle.',
+		detail: 'Object storage is catching up before the standalone export can open.'
+	},
 	completed: {
 		defaultPercent: 100,
 		stageLabel: 'Briefing ready',
@@ -179,6 +185,8 @@ export function estimateBriefingRenderProgress(
 				? `${Math.min(sentenceTotal, Math.max(0, sentenceCompleted ?? 0))} of ${sentenceTotal} narration segments completed`
 				: preview.renderProgress.stage === 'queued'
 					? 'Starts automatically when a render slot is free'
+					: preview.renderProgress.stage === 'publishing_bundle'
+						? 'Checking for the published bundle'
 					: 'Live renderer status';
 
 		return {

@@ -39,6 +39,19 @@ interface StoredBriefingManifestSummary {
   };
 }
 
+interface StoredBriefingStatusSummary {
+	jobId: string;
+	briefingId: string;
+	title: string;
+	summary: string | null;
+	generatedAt: string | null;
+	validation: {
+		valid: boolean;
+		warningCount: number;
+		errorCount: number;
+	};
+}
+
 interface BriefingListDeps {
   queryFn?: <T>(sql: string, params?: Record<string, unknown>) => Promise<T[]>;
   executeFn?: (sql: string, params?: Record<string, unknown>) => Promise<unknown>;
@@ -216,6 +229,54 @@ function parseStoredBriefingManifest(jobId: string, buffer: Buffer): StoredBrief
   };
 }
 
+function titleFromBriefingId(briefingId: string) {
+  return briefingId
+    .trim()
+    .split(/[-_]+/)
+    .filter(Boolean)
+    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+    .join(' ');
+}
+
+function parseStoredBriefingStatus(jobId: string, buffer: Buffer): StoredBriefingStatusSummary | null {
+  const parsed = parseJsonRecord(buffer);
+  if (!parsed) {
+    return null;
+  }
+
+  const briefingId = normalizeOptionalString(parsed.briefing_id);
+  if (!briefingId) {
+    return null;
+  }
+
+  const validationSource =
+    parsed.validation && typeof parsed.validation === 'object' && !Array.isArray(parsed.validation)
+      ? (parsed.validation as Record<string, unknown>)
+      : {};
+
+  const warnings = Array.isArray(validationSource.warnings) ? validationSource.warnings.length : 0;
+  const errors = Array.isArray(validationSource.errors) ? validationSource.errors.length : 0;
+  const title =
+    normalizeOptionalString(parsed.title) ??
+    titleFromBriefingId(briefingId) ??
+    briefingId;
+
+  return {
+    jobId,
+    briefingId,
+    title,
+    summary: null,
+    generatedAt:
+      normalizeOptionalString(parsed.completed_at) ??
+      normalizeOptionalString(parsed.created_at),
+    validation: {
+      valid: validationSource.valid !== false,
+      warningCount: warnings,
+      errorCount: errors
+    }
+  };
+}
+
 function toBriefingReferenceFromManifest(manifest: StoredBriefingManifestSummary): BriefingReference {
   return {
     schemaVersion: 'briefing-reference/v1',
@@ -227,6 +288,20 @@ function toBriefingReferenceFromManifest(manifest: StoredBriefingManifestSummary
     previewUrl: `/briefings/${encodeURIComponent(manifest.jobId)}/player`,
     standaloneHtmlUrl: `/briefings/${encodeURIComponent(manifest.jobId)}`,
     validation: manifest.validation
+  };
+}
+
+function toBriefingReferenceFromStatus(status: StoredBriefingStatusSummary): BriefingReference {
+  return {
+    schemaVersion: 'briefing-reference/v1',
+    jobId: status.jobId,
+    briefingId: status.briefingId,
+    title: status.title,
+    summary: status.summary,
+    generatedAt: status.generatedAt,
+    previewUrl: `/briefings/${encodeURIComponent(status.jobId)}/player`,
+    standaloneHtmlUrl: `/briefings/${encodeURIComponent(status.jobId)}`,
+    validation: status.validation
   };
 }
 
@@ -424,6 +499,38 @@ async function listStoredBriefingManifests(
   return manifests.filter((manifest): manifest is StoredBriefingManifestSummary => manifest !== null);
 }
 
+async function listStoredBriefingStatuses(
+  deps: Required<Pick<BriefingListDeps, 'listObjectKeysFn' | 'readObjectBufferFn'>>
+) {
+  const statusKeys = (await deps.listObjectKeysFn(buildPublishedStoragePrefix()))
+    .filter((key) => key.endsWith('/status.json'));
+  const prefix = buildPublishedStoragePrefix();
+  const uniqueJobIds = Array.from(
+    new Set(
+      statusKeys
+        .map((key) => {
+          const relativeKey = prefix ? key.replace(`${prefix}/`, '') : key;
+          const segments = relativeKey.split('/');
+          return segments.length === 2 && segments[1] === 'status.json' ? segments[0] : null;
+        })
+        .filter((jobId): jobId is string => Boolean(jobId))
+    )
+  );
+
+  const statuses = await Promise.all(
+    uniqueJobIds.map(async (jobId) => {
+      try {
+        const buffer = await deps.readObjectBufferFn(buildPublishedStorageKey(jobId, 'status.json'));
+        return parseStoredBriefingStatus(jobId, buffer);
+      } catch {
+        return null;
+      }
+    })
+  );
+
+  return statuses.filter((status): status is StoredBriefingStatusSummary => status !== null);
+}
+
 export async function listBriefingsForUser(
   userId: string,
   options: { page?: number; pageSize?: number } & BriefingListDeps = {}
@@ -432,24 +539,42 @@ export async function listBriefingsForUser(
   const pageSize = clampInteger(options.pageSize ?? 12, 1, 100);
   const dbItems = await listDbBriefingsForUser(userId, queryFn);
   const dbByJobId = new Map(dbItems.map((item) => [item.reference.jobId, item]));
+  const storageDeps = {
+    listObjectKeysFn: options.listObjectKeysFn ?? listBriefingObjectKeys,
+    readObjectBufferFn: options.readObjectBufferFn ?? getBriefingObjectBuffer
+  };
 
   let storageManifests: StoredBriefingManifestSummary[] = [];
+  let storageStatuses: StoredBriefingStatusSummary[] = [];
   try {
-    storageManifests = await listStoredBriefingManifests({
-      listObjectKeysFn: options.listObjectKeysFn ?? listBriefingObjectKeys,
-      readObjectBufferFn: options.readObjectBufferFn ?? getBriefingObjectBuffer
-    });
+    [storageManifests, storageStatuses] = await Promise.all([
+      listStoredBriefingManifests(storageDeps),
+      listStoredBriefingStatuses(storageDeps)
+    ]);
   } catch {
     storageManifests = [];
+    storageStatuses = [];
   }
 
-  if (storageManifests.length === 0) {
+  if (storageManifests.length === 0 && storageStatuses.length === 0) {
     return paginateBriefings(dbItems.sort(compareBriefingsDescending), options.page ?? 1, pageSize);
   }
 
+  const statusOnlyByJobId = new Map(
+		storageStatuses
+			.filter((status) => !dbByJobId.has(status.jobId) && !storageManifests.some((manifest) => manifest.jobId === status.jobId))
+			.map((status) => [status.jobId, status])
+	);
+  const storageJobIds = Array.from(
+		new Set([
+			...storageManifests.map((manifest) => manifest.jobId),
+			...statusOnlyByJobId.keys()
+		])
+	);
+
   const visibleStorageJobs = await loadVisibleStorageJobs(
     userId,
-    storageManifests.map((manifest) => manifest.jobId),
+    storageJobIds,
     new Set(dbByJobId.keys()),
     queryFn
   );
@@ -468,6 +593,18 @@ export async function listBriefingsForUser(
         reference: dbItem?.reference ?? toBriefingReferenceFromManifest(manifest)
       } satisfies BriefingListEntry;
     })
+    .concat(
+      Array.from(statusOnlyByJobId.values())
+        .filter((status) => visibleStorageJobs.has(status.jobId))
+        .map((status) => ({
+          conversationId: null,
+          conversationTitle: 'Renderer briefing job',
+          createdAt: status.generatedAt,
+          isPublic: visibleStorageJobs.get(status.jobId)?.isPublic ?? false,
+          reference: toBriefingReferenceFromStatus(status)
+        }) satisfies BriefingListEntry)
+    )
+      .concat(dbItems.filter((item) => !visibleStorageJobs.has(item.reference.jobId)))
     .sort(compareBriefingsDescending);
 
   return paginateBriefings(items, options.page ?? 1, pageSize);

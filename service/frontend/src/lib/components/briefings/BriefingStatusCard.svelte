@@ -46,7 +46,9 @@
 
 	function heading() {
 		if (preview.state === 'processing') {
-			return 'Generating briefing';
+			return preview.renderProgress?.stage === 'publishing_bundle'
+				? 'Publishing briefing'
+				: 'Generating briefing';
 		}
 
 		if (preview.state === 'failed') {
@@ -103,7 +105,11 @@
 
 		<div class="briefing-status-note-row">
 			<p class="briefing-status-meta">Job id: {preview.jobId}</p>
-			<p class="briefing-status-meta">Auto-refreshing every few seconds</p>
+			<p class="briefing-status-meta">
+				{progress.stageLabel === 'Publishing briefing bundle'
+					? 'Checking object storage every few seconds'
+					: 'Auto-refreshing every few seconds'}
+			</p>
 		</div>
 	{:else if preview.state === 'failed'}
 		<p>{preview.error ?? 'The published briefing export could not be completed.'}</p>

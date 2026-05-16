@@ -7,6 +7,7 @@ export type BriefingRenderStage =
 	| 'encoding_audio'
 	| 'assembling_briefing'
 	| 'packaging_assets'
+	| 'publishing_bundle'
 	| 'completed'
 	| 'failed';
 

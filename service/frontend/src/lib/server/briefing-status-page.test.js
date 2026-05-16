@@ -68,6 +68,32 @@ test('renderBriefingStatusPage surfaces failure details without auto-refresh', (
 	assert.match(html, /Return to chat/);
 });
 
+test('renderBriefingStatusPage labels publish-pending previews as publishing instead of unavailable', () => {
+	const html = renderBriefingStatusPage({
+		state: 'processing',
+		status: 'processing',
+		jobId: 'job-publish',
+		briefingId: 'briefing-publish',
+		createdAt: '2026-05-07T07:00:00.000Z',
+		completedAt: '2026-05-07T07:02:00.000Z',
+		error: null,
+		validation: null,
+		assetCount: 0,
+		renderProgress: {
+			stage: 'publishing_bundle',
+			percent: 100,
+			detail: 'Rendering finished, and the WebUI is waiting for the published bundle to arrive in object storage.',
+			sentenceTotal: null,
+			sentenceCompleted: null
+		}
+	});
+
+	assert.match(html, /Publishing briefing/);
+	assert.match(html, /published briefing bundle becomes available/i);
+	assert.match(html, /Checking for the published bundle/);
+	assert.doesNotMatch(html, /Briefing status unavailable/);
+});
+
 test('renderBriefingStatusPage escapes retry links and does not expose raw endpoint urls', () => {
 	const html = renderBriefingStatusPage({
 		state: 'failed',

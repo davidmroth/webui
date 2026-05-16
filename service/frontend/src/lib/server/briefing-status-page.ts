@@ -37,6 +37,12 @@ const RENDERER_STAGE_COPY = {
 		summary: 'The export pipeline is writing the final briefing assets and manifest.',
 		detail: 'The export bundle is almost ready.'
 	},
+	publishing_bundle: {
+		defaultPercent: 100,
+		stageLabel: 'Publishing briefing bundle',
+		summary: 'Rendering finished and the WebUI is waiting for the published briefing bundle.',
+		detail: 'Object storage is catching up before the standalone export can open.'
+	},
 	completed: {
 		defaultPercent: 100,
 		stageLabel: 'Briefing ready',
@@ -96,6 +102,8 @@ function estimateProgress(preview: Extract<PendingBriefingPreview, { state: 'pro
 					? `${Math.min(sentenceTotal, Math.max(0, sentenceCompleted ?? 0))} of ${sentenceTotal} narration segments completed`
 					: preview.renderProgress.stage === 'queued'
 						? 'Starts automatically when a render slot is free'
+						: preview.renderProgress.stage === 'publishing_bundle'
+							? 'Checking for the published bundle'
 						: 'Live export status'
 		};
 	}
@@ -149,7 +157,9 @@ function formatTimestamp(value: string | null | undefined) {
 function pageTitle(preview: PendingBriefingPreview) {
 	switch (preview.state) {
 		case 'processing':
-			return 'Rendering briefing';
+			return preview.renderProgress?.stage === 'publishing_bundle'
+				? 'Publishing briefing'
+				: 'Rendering briefing';
 		case 'failed':
 			return 'Briefing render failed';
 		case 'missing':
@@ -162,7 +172,7 @@ function pageTitle(preview: PendingBriefingPreview) {
 function stateLabel(preview: PendingBriefingPreview) {
 	switch (preview.state) {
 		case 'processing':
-			return 'In progress';
+			return preview.renderProgress?.stage === 'publishing_bundle' ? 'Publishing' : 'In progress';
 		case 'failed':
 			return 'Failed';
 		case 'missing':
@@ -225,7 +235,9 @@ export function renderBriefingStatusPage(
 				: preview.briefingId ?? preview.jobId;
 	const subtitle =
 		preview.state === 'processing'
-			? 'This page refreshes automatically until the narrated briefing is ready.'
+			? preview.renderProgress?.stage === 'publishing_bundle'
+				? 'This page refreshes automatically while the published briefing bundle becomes available.'
+				: 'This page refreshes automatically until the narrated briefing is ready.'
 			: preview.state === 'failed'
 				? 'The export pipeline accepted this job but could not finish it.'
 				: preview.state === 'missing'

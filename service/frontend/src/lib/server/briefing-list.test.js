@@ -176,6 +176,143 @@ test('listBriefingsForUser falls back to stored briefing manifests when chat met
   assert.equal(result.items[1].conversationId, null);
 });
 
+test('listBriefingsForUser keeps db-backed briefings that are still waiting on storage manifests', async () => {
+  const result = await listBriefingsForUser('user-4', {
+    listObjectKeysFn: async () => ['webui/briefings/job-storage-1/briefing.json'],
+    readObjectBufferFn: async () =>
+      Buffer.from(
+        JSON.stringify({
+          job_id: 'job-storage-1',
+          briefing_id: 'briefing-storage-1',
+          title: 'Stored One',
+          generated_at: '2026-05-10T10:00:00Z',
+          sections: [],
+          assets: [],
+          timeline_cues: [],
+          sources: [],
+          validation: { valid: true, warnings: [], errors: [] }
+        })
+      ),
+    queryFn: async (sql, params) => {
+      if (sql.includes('FROM users')) {
+        return [{ total: 1 }];
+      }
+
+      if (sql.includes('FROM briefing_shares')) {
+        return [];
+      }
+
+      assert.equal(params?.user_id, 'user-4');
+      return [
+        {
+          conversation_id: 'conv-storage',
+          conversation_title: 'Stored briefing conversation',
+          sort_at: '2026-05-10 10:00:00',
+          is_public: 0,
+          extra: JSON.stringify({
+            briefingReference: {
+              jobId: 'job-storage-1',
+              briefingId: 'briefing-storage-1',
+              title: 'Stored One',
+              generatedAt: '2026-05-10T10:00:00Z',
+              validation: {
+                valid: true,
+                warningCount: 0,
+                errorCount: 0
+              }
+            }
+          })
+        },
+        {
+          conversation_id: 'conv-pending',
+          conversation_title: 'Pending publish conversation',
+          sort_at: '2026-05-16 12:00:00',
+          is_public: 0,
+          extra: JSON.stringify({
+            briefingReference: {
+              jobId: 'job-pending-1',
+              briefingId: 'briefing-pending-1',
+              title: 'Pending Publish',
+              generatedAt: '2026-05-16T12:00:00Z',
+              previewUrl: '/briefings/job-pending-1/player',
+              standaloneHtmlUrl: '/briefings/job-pending-1',
+              validation: {
+                valid: true,
+                warningCount: 1,
+                errorCount: 0
+              }
+            }
+          })
+        }
+      ];
+    }
+  });
+
+  assert.equal(result.total, 2);
+  assert.equal(result.items[0].reference.jobId, 'job-pending-1');
+  assert.equal(result.items[0].conversationId, 'conv-pending');
+  assert.equal(result.items[1].reference.jobId, 'job-storage-1');
+});
+
+test('listBriefingsForUser includes status-only renderer jobs so the archive matches recent API jobs', async () => {
+  const result = await listBriefingsForUser('user-5', {
+    listObjectKeysFn: async () => [
+      'webui/briefings/job-status-only/status.json',
+      'webui/briefings/job-storage-1/briefing.json'
+    ],
+    readObjectBufferFn: async (storageKey) => {
+      if (storageKey.endsWith('job-status-only/status.json')) {
+        return Buffer.from(
+          JSON.stringify({
+            job_id: 'job-status-only',
+            briefing_id: 'iran-war-day-78-ceasefire-talks-stall-military-escalation-looms-20260516-192734',
+            status: 'completed',
+            stage: 'completed',
+            created_at: '2026-05-16T19:27:34+00:00',
+            completed_at: '2026-05-16T19:34:32+00:00',
+            validation: {
+              valid: true,
+              warnings: ['External object-storage publishing timed out. Renderer-hosted briefing assets remain available.'],
+              errors: []
+            }
+          })
+        );
+      }
+
+      return Buffer.from(
+        JSON.stringify({
+          job_id: 'job-storage-1',
+          briefing_id: 'briefing-storage-1',
+          title: 'Stored One',
+          generated_at: '2026-05-10T10:00:00Z',
+          sections: [],
+          assets: [],
+          timeline_cues: [],
+          sources: [],
+          validation: { valid: true, warnings: [], errors: [] }
+        })
+      );
+    },
+    queryFn: async (sql) => {
+      if (sql.includes('FROM users')) {
+        return [{ total: 1 }];
+      }
+
+      if (sql.includes('FROM briefing_shares')) {
+        return [];
+      }
+
+      return [];
+    }
+  });
+
+  assert.equal(result.total, 2);
+  assert.equal(result.items[0].reference.jobId, 'job-status-only');
+  assert.match(result.items[0].reference.title, /Iran War Day 78/i);
+  assert.equal(result.items[0].reference.validation.warningCount, 1);
+  assert.equal(result.items[1].reference.jobId, 'job-storage-1');
+});
+
 test('deleteBriefingForUser removes stored briefing objects and share state', async () => {
   const deletedKeys = [];
   const executeCalls = [];

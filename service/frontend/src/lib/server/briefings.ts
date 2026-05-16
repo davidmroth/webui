@@ -23,6 +23,7 @@ type RendererJobStage =
 	| 'encoding_audio'
 	| 'assembling_briefing'
 	| 'packaging_assets'
+	| 'publishing_bundle'
 	| 'completed'
 	| 'failed';
 type RendererCueKind = 'section' | 'sentence' | 'metric' | 'illustration' | 'citation';
@@ -479,6 +480,36 @@ function toStatusState(jobId: string, status: RendererJobStatus): BriefingPrevie
 	};
 }
 
+function toPublishPendingState(status: RendererJobStatus): BriefingPreviewProcessing {
+	return {
+		state: 'processing',
+		status: 'processing',
+		jobId: status.job_id,
+		briefingId: typeof status.briefing_id === 'string' ? status.briefing_id : null,
+		createdAt: status.created_at,
+		completedAt: typeof status.completed_at === 'string' ? status.completed_at : null,
+		error: null,
+		validation: status.validation ? normalizeValidation(status.validation) : null,
+		assetCount: typeof status.asset_count === 'number' ? status.asset_count : 0,
+		renderProgress: {
+			stage: 'publishing_bundle',
+			percent: 100,
+			detail:
+				typeof status.progress_detail === 'string' && status.progress_detail.trim().length > 0
+					? status.progress_detail
+					: 'Rendering finished, and the WebUI is waiting for the published bundle to arrive in object storage.',
+			sentenceTotal:
+				typeof status.sentence_total === 'number' && Number.isFinite(status.sentence_total)
+					? Math.max(0, Math.round(status.sentence_total))
+					: null,
+			sentenceCompleted:
+				typeof status.sentence_completed === 'number' && Number.isFinite(status.sentence_completed)
+					? Math.max(0, Math.round(status.sentence_completed))
+					: null
+		}
+	};
+}
+
 function isObjectRecord(value: unknown): value is Record<string, unknown> {
 	return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
@@ -678,12 +709,7 @@ async function loadBriefingPreviewInternal(
 
 	if (publishedStatus !== null) {
 		if (publishedStatus.status === 'completed') {
-			return toErrorState(publishedStatus.job_id, {
-				message: 'Briefing export is not available yet.',
-				detail:
-					'The briefing finished rendering, but the published bundle is not available in object storage yet. Retry in a moment.',
-				canRetry: true
-			});
+			return toPublishPendingState(publishedStatus);
 		}
 
 		return toStatusState(publishedStatus.job_id, publishedStatus);
