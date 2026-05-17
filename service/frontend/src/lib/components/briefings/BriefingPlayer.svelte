@@ -724,16 +724,26 @@
 		padding: 1rem;
 		display: grid;
 		gap: 0.45rem;
+		min-width: 0;
 	}
 
 	.briefing-metric-label,
 	.briefing-illustration-title {
 		font-size: 0.92rem;
 		font-weight: 700;
+		overflow-wrap: anywhere;
 	}
 
 	.briefing-metric-card strong {
-		font-size: 1.6rem;
+		min-width: 0;
+		font-size: clamp(1.4rem, 2.8vw, 1.6rem);
+		line-height: 1.05;
+		overflow-wrap: anywhere;
+		word-break: break-word;
+	}
+
+	.briefing-metric-card span {
+		overflow-wrap: anywhere;
 	}
 
 	.briefing-illustration-card img {
