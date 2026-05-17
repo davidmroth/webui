@@ -1,9 +1,7 @@
 import { fail, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 import { requireSession } from '$server/auth';
-import { regenerateBriefingJob } from '$server/briefing-renderer-client';
-import { getConfig } from '$server/env';
-import { assertBriefingOwnedByUser, deleteBriefingForUser, listBriefingsForUser } from '$server/briefing-list';
+import { deleteBriefingForUser, listBriefingsForUser } from '$server/briefing-list';
 
 function parsePageParam(raw: string | null) {
   const parsed = Number(raw ?? '1');
@@ -26,37 +24,6 @@ export const load: PageServerLoad = async (event) => {
 };
 
 export const actions: Actions = {
-  regenerate: async (event) => {
-    const session = await requireSession(event);
-    const formData = await event.request.formData();
-    const jobId = String(formData.get('jobId') || '').trim();
-
-    if (!jobId) {
-      return fail(400, { error: 'A briefing job id is required.' });
-    }
-
-    try {
-      await assertBriefingOwnedByUser(session.userId, jobId);
-      const config = getConfig();
-      await regenerateBriefingJob(
-        {
-          baseUrl: config.briefingRendererBaseUrl,
-          serviceToken: config.briefingRendererServiceToken
-        },
-        jobId
-      );
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unable to regenerate the briefing.';
-      const status = /owner|verified/i.test(message)
-        ? 403
-        : /required|configured/i.test(message)
-          ? 400
-          : 500;
-      return fail(status, { error: message });
-    }
-
-    throw redirect(303, '/briefings');
-  },
   delete: async (event) => {
     const session = await requireSession(event);
     const formData = await event.request.formData();

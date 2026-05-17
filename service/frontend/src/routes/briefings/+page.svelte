@@ -1,7 +1,7 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
   import { invalidateAll } from '$app/navigation';
-  import { RotateCcw, Trash2 } from '@lucide/svelte';
+  import { Trash2 } from '@lucide/svelte';
   import { scale } from 'svelte/transition';
 
   let { data, form } = $props();
@@ -202,28 +202,6 @@
                 </div>
 
                 <div class="flex gap-2 lg:mt-auto lg:self-end">
-                  <form
-                    method="POST"
-                    action="?/regenerate"
-                    onsubmit={(event) => {
-                      if (typeof window !== 'undefined' && !window.confirm(`Regenerate briefing \"${item.reference.title}\"?`)) {
-                        event.preventDefault();
-                      }
-                    }}
-                  >
-                    <input type="hidden" name="jobId" value={item.reference.jobId} />
-                    <button
-                      aria-label={`Regenerate ${item.reference.title}`}
-                      class="group inline-flex h-10 w-10 items-center justify-center overflow-hidden rounded-full border border-border/70 bg-background/80 text-muted-foreground transition-all duration-200 hover:w-36 hover:border-foreground/15 hover:bg-foreground/5 hover:text-foreground focus-visible:w-36 focus-visible:border-foreground/15 focus-visible:bg-foreground/5 focus-visible:px-4 focus-visible:text-foreground"
-                      type="submit"
-                    >
-                      <RotateCcw class="h-4 w-4 shrink-0" />
-                      <span class="max-w-0 overflow-hidden whitespace-nowrap pl-0 text-sm font-medium opacity-0 transition-all duration-200 group-hover:max-w-24 group-hover:pl-2 group-hover:opacity-100 group-focus-visible:max-w-24 group-focus-visible:pl-2 group-focus-visible:opacity-100">
-                        Regenerate
-                      </span>
-                    </button>
-                  </form>
-
                   <form
                     method="POST"
                     action="?/delete"

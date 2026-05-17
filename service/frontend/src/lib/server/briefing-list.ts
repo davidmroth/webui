@@ -446,14 +446,14 @@ export async function assertBriefingOwnedByUser(
   const ownerUserId = share?.ownerUserId ?? (await findBriefingOwnerUserId(normalizedJobId, { queryFn }));
 
   if (ownerUserId && ownerUserId !== normalizedUserId) {
-    throw new Error('Only the briefing owner can regenerate or delete it.');
+    throw new Error('Only the briefing owner can delete it.');
   }
 
   if (!ownerUserId) {
     const [countRow] = await queryFn<UserCountRow>('SELECT COUNT(*) AS total FROM users');
     const userCount = Math.max(0, Number(countRow?.total ?? 0) || 0);
     if (userCount > 1) {
-      throw new Error('Briefing ownership could not be verified.');
+      throw new Error('Briefing ownership could not be verified for deletion.');
     }
   }
 }
