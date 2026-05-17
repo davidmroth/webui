@@ -39,6 +39,8 @@ export function getConfig() {
     objectStoragePrefix: getEnv('OBJECT_STORAGE_PREFIX', ''),
     objectStorageRegion,
     briefingStoragePrefix: getEnv('BRIEFING_STORAGE_PREFIX', 'webui/briefings'),
+    briefingRendererBaseUrl: getEnv('BRIEFING_RENDERER_BASE_URL', ''),
+    briefingRendererServiceToken: getEnv('BRIEFING_RENDERER_SERVICE_TOKEN', ''),
     sessionCookieName: getEnv('SESSION_COOKIE_NAME', 'hermes_webui_session'),
     hermesServiceToken: getEnv('HERMES_WEBCHAT_SERVICE_TOKEN', 'change-me'),
     hermesEventLeaseSeconds: getNumber('HERMES_EVENT_LEASE_SECONDS', 120),

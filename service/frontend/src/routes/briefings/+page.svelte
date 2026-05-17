@@ -1,7 +1,53 @@
 <script lang="ts">
-  import { Trash2 } from '@lucide/svelte';
+  import { enhance } from '$app/forms';
+  import { invalidateAll } from '$app/navigation';
+  import { RotateCcw, Trash2 } from '@lucide/svelte';
+  import { scale } from 'svelte/transition';
 
   let { data, form } = $props();
+  let deletingJobId = $state<string | null>(null);
+  let deletedJobIds = $state<string[]>([]);
+  let deleteError = $state<string | null>(null);
+
+  function isDeleting(jobId: string) {
+    return deletingJobId === jobId;
+  }
+
+  function isDeleted(jobId: string) {
+    return deletedJobIds.includes(jobId);
+  }
+
+  function markDeleted(jobId: string) {
+    if (!deletedJobIds.includes(jobId)) {
+      deletedJobIds = [...deletedJobIds, jobId];
+    }
+  }
+
+  function enhanceDelete(jobId: string) {
+    return () => {
+      deletingJobId = jobId;
+      deleteError = null;
+
+      return async ({ result }: { result: import('@sveltejs/kit').ActionResult }) => {
+        if (result.type === 'success') {
+          markDeleted(jobId);
+          await new Promise((resolve) => window.setTimeout(resolve, 220));
+          deletedJobIds = deletedJobIds.filter((candidate) => candidate !== jobId);
+          deletingJobId = null;
+          await invalidateAll();
+          return;
+        }
+
+        deletingJobId = null;
+        if (result.type === 'failure' && result.data && typeof result.data === 'object' && 'error' in result.data && typeof result.data.error === 'string') {
+          deleteError = result.data.error;
+          return;
+        }
+
+        deleteError = 'Unable to delete the briefing.';
+      };
+    };
+  }
 
   function buildPageHref(page: number) {
     const params = new URLSearchParams();
@@ -72,9 +118,9 @@
       </div>
     </header>
 
-    {#if form?.error}
+    {#if deleteError ?? form?.error}
       <div class="rounded-2xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-        {form.error}
+        {deleteError ?? form?.error}
       </div>
     {/if}
 
@@ -93,8 +139,20 @@
       </section>
     {:else}
       <section class="grid gap-4">
-        {#each data.briefings.items as item}
-          <article class="rounded-3xl border border-border bg-card p-5 shadow-sm">
+        {#each data.briefings.items as item (item.reference.jobId)}
+          {#if !isDeleted(item.reference.jobId)}
+          <article
+            class={`relative overflow-hidden rounded-3xl border border-border bg-card p-5 shadow-sm transition-opacity duration-200 ${isDeleting(item.reference.jobId) ? 'pointer-events-none opacity-60' : ''}`}
+            out:scale={{ duration: 220, start: 0.97 }}
+          >
+            {#if isDeleting(item.reference.jobId)}
+              <div class="absolute inset-0 z-10 flex items-center justify-center bg-background/75 backdrop-blur-[1px]">
+                <div class="flex items-center gap-3 rounded-full border border-border bg-card/95 px-4 py-2 text-sm font-medium text-muted-foreground shadow-sm">
+                  <div class="app-loading-spinner h-5 w-5"></div>
+                  <span>Deleting briefing…</span>
+                </div>
+              </div>
+            {/if}
             <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
               <div class="min-w-0 flex-1">
                 <div class="flex flex-wrap items-center gap-2 text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
@@ -143,32 +201,58 @@
                   {/if}
                 </div>
 
-                <form
-                  class="lg:mt-auto lg:self-end"
-                  method="POST"
-                  action="?/delete"
-                  onsubmit={(event) => {
-                    if (typeof window !== 'undefined' && !window.confirm(`Delete briefing \"${item.reference.title}\"?`)) {
-                      event.preventDefault();
-                    }
-                  }}
-                >
-                  <input type="hidden" name="jobId" value={item.reference.jobId} />
-                  <input type="hidden" name="page" value={data.briefings.page} />
-                  <button
-                    aria-label={`Delete ${item.reference.title}`}
-                    class="group inline-flex h-10 w-10 items-center justify-center overflow-hidden rounded-full border border-border/70 bg-background/80 text-muted-foreground transition-all duration-200 hover:w-28 hover:border-destructive/30 hover:bg-destructive/5 hover:text-destructive focus-visible:w-28 focus-visible:border-destructive/30 focus-visible:bg-destructive/5 focus-visible:px-4 focus-visible:text-destructive"
-                    type="submit"
+                <div class="flex gap-2 lg:mt-auto lg:self-end">
+                  <form
+                    method="POST"
+                    action="?/regenerate"
+                    onsubmit={(event) => {
+                      if (typeof window !== 'undefined' && !window.confirm(`Regenerate briefing \"${item.reference.title}\"?`)) {
+                        event.preventDefault();
+                      }
+                    }}
                   >
-                    <Trash2 class="h-4 w-4 shrink-0" />
-                    <span class="max-w-0 overflow-hidden whitespace-nowrap pl-0 text-sm font-medium opacity-0 transition-all duration-200 group-hover:max-w-16 group-hover:pl-2 group-hover:opacity-100 group-focus-visible:max-w-16 group-focus-visible:pl-2 group-focus-visible:opacity-100">
-                      Delete
-                    </span>
-                  </button>
-                </form>
+                    <input type="hidden" name="jobId" value={item.reference.jobId} />
+                    <button
+                      aria-label={`Regenerate ${item.reference.title}`}
+                      class="group inline-flex h-10 w-10 items-center justify-center overflow-hidden rounded-full border border-border/70 bg-background/80 text-muted-foreground transition-all duration-200 hover:w-36 hover:border-foreground/15 hover:bg-foreground/5 hover:text-foreground focus-visible:w-36 focus-visible:border-foreground/15 focus-visible:bg-foreground/5 focus-visible:px-4 focus-visible:text-foreground"
+                      type="submit"
+                    >
+                      <RotateCcw class="h-4 w-4 shrink-0" />
+                      <span class="max-w-0 overflow-hidden whitespace-nowrap pl-0 text-sm font-medium opacity-0 transition-all duration-200 group-hover:max-w-24 group-hover:pl-2 group-hover:opacity-100 group-focus-visible:max-w-24 group-focus-visible:pl-2 group-focus-visible:opacity-100">
+                        Regenerate
+                      </span>
+                    </button>
+                  </form>
+
+                  <form
+                    method="POST"
+                    action="?/delete"
+                    use:enhance={enhanceDelete(item.reference.jobId)}
+                    onsubmit={(event) => {
+                      if (typeof window !== 'undefined' && !window.confirm(`Delete briefing \"${item.reference.title}\"?`)) {
+                        event.preventDefault();
+                      }
+                    }}
+                  >
+                    <input type="hidden" name="jobId" value={item.reference.jobId} />
+                    <input type="hidden" name="page" value={data.briefings.page} />
+                    <button
+                      aria-label={`Delete ${item.reference.title}`}
+                      disabled={isDeleting(item.reference.jobId)}
+                      class="group inline-flex h-10 w-10 items-center justify-center overflow-hidden rounded-full border border-border/70 bg-background/80 text-muted-foreground transition-all duration-200 hover:w-28 hover:border-destructive/30 hover:bg-destructive/5 hover:text-destructive focus-visible:w-28 focus-visible:border-destructive/30 focus-visible:bg-destructive/5 focus-visible:px-4 focus-visible:text-destructive"
+                      type="submit"
+                    >
+                      <Trash2 class="h-4 w-4 shrink-0" />
+                      <span class="max-w-0 overflow-hidden whitespace-nowrap pl-0 text-sm font-medium opacity-0 transition-all duration-200 group-hover:max-w-16 group-hover:pl-2 group-hover:opacity-100 group-focus-visible:max-w-16 group-focus-visible:pl-2 group-focus-visible:opacity-100">
+                        Delete
+                      </span>
+                    </button>
+                  </form>
+                </div>
               </div>
             </div>
           </article>
+          {/if}
         {/each}
       </section>
 
