@@ -221,7 +221,7 @@ interface HermesConnectionPendingEvent {
 
 interface HermesConnectionStatus {
   polledAt: string;
-  state: 'connected' | 'degraded' | 'offline' | 'misconfigured';
+  state: 'connected' | 'reconnecting' | 'degraded' | 'offline' | 'misconfigured';
   label: string;
   summary: string;
   hermesServiceTokenConfigured: boolean;
@@ -922,6 +922,20 @@ export function buildHermesConnectionStatus(params: {
       label: 'Auth failing',
       summary:
         'The receiver recently saw unauthorized Hermes requests and there is no fresh worker heartbeat. WEBCHAT_SERVICE_TOKEN and HERMES_WEBCHAT_SERVICE_TOKEN likely do not match.',
+      hermesServiceTokenConfigured,
+      queue: queueStats,
+      workerHeartbeat,
+      pendingEvent
+    };
+  }
+
+  if (hasBacklog && workerHeartbeat.seen) {
+    return {
+      polledAt: new Date(nowMs).toISOString(),
+      state: 'reconnecting',
+      label: 'Reconnecting',
+      summary:
+        'WebUI can see queued or in-flight Hermes work, and the last worker heartbeat has gone stale. Hermes is likely retrying the webchat poller connection with backoff right now.',
       hermesServiceTokenConfigured,
       queue: queueStats,
       workerHeartbeat,

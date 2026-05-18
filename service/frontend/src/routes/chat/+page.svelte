@@ -22,6 +22,7 @@
   import ConversationList from '$components/chat/ConversationList.svelte';
   import MessagePane from '$components/chat/MessagePane.svelte';
   import { CHAT_INPUT_HISTORY_LOCALSTORAGE_KEY } from '$lib/constants';
+  import type { MaintenanceHermesConnectionStatus } from '$lib/services/maintenance-hermes-status';
   import {
     deleteConversation as deleteConversationRequest,
     exportConversation as exportConversationRequest,
@@ -102,6 +103,9 @@
   let messages = $state<ChatMessage[]>(untrack(() => data.messages ?? []));
   let conversations = $state<ConversationSummary[]>(untrack(() => data.conversations ?? []));
   let currentRunState = $state<ConversationRunState>(untrack(() => normalizeConversationRunState(data.runState)));
+  let hermesConnection = $state<MaintenanceHermesConnectionStatus | null>(
+    untrack(() => data.hermesConnection ?? null)
+  );
   let pendingFiles = $state<PendingAttachment[]>([]);
   let pendingAssistantByConversation = $state<Record<string, PendingAssistantState>>({});
   let hermesTypingPlaceholderByConversation = $state<Record<string, string>>({});
@@ -682,6 +686,7 @@
     messages = data.messages;
     conversations = data.conversations;
     currentRunState = normalizeConversationRunState(data.runState);
+    hermesConnection = data.hermesConnection ?? null;
     loadedMessagesConversationId = data.currentConversationId;
     if (data.currentConversationId) {
       rememberConversationStreamCursor(data.currentConversationId, data.messages);
@@ -945,6 +950,7 @@
   const showStalledWarning = $derived(
     Boolean(currentConversationSummary?.assistantStalled || currentRunState.status === 'stale')
   );
+  const isReconnectingWarning = $derived(hermesConnection?.state === 'reconnecting');
   const runStateNotice = $derived.by(() => {
     if (!currentConversationId) {
       return null;
@@ -2674,13 +2680,20 @@
             class="llama-stalled-banner"
             role="status"
           >
-            <strong class="llama-stalled-banner-title">Hermes worker appears stalled.</strong>
+            <strong class="llama-stalled-banner-title">
+              {isReconnectingWarning ? 'Hermes worker is reconnecting.' : 'Hermes worker appears stalled.'}
+            </strong>
             <p class="llama-stalled-banner-body">
-              Your message is queued, but the webchat worker heartbeat is stale. Check
-              <span class="llama-stalled-banner-emphasis">WEBCHAT_URL / WEBCHAT_SERVICE_TOKEN</span>
-              on Hermes and
-              <span class="llama-stalled-banner-emphasis">HERMES_WEBCHAT_SERVICE_TOKEN</span>
-              on WebUI, then restart the Hermes gateway webchat adapter.
+              {#if isReconnectingWarning}
+                Your message is still queued, and the last worker heartbeat went stale. Hermes is retrying the
+                webchat poller connection with backoff, so give it a moment before manually restarting the gateway.
+              {:else}
+                Your message is queued, but the webchat worker heartbeat is stale. Check
+                <span class="llama-stalled-banner-emphasis">WEBCHAT_URL / WEBCHAT_SERVICE_TOKEN</span>
+                on Hermes and
+                <span class="llama-stalled-banner-emphasis">HERMES_WEBCHAT_SERVICE_TOKEN</span>
+                on WebUI, then restart the Hermes gateway webchat adapter.
+              {/if}
             </p>
             <div class="llama-stalled-banner-actions">
               <button

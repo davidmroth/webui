@@ -1,11 +1,11 @@
 const DEFAULT_POLL_INTERVAL_MS = 5_000;
 const MIN_POLL_INTERVAL_MS = 2_000;
-const CONNECTION_STATES = new Set(['connected', 'degraded', 'offline', 'misconfigured']);
+const CONNECTION_STATES = new Set(['connected', 'reconnecting', 'degraded', 'offline', 'misconfigured']);
 const PENDING_EVENT_STATES = new Set(['queued', 'processing', 'acked', 'cancelled']);
 
 export interface MaintenanceHermesConnectionStatus {
   polledAt: string;
-  state: 'connected' | 'degraded' | 'offline' | 'misconfigured';
+  state: 'connected' | 'reconnecting' | 'degraded' | 'offline' | 'misconfigured';
   label: string;
   summary: string;
   hermesServiceTokenConfigured: boolean;

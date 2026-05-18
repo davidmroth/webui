@@ -17,6 +17,9 @@
     if (state === 'connected') {
       return 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300';
     }
+    if (state === 'reconnecting') {
+      return 'bg-sky-500/15 text-sky-700 dark:text-sky-300';
+    }
     if (state === 'degraded') {
       return 'bg-amber-500/15 text-amber-700 dark:text-amber-300';
     }
@@ -29,6 +32,9 @@
   function stateDotClasses(state: MaintenanceHermesConnectionStatus['state']) {
     if (state === 'connected') {
       return 'bg-emerald-500 motion-safe:animate-pulse';
+    }
+    if (state === 'reconnecting') {
+      return 'bg-sky-500 motion-safe:animate-pulse';
     }
     if (state === 'degraded') {
       return 'bg-amber-500';

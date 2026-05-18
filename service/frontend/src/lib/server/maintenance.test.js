@@ -217,6 +217,61 @@ test('buildHermesConnectionStatus reports recent auth failures as degraded', () 
   assert.match(status.summary, /do not match/);
 });
 
+test('buildHermesConnectionStatus reports stale backlog as reconnecting after a prior heartbeat', () => {
+  const status = buildHermesConnectionStatus({
+    queue: {
+      queued: 1,
+      processing: 0,
+      acked: 0,
+      staleProcessing: 0,
+      leaseSeconds: 60
+    },
+    workerHeartbeat: {
+      seen: true,
+      lastSeenAt: '2026-05-04T14:00:10.000Z',
+      ageSeconds: 50,
+      staleAfterSeconds: 30,
+      isOnline: false,
+      source: 'inbox-next',
+      authFailure: {
+        seen: false,
+        lastSeenAt: null,
+        ageSeconds: null,
+        source: null,
+        reason: null
+      }
+    },
+    inboxContract: {
+      ok: true,
+      hasPendingEvent: true,
+      preview: {
+        eventId: 'evt-1',
+        status: 'queued',
+        conversationId: 'conv-1',
+        conversationName: 'Alpha',
+        messageId: 'msg-1',
+        createdAt: '2026-05-04T14:00:30.000Z',
+        messagePreview: 'Preview',
+        attachmentCount: 0,
+        sessionPlatform: 'webui-conversation',
+        sessionChatId: 'conv-1',
+        contextUrl: '/api/internal/hermes/conversations/conv-1/context',
+        contextVersion: {
+          currNode: null,
+          lastModified: 0
+        }
+      },
+      error: null
+    },
+    hermesServiceTokenConfigured: true,
+    nowMs: Date.parse('2026-05-04T14:01:00.000Z')
+  });
+
+  assert.equal(status.state, 'reconnecting');
+  assert.equal(status.label, 'Reconnecting');
+  assert.match(status.summary, /retrying the webchat poller connection with backoff/i);
+});
+
 test('buildRecentAssistantTimingsTelemetry surfaces stored llama timings for the maintenance page', () => {
   const llamaTimingsJson = JSON.stringify({
     prompt_eval_count: 48,

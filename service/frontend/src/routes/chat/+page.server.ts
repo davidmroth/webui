@@ -7,7 +7,7 @@ import {
   listConversations,
   listMessages
 } from '$server/chat';
-import { getBuildInfo } from '$server/maintenance';
+import { collectMaintenanceHermesConnectionStatus, getBuildInfo } from '$server/maintenance';
 import { requireSession } from '$server/auth';
 import { getHermesSlashCommands } from '$server/slash-commands';
 
@@ -19,13 +19,14 @@ export async function load(event) {
   ]);
   const requestedConversation = event.url.searchParams.get('conversation');
   const currentConversationId = requestedConversation || null;
-  const [messages, assistantBusy, runState] = currentConversationId
+  const [messages, assistantBusy, runState, hermesConnection] = currentConversationId
     ? await Promise.all([
         listMessages(session.userId, currentConversationId),
         isConversationBusy(session.userId, currentConversationId),
-        getConversationRunState(session.userId, currentConversationId)
+        getConversationRunState(session.userId, currentConversationId),
+        collectMaintenanceHermesConnectionStatus()
       ])
-    : [[], false, { status: 'idle', active: false, stalled: false }];
+    : [[], false, { status: 'idle', active: false, stalled: false }, null];
 
   return {
     session,
@@ -34,6 +35,7 @@ export async function load(event) {
     messages,
     assistantBusy,
     runState,
+    hermesConnection,
     buildInfo,
     slashCommands: (await getHermesSlashCommands()).commands
   };
