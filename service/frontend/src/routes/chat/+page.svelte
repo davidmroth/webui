@@ -23,6 +23,7 @@
   import MessagePane from '$components/chat/MessagePane.svelte';
   import { CHAT_INPUT_HISTORY_LOCALSTORAGE_KEY } from '$lib/constants';
   import type { MaintenanceHermesConnectionStatus } from '$lib/services/maintenance-hermes-status';
+  import { startConversationStatusPolling, type ConversationStatusSnapshot } from '$lib/services/conversation-status';
   import {
     deleteConversation as deleteConversationRequest,
     exportConversation as exportConversationRequest,
@@ -693,6 +694,29 @@
     }
     lastKnownConversationUpdatedAtById = indexConversationUpdatedAt(data.conversations);
     lastKnownAssistantBusyById = indexConversationAssistantBusy(data.conversations);
+  });
+
+  $effect(() => {
+    const conversationId = currentConversationId;
+    if (!conversationId || (!showStalledWarning && !currentRunState.active)) {
+      return;
+    }
+
+    const stopPolling = startConversationStatusPolling({
+      conversationId,
+      intervalMs: 5_000,
+      onUpdate(status) {
+        if (!isCurrentConversationRequest(conversationId, currentConversationId)) {
+          return;
+        }
+
+        applyConversationStatusSnapshot(conversationId, status);
+      }
+    });
+
+    return () => {
+      stopPolling();
+    };
   });
 
   $effect(() => {
@@ -1438,6 +1462,28 @@
             ...conversation,
             assistantBusy: busy,
             assistantStalled: busy ? false : conversation.assistantStalled
+          }
+        : conversation
+    );
+  }
+
+  function applyConversationStatusSnapshot(
+    conversationId: string,
+    snapshot: ConversationStatusSnapshot
+  ) {
+    currentRunState = normalizeConversationRunState(snapshot.runState);
+    hermesConnection = snapshot.hermesConnection;
+    serverAssistantBusyByConversation = {
+      ...serverAssistantBusyByConversation,
+      [conversationId]: snapshot.assistantBusy
+    };
+
+    conversations = conversations.map((conversation) =>
+      conversation.id === conversationId
+        ? {
+            ...conversation,
+            assistantBusy: snapshot.assistantBusy,
+            assistantStalled: snapshot.assistantStalled
           }
         : conversation
     );

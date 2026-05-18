@@ -71,7 +71,7 @@ function isPendingEventStatus(value: unknown): value is MaintenanceHermesConnect
   return value === null || (typeof value === 'string' && PENDING_EVENT_STATES.has(value));
 }
 
-function isMaintenanceHermesConnectionStatus(value: unknown): value is MaintenanceHermesConnectionStatus {
+export function isMaintenanceHermesConnectionStatus(value: unknown): value is MaintenanceHermesConnectionStatus {
   if (!isObjectRecord(value)) {
     return false;
   }
