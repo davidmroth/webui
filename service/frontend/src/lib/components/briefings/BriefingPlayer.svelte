@@ -930,6 +930,10 @@
 	.briefing-side-column {
 		grid-column: 2;
 		grid-row: 2;
+		position: sticky;
+		top: var(--chat-viewport-offset-top, 0px);
+		max-height: calc(100vh - var(--chat-viewport-offset-top, 0px) - 1.5rem);
+		overflow-y: auto;
 	}
 
 	.briefing-layout:not(.has-audio) .briefing-main-column,
@@ -1112,6 +1116,11 @@
 		.briefing-side-column {
 			grid-column: 1;
 			grid-row: auto;
+		}
+
+		.briefing-side-column {
+			position: static;
+			max-height: none;
 		}
 
 		.briefing-hero {
