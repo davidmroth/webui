@@ -14,6 +14,8 @@ import { migration as hermesRunStatusBackfillMigration } from './migrations/011_
 import { migration as repairLegacyChatSchemaMigration } from './migrations/012_repair_legacy_chat_schema';
 import { migration as slashCommandCacheMigration } from './migrations/013_slash_command_cache';
 import { migration as briefingSharesMigration } from './migrations/014_briefing_shares';
+import { migration as briefingsCatalogMigration } from './migrations/015_briefings_catalog';
+import { migration as backfillBriefingsFromMessagesMigration } from './migrations/016_backfill_briefings_from_messages';
 
 interface SchemaMigrationRow {
   id: string;
@@ -56,7 +58,9 @@ const migrations: Migration[] = [
   hermesRunStatusBackfillMigration,
   repairLegacyChatSchemaMigration,
   slashCommandCacheMigration,
-  briefingSharesMigration
+  briefingSharesMigration,
+  briefingsCatalogMigration,
+  backfillBriefingsFromMessagesMigration
 ];
 
 function toIsoString(value: Date | string | null | undefined): string | null {

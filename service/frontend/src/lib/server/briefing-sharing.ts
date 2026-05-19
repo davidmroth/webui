@@ -1,4 +1,5 @@
 import { execute, query } from './db';
+import { syncBriefingJobFromStorage } from './briefing-catalog';
 
 interface BriefingOwnerRow {
 	owner_user_id: string;
@@ -54,12 +55,22 @@ export async function findBriefingOwnerUserId(
 	}
 
 	const queryFn = deps.queryFn ?? query;
-	const rows = await queryFn<BriefingOwnerRow>(
-		`SELECT conversations.user_id AS owner_user_id
-		 FROM messages
-		 INNER JOIN conversations ON conversations.id = messages.conversation_id
-		 WHERE JSON_UNQUOTE(JSON_EXTRACT(messages.extra, '$.briefingReference.jobId')) = :job_id
-		 ORDER BY messages.created_at DESC
+	let rows = await queryFn<BriefingOwnerRow>(
+		`SELECT owner_user_id
+		 FROM briefings
+		 WHERE job_id = :job_id
+		 LIMIT 1`,
+		{ job_id: normalizedJobId }
+	);
+	if (rows[0]?.owner_user_id) {
+		return rows[0].owner_user_id;
+	}
+
+	await syncBriefingJobFromStorage(normalizedJobId, { queryFn });
+	rows = await queryFn<BriefingOwnerRow>(
+		`SELECT owner_user_id
+		 FROM briefings
+		 WHERE job_id = :job_id
 		 LIMIT 1`,
 		{ job_id: normalizedJobId }
 	);

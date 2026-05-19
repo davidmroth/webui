@@ -80,7 +80,12 @@
 		{#if preview.state === 'ready'}
 			<BriefingPlayer briefing={preview} sharing={sharing} />
 		{:else}
-			<BriefingStatusCard preview={preview} refreshHref={currentPlayerHref()} pollError={pollError} />
+			<BriefingStatusCard
+				preview={preview}
+				refreshHref={currentPlayerHref()}
+				retryBriefingAction={sharing.canManage ? sharing.standalonePath : null}
+				pollError={pollError}
+			/>
 		{/if}
 	</div>
 </section>

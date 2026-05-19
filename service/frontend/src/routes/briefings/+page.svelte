@@ -59,8 +59,35 @@
     return query ? `/briefings?${query}` : '/briefings';
   }
 
-  function formatDate(value: string | null | undefined) {
+  function formatDate(value: string | number | Date | null | undefined) {
     if (!value) {
+      return 'Unknown date';
+    }
+
+    if (value instanceof Date) {
+      if (Number.isNaN(value.getTime())) {
+        return 'Unknown date';
+      }
+
+      return new Intl.DateTimeFormat(undefined, {
+        dateStyle: 'medium',
+        timeStyle: 'short'
+      }).format(value);
+    }
+
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      const normalized = new Date(value > 1e12 ? value : value * 1000);
+      if (Number.isNaN(normalized.getTime())) {
+        return 'Unknown date';
+      }
+
+      return new Intl.DateTimeFormat(undefined, {
+        dateStyle: 'medium',
+        timeStyle: 'short'
+      }).format(normalized);
+    }
+
+    if (typeof value !== 'string') {
       return 'Unknown date';
     }
 
@@ -94,6 +121,22 @@
       dateStyle: 'medium',
       timeStyle: 'short'
     }).format(normalized);
+  }
+
+  function isFailed(item: (typeof data.briefings.items)[number]) {
+    return item.state === 'failed';
+  }
+
+  function primaryActionLabel(item: (typeof data.briefings.items)[number]) {
+    if (item.state === 'failed') {
+      return 'View failure';
+    }
+
+    if (item.state === 'processing') {
+      return 'View status';
+    }
+
+    return 'Open';
   }
 </script>
 
@@ -142,7 +185,7 @@
         {#each data.briefings.items as item (item.reference.jobId)}
           {#if !isDeleted(item.reference.jobId)}
           <article
-            class={`relative overflow-hidden rounded-3xl border border-border bg-card p-5 shadow-sm transition-opacity duration-200 ${isDeleting(item.reference.jobId) ? 'pointer-events-none opacity-60' : ''}`}
+            class={`relative overflow-hidden rounded-3xl border p-5 shadow-sm transition-opacity duration-200 ${isFailed(item) ? 'border-destructive/30 bg-destructive/5 ring-1 ring-destructive/15' : 'border-border bg-card'} ${isDeleting(item.reference.jobId) ? 'pointer-events-none opacity-60' : ''}`}
             out:scale={{ duration: 220, start: 0.97 }}
           >
             {#if isDeleting(item.reference.jobId)}
@@ -159,6 +202,10 @@
                   <span>{item.isPublic ? 'Public' : 'Private'}</span>
                   <span aria-hidden="true">•</span>
                   <span>{formatDate(item.reference.generatedAt ?? item.createdAt)}</span>
+					{#if isFailed(item)}
+						<span aria-hidden="true">•</span>
+						<span class="rounded-full bg-destructive/12 px-2 py-1 text-destructive">Failed</span>
+					{/if}
                 </div>
                 <h2 class="mt-2 text-xl font-semibold tracking-tight">{item.reference.title}</h2>
                 <p class="mt-2 text-xs text-muted-foreground">
@@ -170,6 +217,9 @@
                 {/if}
                 <div class="mt-4 flex flex-wrap gap-x-6 gap-y-2 text-sm text-muted-foreground">
                   <span>Conversation: {item.conversationTitle ?? 'Archived briefing'}</span>
+					{#if isFailed(item)}
+						<span class="font-medium text-destructive">Status: Briefing export failed</span>
+					{/if}
                   <span>
                     Validation: {item.reference.validation.valid ? 'Valid' : 'Needs review'}
                     ({item.reference.validation.warningCount} warnings, {item.reference.validation.errorCount} errors)
@@ -183,7 +233,7 @@
                     class="primary-button"
                     href={item.reference.standaloneHtmlUrl}
                   >
-                    Open
+      						{primaryActionLabel(item)}
                   </a>
                   <a
                     class="inline-flex items-center justify-center rounded-full border border-border bg-background px-4 py-2 text-sm font-medium"

@@ -57,6 +57,7 @@ test('renderBriefingStatusPage surfaces failure details without auto-refresh', (
 		renderProgress: null,
 		canRetry: true
 	}, {
+		retryBriefingAction: '/briefings/briefing-fail',
 		retryHref: '/briefings/briefing-fail?retry=1'
 	});
 
@@ -64,6 +65,8 @@ test('renderBriefingStatusPage surfaces failure details without auto-refresh', (
 	assert.match(html, /Briefing render failed/);
 	assert.match(html, /The renderer timed out while verifying the briefing assets\./);
 	assert.match(html, /Retry loading the briefing\. The export may already be available\./);
+	assert.match(html, /<form method="POST" action="\/briefings\/briefing-fail">/);
+	assert.match(html, /Retry briefing/);
 	assert.match(html, /Retry loading briefing/);
 	assert.match(html, /Return to chat/);
 });

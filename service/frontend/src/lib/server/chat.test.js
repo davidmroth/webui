@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   resolveVisibleConversationRows,
   resolveAssistantParentMessageId,
+  retryBriefingJob,
   shouldReclaimStaleHermesProcessingEvent,
   shouldAdvanceAssistantTail,
   updateAssistantMessage
@@ -626,4 +627,44 @@ test('updateAssistantMessage updates the current Hermes tail message', async () 
       content: 'final answer'
     }
   ]);
+});
+
+test('retryBriefingJob finds the latest assistant message for a briefing and requeues it', async () => {
+  const queryCalls = [];
+  const retry = await retryBriefingJob('user-1', 'job-42', {
+    queryFn: async (sql, params = {}) => {
+      queryCalls.push({ sql, params });
+      return [{ id: 'assistant-9', conversation_id: 'conv-9' }];
+    },
+    regenerateAssistantMessageFn: async (userId, conversationId, assistantMessageId) => {
+      assert.equal(userId, 'user-1');
+      assert.equal(conversationId, 'conv-9');
+      assert.equal(assistantMessageId, 'assistant-9');
+      return {
+        eventId: 'event-9',
+        userMessageId: 'user-msg-9'
+      };
+    }
+  });
+
+  assert.equal(queryCalls.length, 1);
+  assert.match(queryCalls[0].sql, /FROM briefings/);
+  assert.deepEqual(queryCalls[0].params, { user_id: 'user-1', job_id: 'job-42' });
+  assert.deepEqual(retry, {
+    conversationId: 'conv-9',
+    assistantMessageId: 'assistant-9',
+    eventId: 'event-9',
+    userMessageId: 'user-msg-9'
+  });
+});
+
+test('retryBriefingJob returns null when no assistant message exists for the briefing', async () => {
+  const retry = await retryBriefingJob('user-1', 'job-missing', {
+    queryFn: async () => [],
+    regenerateAssistantMessageFn: async () => {
+      throw new Error('regenerateAssistantMessage should not run without a match');
+    }
+  });
+
+  assert.equal(retry, null);
 });

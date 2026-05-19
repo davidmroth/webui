@@ -3,6 +3,7 @@ import { json } from '@sveltejs/kit';
 import { requireSession } from '$server/auth';
 import { loadBriefingPreview } from '$server/briefings';
 import { getConversationOwnerId, storeAssistantMessage } from '$server/chat';
+import { upsertBriefingRecord } from '$server/briefing-records';
 import type { BriefingReference, BriefingPreview } from '$lib/types-legacy';
 
 function buildBriefingReference(preview: Awaited<ReturnType<typeof loadBriefingPreview>> & { state: 'ready' }): BriefingReference {
@@ -105,6 +106,22 @@ export async function POST(event) {
 
   const messageId = await storeAssistantMessage(event.params.conversationId, content, {
     briefingReference
+  });
+
+  await upsertBriefingRecord({
+    jobId: briefingReference.jobId,
+    ownerUserId: session.userId,
+    conversationId: event.params.conversationId,
+    sourceMessageId: messageId,
+    briefingId: briefingReference.briefingId,
+    title: briefingReference.title,
+    summary: briefingReference.summary,
+    state: 'ready',
+    validationValid: briefingReference.validation.valid,
+    validationWarningCount: briefingReference.validation.warningCount,
+    validationErrorCount: briefingReference.validation.errorCount,
+    completedAt: preview.generatedAt,
+    startedAt: preview.generatedAt
   });
 
   return json(

@@ -2734,6 +2734,65 @@ export async function regenerateAssistantMessage(
   return { eventId, userMessageId: previousUser.id };
 }
 
+export async function retryBriefingJob(
+  userId: string,
+  jobId: string,
+  deps: {
+    queryFn?: typeof query;
+    regenerateAssistantMessageFn?: typeof regenerateAssistantMessage;
+  } = {}
+): Promise<{
+  conversationId: string;
+  assistantMessageId: string;
+  eventId: string;
+  userMessageId: string;
+} | null> {
+  const normalizedUserId = userId.trim();
+  const normalizedJobId = jobId.trim();
+  if (!normalizedUserId || !normalizedJobId) {
+    return null;
+  }
+
+  const queryFn = deps.queryFn ?? query;
+  const regenerateAssistantMessageFn =
+    deps.regenerateAssistantMessageFn ?? regenerateAssistantMessage;
+
+  const rows = await queryFn<{ id: string; conversation_id: string }>(
+    `SELECT briefings.source_message_id AS id, briefings.conversation_id
+     FROM briefings
+     INNER JOIN conversations ON conversations.id = briefings.conversation_id
+     WHERE briefings.job_id = :job_id
+       AND conversations.user_id = :user_id
+       AND briefings.source_message_id IS NOT NULL
+     LIMIT 1`,
+    {
+      user_id: normalizedUserId,
+      job_id: normalizedJobId
+    }
+  );
+
+  const target = rows[0];
+  if (!target) {
+    return null;
+  }
+
+  const regenerated = await regenerateAssistantMessageFn(
+    normalizedUserId,
+    target.conversation_id,
+    target.id
+  );
+  if (!regenerated) {
+    return null;
+  }
+
+  return {
+    conversationId: target.conversation_id,
+    assistantMessageId: target.id,
+    eventId: regenerated.eventId,
+    userMessageId: regenerated.userMessageId
+  };
+}
+
 export async function editUserMessage(
   userId: string,
   conversationId: string,

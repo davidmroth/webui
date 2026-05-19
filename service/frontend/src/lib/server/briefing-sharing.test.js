@@ -48,7 +48,7 @@ test('getBriefingViewerAccess allows any authenticated viewer to open a private 
 			if (sql.includes('FROM briefing_shares')) {
 				return [];
 			}
-			if (sql.includes('JSON_UNQUOTE(JSON_EXTRACT(messages.extra')) {
+			if (sql.includes('FROM briefings')) {
 				return [];
 			}
 			return [];
@@ -67,7 +67,7 @@ test('getBriefingShareState falls back to the briefing reference owner when no s
 			if (sql.includes('FROM briefing_shares')) {
 				return [];
 			}
-			if (sql.includes('JSON_UNQUOTE(JSON_EXTRACT(messages.extra')) {
+			if (sql.includes('FROM briefings')) {
 				return [{ owner_user_id: 'user-9' }];
 			}
 			return [];
@@ -107,7 +107,7 @@ test('setBriefingPublicState upserts the public state for the owner', async () =
 			if (sql.includes('FROM briefing_shares')) {
 				return [];
 			}
-			if (sql.includes('JSON_UNQUOTE(JSON_EXTRACT(messages.extra')) {
+			if (sql.includes('FROM briefings')) {
 				return [{ owner_user_id: 'user-1' }];
 			}
 			return [];

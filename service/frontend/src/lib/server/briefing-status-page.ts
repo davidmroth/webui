@@ -234,7 +234,7 @@ export function renderBriefingUnauthorizedPage(jobId: string) {
 
 export function renderBriefingStatusPage(
 	preview: PendingBriefingPreview,
-	options: { retryHref?: string | null } = {}
+	options: { retryHref?: string | null; retryBriefingAction?: string | null } = {}
 ) {
 	const title = pageTitle(preview);
 	const badgeLabel = stateLabel(preview);
@@ -320,6 +320,13 @@ export function renderBriefingStatusPage(
 	const retryActionMarkup =
 		options.retryHref && ((preview.state === 'failed' && preview.canRetry) || (preview.state === 'error' && preview.canRetry))
 			? `<a href="${escapeHtml(options.retryHref)}">Retry loading briefing</a>`
+			: '';
+
+	const retryBriefingMarkup =
+		options.retryBriefingAction && preview.state === 'failed' && preview.canRetry
+			? `<form method="POST" action="${escapeHtml(options.retryBriefingAction)}">
+				<button type="submit">Retry briefing</button>
+			</form>`
 			: '';
 
 	return `<!doctype html>
@@ -503,7 +510,8 @@ export function renderBriefingStatusPage(
 			margin-top: 26px;
 		}
 
-		.actions a {
+		.actions a,
+		.actions button {
 			text-decoration: none;
 			padding: 11px 16px;
 			border-radius: 999px;
@@ -511,12 +519,18 @@ export function renderBriefingStatusPage(
 			color: var(--ink);
 			background: rgba(255, 255, 255, 0.8);
 			font-weight: 600;
+			font: 600 1rem/1 "Avenir Next", "Segoe UI", sans-serif;
+			cursor: pointer;
 		}
 
 		.actions a.primary {
 			background: #1f6f5f;
 			border-color: #1f6f5f;
 			color: white;
+		}
+
+		.actions form {
+			margin: 0;
 		}
 
 		@media (max-width: 640px) {
@@ -546,6 +560,7 @@ export function renderBriefingStatusPage(
 			${detailsMarkup}
 			${calloutMarkup}
 			<div class="actions">
+				${retryBriefingMarkup}
 				${retryActionMarkup}
 				<a class="primary" href="/chat">Return to chat</a>
 			</div>

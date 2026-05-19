@@ -8,10 +8,11 @@
 	interface Props {
 		preview: PendingBriefingPreview;
 		refreshHref: string;
+		retryBriefingAction?: string | null;
 		pollError?: string | null;
 	}
 
-	let { preview, refreshHref, pollError = null }: Props = $props();
+	let { preview, refreshHref, retryBriefingAction = null, pollError = null }: Props = $props();
 	let nowMs = $state(Date.now());
 
 	$effect(() => {
@@ -156,6 +157,11 @@
 	{/if}
 
 	<div class="briefing-status-actions">
+		{#if preview.state === 'failed' && preview.canRetry && retryBriefingAction}
+			<form method="POST" action={retryBriefingAction}>
+				<button class="secondary-button" type="submit">Retry briefing</button>
+			</form>
+		{/if}
 		{#if (preview.state === 'failed' && preview.canRetry) || (preview.state === 'error' && preview.canRetry)}
 			<a class="secondary-button" href={refreshHref}>Retry loading briefing</a>
 		{/if}
@@ -225,6 +231,10 @@
 		gap: 0.75rem;
 		flex-wrap: wrap;
 		justify-content: space-between;
+	}
+
+	.briefing-status-actions form {
+		margin: 0;
 	}
 
 	.briefing-progress-header {
