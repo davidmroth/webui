@@ -139,6 +139,7 @@ interface RendererJobStatus {
 }
 interface BriefingClientOptions {
 	readObjectBuffer?: (storageKey: string) => Promise<Buffer>;
+	now?: number;
 }
 
 interface PublicBriefingIssue {
@@ -149,6 +150,7 @@ interface PublicBriefingIssue {
 
 const DEFAULT_BRIEFING_MANIFEST_PATH = 'briefing.json';
 const DEFAULT_BRIEFING_STATUS_PATH = 'status.json';
+const PUBLISH_PENDING_TIMEOUT_MS = 5 * 60_000;
 
 function normalizeAssetPath(assetPath: string) {
 	const segments = assetPath
@@ -390,6 +392,10 @@ function normalizeValidation(value: RendererValidationResult | null | undefined)
 	};
 }
 
+function publishValidationWarnings(status: RendererJobStatus) {
+	return normalizeStringArray(status.validation?.warnings);
+}
+
 function normalizeRendererProgress(status: RendererJobStatus) {
 	const stage = typeof status.stage === 'string' ? status.stage : null;
 	const percent =
@@ -507,6 +513,63 @@ function toPublishPendingState(status: RendererJobStatus): BriefingPreviewProces
 					? Math.max(0, Math.round(status.sentence_completed))
 					: null
 		}
+	};
+}
+
+function publishTimedOut(status: RendererJobStatus, now = Date.now()) {
+	if (
+		publishValidationWarnings(status).some((warning) =>
+			/object-storage publishing timed out|publishing timed out/i.test(warning)
+		)
+	) {
+		return true;
+	}
+
+	const completedAtMs = Date.parse(status.completed_at ?? '');
+	if (!Number.isFinite(completedAtMs)) {
+		return false;
+	}
+
+	return now - completedAtMs >= PUBLISH_PENDING_TIMEOUT_MS;
+}
+
+function toPublishTimedOutState(status: RendererJobStatus): BriefingPreviewFailed {
+	const warnings = publishValidationWarnings(status);
+	const rendererHostedAssetsAvailable = warnings.some((warning) =>
+		/renderer-hosted briefing assets remain available/i.test(warning)
+	);
+	const detail = rendererHostedAssetsAvailable
+		? 'Rendering finished, but the published bundle never arrived in object storage. Renderer-hosted briefing assets remain available, but this WebUI only opens published bundles from object storage. Align the publisher and WebUI storage settings, then retry or regenerate the briefing.'
+		: 'Rendering finished, but the published bundle never arrived in object storage. Verify the publisher is writing to the same bucket and prefix the WebUI is reading, then retry or regenerate the briefing.';
+
+	return {
+		state: 'failed',
+		status: 'failed',
+		jobId: status.job_id,
+		briefingId: typeof status.briefing_id === 'string' ? status.briefing_id : null,
+		createdAt: status.created_at,
+		completedAt: typeof status.completed_at === 'string' ? status.completed_at : null,
+		error: 'Publishing the briefing bundle timed out.',
+		detail,
+		validation: status.validation ? normalizeValidation(status.validation) : null,
+		assetCount: typeof status.asset_count === 'number' ? status.asset_count : 0,
+		renderProgress: {
+			stage: 'publishing_bundle',
+			percent: 100,
+			detail:
+				typeof status.progress_detail === 'string' && status.progress_detail.trim().length > 0
+					? status.progress_detail
+					: 'Rendering finished, and the WebUI is waiting for the published bundle to arrive in object storage.',
+			sentenceTotal:
+				typeof status.sentence_total === 'number' && Number.isFinite(status.sentence_total)
+					? Math.max(0, Math.round(status.sentence_total))
+					: null,
+			sentenceCompleted:
+				typeof status.sentence_completed === 'number' && Number.isFinite(status.sentence_completed)
+					? Math.max(0, Math.round(status.sentence_completed))
+					: null
+		},
+		canRetry: true
 	};
 }
 
@@ -709,7 +772,9 @@ async function loadBriefingPreviewInternal(
 
 	if (publishedStatus !== null) {
 		if (publishedStatus.status === 'completed') {
-			return toPublishPendingState(publishedStatus);
+			return publishTimedOut(publishedStatus, options.now)
+				? toPublishTimedOutState(publishedStatus)
+				: toPublishPendingState(publishedStatus);
 		}
 
 		return toStatusState(publishedStatus.job_id, publishedStatus);

@@ -154,6 +154,18 @@ function formatTimestamp(value: string | null | undefined) {
 	}).format(parsed);
 }
 
+function formatPublishReachedAt(preview: PendingBriefingPreview) {
+	if (
+		preview.state !== 'processing' ||
+		preview.renderProgress?.stage !== 'publishing_bundle' ||
+		!preview.completedAt
+	) {
+		return null;
+	}
+
+	return `Reached 100% at ${formatTimestamp(preview.completedAt)}`;
+}
+
 function pageTitle(preview: PendingBriefingPreview) {
 	switch (preview.state) {
 		case 'processing':
@@ -245,6 +257,7 @@ export function renderBriefingStatusPage(
 					: 'The WebUI could not retrieve the current briefing status.';
 
 	const progressEstimate = preview.state === 'processing' ? estimateProgress(preview) : null;
+	const publishReachedAt = formatPublishReachedAt(preview);
 
 	const progressMarkup = progressEstimate
 		? `<section class="progress-panel">
@@ -257,6 +270,7 @@ export function renderBriefingStatusPage(
 				<strong>${progressEstimate.percent}%</strong>
 				<span>${escapeHtml(progressEstimate.trailingLabel ?? 'Working')}</span>
 			</div>
+			${publishReachedAt ? `<p class="detail">${escapeHtml(publishReachedAt)}</p>` : ''}
 			<p class="detail">${escapeHtml(progressEstimate.detail)}</p>
 		</section>`
 		: '';

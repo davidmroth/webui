@@ -110,6 +110,69 @@ test('loadBriefingPreview reports publish-pending progress when status is comple
 	assert.doesNotMatch(preview.renderProgress?.detail ?? '', /BRIEFING_RENDERER_/);
 });
 
+test('loadBriefingPreview fails closed when publishing stays incomplete after the timeout window', async () => {
+	const preview = await loadBriefingPreview('job-publish-timeout', {
+		readObjectBuffer: async (storageKey) => {
+			if (storageKey === 'webui/briefings/job-publish-timeout/briefing.json') {
+				throw Object.assign(new Error('NoSuchKey'), { code: 'NoSuchKey' });
+			}
+			assert.equal(storageKey, 'webui/briefings/job-publish-timeout/status.json');
+			return storageJson({
+				job_id: 'job-publish-timeout',
+				briefing_id: 'briefing-publish-timeout',
+				status: 'completed',
+				stage: 'completed',
+				progress_percent: 100,
+				progress_detail: 'Briefing ready.',
+				created_at: '2026-05-13T17:03:53.185024+00:00',
+				completed_at: '2026-05-13T17:05:53.185024+00:00',
+				validation: null,
+				asset_count: 0
+			});
+		},
+		now: Date.parse('2026-05-13T17:12:00.000Z')
+	});
+
+	assert.equal(preview.state, 'failed');
+	assert.equal(preview.error, 'Publishing the briefing bundle timed out.');
+	assert.match(preview.detail ?? '', /same bucket and prefix/i);
+	assert.equal(preview.renderProgress?.stage, 'publishing_bundle');
+	assert.equal(preview.renderProgress?.percent, 100);
+	assert.equal(preview.canRetry, true);
+});
+
+test('loadBriefingPreview fails closed immediately when the published status reports object-storage publishing timed out', async () => {
+	const preview = await loadBriefingPreview('job-publish-warning', {
+		readObjectBuffer: async (storageKey) => {
+			if (storageKey === 'webui/briefings/job-publish-warning/briefing.json') {
+				throw Object.assign(new Error('NoSuchKey'), { code: 'NoSuchKey' });
+			}
+			assert.equal(storageKey, 'webui/briefings/job-publish-warning/status.json');
+			return storageJson({
+				job_id: 'job-publish-warning',
+				briefing_id: 'briefing-publish-warning',
+				status: 'completed',
+				stage: 'completed',
+				progress_percent: 100,
+				progress_detail: 'Briefing ready.',
+				created_at: '2026-05-13T17:03:53.185024+00:00',
+				completed_at: '2026-05-13T17:05:53.185024+00:00',
+				validation: {
+					valid: true,
+					warnings: ['External object-storage publishing timed out. Renderer-hosted briefing assets remain available.'],
+					errors: []
+				},
+				asset_count: 0
+			});
+		}
+	});
+
+	assert.equal(preview.state, 'failed');
+	assert.equal(preview.error, 'Publishing the briefing bundle timed out.');
+	assert.match(preview.detail ?? '', /renderer-hosted briefing assets remain available/i);
+	assert.equal(preview.canRetry, true);
+});
+
 test('loadBriefingPreview reports export unavailable when neither the manifest nor status snapshot exists', async () => {
 	const preview = await loadBriefingPreview('job-missing-123', {
 		readObjectBuffer: async () => {

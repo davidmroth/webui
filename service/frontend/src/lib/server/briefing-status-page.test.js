@@ -91,6 +91,7 @@ test('renderBriefingStatusPage labels publish-pending previews as publishing ins
 	assert.match(html, /Publishing briefing/);
 	assert.match(html, /published briefing bundle becomes available/i);
 	assert.match(html, /Checking for the published bundle/);
+	assert.match(html, /Reached 100% at May 7, 2026, 7:02:00 AM/);
 	assert.doesNotMatch(html, /Briefing status unavailable/);
 });
 

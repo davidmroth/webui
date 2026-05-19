@@ -44,6 +44,28 @@
 		return `${minutes}:${seconds.toString().padStart(2, '0')}`;
 	}
 
+	function formatTimestamp(value: string | null) {
+		if (!value) {
+			return null;
+		}
+
+		const parsed = new Date(value);
+		if (Number.isNaN(parsed.getTime())) {
+			return value;
+		}
+
+		return new Intl.DateTimeFormat(undefined, {
+			dateStyle: 'medium',
+			timeStyle: 'short'
+		}).format(parsed);
+	}
+
+	const publishReachedAt = $derived(
+		preview.state === 'processing' && preview.renderProgress?.stage === 'publishing_bundle'
+			? formatTimestamp(preview.completedAt)
+			: null
+	);
+
 	function heading() {
 		if (preview.state === 'processing') {
 			return preview.renderProgress?.stage === 'publishing_bundle'
@@ -105,6 +127,9 @@
 
 		<div class="briefing-status-note-row">
 			<p class="briefing-status-meta">Job id: {preview.jobId}</p>
+			{#if publishReachedAt}
+				<p class="briefing-status-meta">100% since {publishReachedAt}</p>
+			{/if}
 			<p class="briefing-status-meta">
 				{progress.stageLabel === 'Publishing briefing bundle'
 					? 'Checking object storage every few seconds'
