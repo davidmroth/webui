@@ -324,10 +324,17 @@ function buildStandalonePlayerDock() {
 		padding: 1rem 1.1rem;
 		border-radius: 0.75rem;
 		border: 1px solid rgba(82, 62, 39, 0.12);
-		background: rgba(255, 252, 247, 0.94);
+		background: linear-gradient(140deg, rgba(255, 253, 248, 0.96) 0%, rgba(248, 243, 234, 0.94) 100%);
+		box-shadow: 0 12px 26px rgba(82, 62, 39, 0.08);
 		backdrop-filter: blur(14px);
 		-webkit-backdrop-filter: blur(14px);
 		height: 100px;
+	}
+
+	.hero-audio.webui-docked-player[data-webui-placement="rail"][data-webui-expanded="false"] .hero-audio-player {
+		height: 100px;
+		padding: 0.66rem 0.9rem;
+		overflow: hidden;
 	}
 
 	.hero-audio.webui-docked-player[data-webui-placement="hero"] .hero-audio-player {
@@ -364,6 +371,7 @@ function buildStandalonePlayerDock() {
 	.hero-audio.webui-docked-player .webui-narration-status {
 		display: grid;
 		gap: 0.25rem;
+		transform: translateY(15px);
 	}
 
 	.hero-audio.webui-docked-player .webui-narration-status-primary {
@@ -377,6 +385,18 @@ function buildStandalonePlayerDock() {
 	.hero-audio.webui-docked-player .webui-narration-status-secondary {
 		font: 500 0.78rem/1.3 var(--font-sans, system-ui, sans-serif);
 		color: rgba(82, 62, 39, 0.54);
+	}
+
+	.hero-audio.webui-docked-player .webui-narration-status-secondary svg {
+		width: 0.8rem;
+		height: 0.8rem;
+		stroke: currentColor;
+		fill: none;
+		stroke-width: 1.9;
+		stroke-linecap: round;
+		stroke-linejoin: round;
+		vertical-align: -0.1rem;
+		margin-right: 0.26rem;
 	}
 
 	.hero-audio.webui-docked-player .webui-narration-actions {
@@ -408,6 +428,27 @@ function buildStandalonePlayerDock() {
 		height: 0.95rem;
 		fill: currentColor;
 		flex: 0 0 auto;
+	}
+
+	.hero-audio.webui-docked-player .webui-play-toggle.webui-play-toggle--icon {
+	    transform: translateX(-30px) translateY(15px);
+		width: 2.7rem;
+		height: 2.7rem;
+		padding: 0;
+		justify-content: center;
+		border-color: rgba(82, 62, 39, 0.16);
+		background: rgba(255, 255, 255, 0.9);
+		box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+	}
+
+	.hero-audio.webui-docked-player .webui-play-toggle.webui-play-toggle--icon svg {
+		width: 1rem;
+		height: 1rem;
+		margin-left: 0.05rem;
+	}
+
+	.hero-audio.webui-docked-player .webui-play-toggle.webui-play-toggle--icon span {
+		display: none;
 	}
 
 	.hero-audio.webui-docked-player .webui-narration-actions button:hover {
@@ -459,6 +500,43 @@ function buildStandalonePlayerDock() {
 
 	.hero-audio.webui-docked-player[data-webui-expanded="false"] .hero-audio-label {
 		display: none;
+	}
+
+	.hero-audio.webui-docked-player[data-webui-placement="rail"][data-webui-expanded="false"] .webui-narration-toolbar {
+		margin-top: 0;
+		gap: 0.56rem;
+		align-items: center;
+	}
+
+	.hero-audio.webui-docked-player[data-webui-placement="rail"][data-webui-expanded="false"] .webui-narration-status {
+		gap: 0.14rem;
+		min-width: 0;
+	}
+
+	.hero-audio.webui-docked-player[data-webui-placement="rail"][data-webui-expanded="false"] .webui-narration-status-primary {
+		font-size: 0.8rem;
+		line-height: 1.18;
+		gap: 0.28rem;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.hero-audio.webui-docked-player[data-webui-placement="rail"][data-webui-expanded="false"] .webui-narration-status-secondary {
+		font-size: 0.75rem;
+		line-height: 1.1;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.hero-audio.webui-docked-player[data-webui-placement="rail"][data-webui-expanded="false"] .webui-narration-actions {
+		gap: 0.32rem;
+		align-self: end;
+	}
+
+	.hero-audio.webui-docked-player[data-webui-placement="rail"][data-webui-expanded="true"] .webui-play-toggle {
+		transform: translateX(-35px) translateY(15px);
 	}
 
 	.hero-audio.webui-docked-player[data-webui-expanded="true"] .webui-play-toggle {
@@ -559,7 +637,7 @@ function buildStandalonePlayerDock() {
 
 		const playButton = document.createElement('button');
 		playButton.type = 'button';
-		playButton.className = 'webui-play-toggle';
+		playButton.className = 'webui-play-toggle webui-play-toggle--icon';
 
 		const expandButton = document.createElement('button');
 		expandButton.type = 'button';
@@ -623,17 +701,23 @@ function buildStandalonePlayerDock() {
 		function syncExpandButtonUi() {
 			expandButton.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 15l6-6 6 6"></path></svg>';
 			expandButton.setAttribute('aria-label', isExpanded ? 'Collapse narration panel' : 'Expand narration panel');
+			playButton.classList.add('webui-play-toggle--icon');
+			const currentTime = audio.currentTime || 0;
+			cueLabel.textContent = !isExpanded ? formatTime(currentTime) : 'Current cue ' + formatTime(currentTime);
 		}
 
 		function syncPlayButtonUi() {
+			const isCompact = stickyPlayer.dataset.webuiPlacement === 'rail' && stickyPlayer.dataset.webuiExpanded === 'false';
 			if (audio.paused) {
 				playButton.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><polygon points="7,5 7,19 19,12"></polygon></svg><span>Play</span>';
 				playButton.setAttribute('aria-label', 'Play narration');
+				playButton.classList.toggle('webui-play-toggle--icon', isCompact);
 				return;
 			}
 
 			playButton.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="6" y="5" width="4" height="14" rx="1"></rect><rect x="14" y="5" width="4" height="14" rx="1"></rect></svg><span>Pause</span>';
 			playButton.setAttribute('aria-label', 'Pause narration');
+			playButton.classList.toggle('webui-play-toggle--icon', isCompact);
 		}
 
 		function setPlacement(nextPlacement) {
@@ -707,9 +791,12 @@ function buildStandalonePlayerDock() {
 			const currentTime = audio.currentTime || 0;
 			const duration = audio.duration || 0;
 			const isFinite = Number.isFinite(duration);
+			const isCompact = stickyPlayer.dataset.webuiPlacement === 'rail' && stickyPlayer.dataset.webuiExpanded === 'false';
 			stateLabel.textContent = audio.paused ? 'Ready' : 'Playing';
-			cueLabel.textContent = 'Current cue ' + formatTime(currentTime);
-			secondaryStatus.textContent = isFinite ? 'Duration ' + formatTime(duration) : '';
+			cueLabel.textContent = isCompact ? formatTime(currentTime) : 'Current cue ' + formatTime(currentTime);
+			secondaryStatus.innerHTML = isFinite
+				? '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="8"></circle><path d="M12 8v4l3 2"></path></svg><span>' + (isCompact ? formatTime(duration) : 'Duration ' + formatTime(duration)) + '</span>'
+				: '';
 			syncPlayButtonUi();
 			syncActiveCueState();
 		}
