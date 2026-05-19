@@ -10,7 +10,8 @@
     "preview": "node build",
     "migrate": "tsx scripts/migrate.ts",
     "post-assistant-message": "tsx scripts/post-assistant-message.ts",
-    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json"
+    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+    "test": "sh -lc 'find src -name \"*.test.js\" | sort | xargs tsx --test'"
   },
   "dependencies": {
     "clsx": "^2.1.1",

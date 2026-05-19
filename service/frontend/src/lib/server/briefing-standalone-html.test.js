@@ -100,7 +100,9 @@ test('buildBriefingPageHtml emits the article rail wrapper expected by the stand
 	);
 
 	assert.match(html, /<aside class="article-rail"><nav class="article-nav">/);
-	assert.match(html, /const rail = document\.querySelector\('\.article-rail'\);/);
+	assert.match(html, /href="\/briefing-standalone-page\.css"/);
+	assert.match(html, /id="webui-standalone-player-dock"/);
+	assert.match(html, /src="\/briefing-standalone-player-dock\.js"/);
 });
 
 test('rewriteStandaloneAssetUrls leaves fragment links anchored to the current page', () => {
@@ -135,33 +137,8 @@ test('rewriteStandaloneAssetUrls injects the standalone narration dock override'
 	);
 
 	assert.match(html, /webui-standalone-player-dock/);
-	assert.match(html, /webui-docked-player/);
-	assert.match(html, /webui-narration-toolbar/);
-	assert.match(html, /matchMedia\('\(max-width: 960px\)'\)/);
-	assert.match(html, /data-webui-placement/);
-	assert.match(html, /function setPlacement\(nextPlacement\)/);
-	assert.match(html, /setExpanded\(true\)/);
-	assert.match(html, /function handleDelegatedCueSeek\(event\)/);
-	assert.match(html, /document\.addEventListener\('click', handleDelegatedCueSeek, true\)/);
-	assert.match(html, /startNode instanceof Node\s*\?\s*startNode\.parentElement/);
-	assert.match(html, /const isBodyTextClick =/);
-	assert.match(html, /const directTarget = baseElement\.closest\('\[data-start\]\[data-end\]'\);/);
-	assert.match(html, /if \(directTarget instanceof HTMLElement\) \{/);
-	assert.match(html, /if \(isBodyTextClick && sectionCard instanceof HTMLElement\) \{/);
-	assert.match(html, /function syncActiveCueState\(\)/);
-	assert.match(html, /target\.dataset\.webuiActive = isActive \? 'true' : 'false'/);
-	assert.match(html, /function seekAndPlay\(cueStart\)/);
-	assert.match(html, /const canSeekNow = \(\) => \{/);
-	assert.match(html, /if \(canSeekNow\(\)\) \{/);
-	assert.match(html, /audio\.addEventListener\('loadedmetadata', replaySeek, \{ once: true \}\);/);
-	assert.match(html, /audio\.addEventListener\('canplay', replaySeek, \{ once: true \}\);/);
-	assert.match(html, /seekAndPlay\(cueStart\);/);
-	assert.match(html, /function bindDirectCueSeek\(\)/);
-	assert.match(html, /document\.querySelectorAll\('\.section-sentence, \.section-body p'\)/);
-	assert.match(html, /const cueSource =/);
-	assert.match(html, /bindDirectCueSeek\(\);/);
-	assert.match(html, /article-rail/);
-	assert.match(html, /Current cue/);
+	assert.match(html, /href="\/briefing-standalone-player-dock\.css"/);
+	assert.match(html, /src="\/briefing-standalone-player-dock\.js"/);
 });
 
 test('rewriteStandaloneAssetUrls injects standalone sharing controls for managers', () => {
@@ -175,12 +152,11 @@ test('rewriteStandaloneAssetUrls injects standalone sharing controls for manager
 	assert.match(html, /Manage access/);
 	assert.match(html, /Make public/);
 	assert.match(html, /Copy link/);
-	assert.match(html, /#briefing-share-launcher/);
-	assert.match(html, /background: rgba\(17, 24, 39, 0\.94\)/);
+	assert.match(html, /id="briefing-share-launcher"/);
+	assert.match(html, /href="\/briefing-standalone-management\.css"/);
+	assert.match(html, /src="\/briefing-standalone-management\.js"/);
 	assert.match(html, /role="dialog"/);
 	assert.match(html, /data-standalone-path="\/briefings\/job-42"/);
-	assert.match(html, /dialog\.dataset\.open = open \? 'true' : 'false'/);
-	assert.match(html, /fetch\('\/api\/briefings\/' \+ encodeURIComponent\(jobId\) \+ '\/sharing'/);
 });
 
 test('rewriteStandaloneAssetUrls does not inject standalone sharing controls for viewers', () => {

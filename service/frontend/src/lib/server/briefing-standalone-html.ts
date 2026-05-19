@@ -1,12 +1,4 @@
-import {
-	standaloneManagementCss,
-	standaloneManagementScript
-} from './briefing-standalone-management-assets';
-import { standalonePageBaseCss } from './briefing-standalone-page-css';
-import {
-	standalonePlayerDockCss,
-	standalonePlayerDockScript
-} from './briefing-standalone-player-dock-assets';
+
 
 function encodeAssetPath(assetPath: string) {
 	return assetPath
@@ -33,12 +25,13 @@ function escapeAttribute(value: string) {
 		.replaceAll('>', '&gt;');
 }
 
-function renderInlineStyle(css: string, attributes = '') {
-	return `<style${attributes}>${css}</style>`;
+
+function renderExternalStyle(href: string, attributes = '') {
+	return `<link rel="stylesheet" href="${href}"${attributes}>`;
 }
 
-function renderInlineScript(script: string) {
-	return `<script>${script}</script>`;
+function renderExternalScript(src: string) {
+	return `<script src="${src}"></script>`;
 }
 
 function buildManagementBar(jobId: string, options: StandaloneManagementOptions) {
@@ -50,26 +43,26 @@ function buildManagementBar(jobId: string, options: StandaloneManagementOptions)
 
 	return `
 <aside id="briefing-share-manager" data-job-id="${escapeAttribute(jobId)}" data-public="${options.isPublic ? 'true' : 'false'}" data-standalone-path="${escapeAttribute(options.standalonePath)}">
-	${renderInlineStyle(standaloneManagementCss)}
-	<button type="button" id="briefing-share-launcher" aria-haspopup="dialog" aria-expanded="false">Manage access</button>
-	<div id="briefing-share-dialog" aria-hidden="true">
-		<section id="briefing-share-panel" role="dialog" aria-modal="true" aria-labelledby="briefing-share-title">
-			<div id="briefing-share-panel-header">
-				<div class="share-manager-copy">
-					<div class="share-manager-kicker">Access</div>
-					<div class="share-manager-status" id="briefing-share-title">${statusLabel}</div>
-					<div class="share-manager-detail">${statusDescription}</div>
-				</div>
-				<button type="button" id="briefing-share-close" aria-label="Close access panel">×</button>
-			</div>
-			<div class="share-manager-actions">
-				<button type="button" id="share-toggle-button">${buttonLabel}</button>
-				<button type="button" id="share-copy-button" class="secondary">Copy link</button>
-			</div>
-			<div id="share-manager-message" class="share-manager-message" aria-live="polite"></div>
-		</section>
-	</div>
-	${renderInlineScript(standaloneManagementScript)}
+	${renderExternalStyle('/briefing-standalone-management.css')}
+  <button type="button" id="briefing-share-launcher" aria-haspopup="dialog" aria-expanded="false">Manage access</button>
+  <div id="briefing-share-dialog" aria-hidden="true">
+    <section id="briefing-share-panel" role="dialog" aria-modal="true" aria-labelledby="briefing-share-title">
+      <div id="briefing-share-panel-header">
+        <div class="share-manager-copy">
+          <div class="share-manager-kicker">Access</div>
+          <div class="share-manager-status" id="briefing-share-title">${statusLabel}</div>
+          <div class="share-manager-detail">${statusDescription}</div>
+        </div>
+        <button type="button" id="briefing-share-close" aria-label="Close access panel">×</button>
+      </div>
+      <div class="share-manager-actions">
+        <button type="button" id="share-toggle-button">${buttonLabel}</button>
+        <button type="button" id="share-copy-button" class="secondary">Copy link</button>
+      </div>
+      <div id="share-manager-message" class="share-manager-message" aria-live="polite"></div>
+    </section>
+  </div>
+	${renderExternalScript('/briefing-standalone-management.js')}
 </aside>`;
 }
 
@@ -85,12 +78,10 @@ function injectManagementBar(html: string, jobId: string, options?: StandaloneMa
 
 	return `${managementBar}${html}`;
 }
-
 function buildStandalonePlayerDock() {
 	return `
-${renderInlineStyle(standalonePlayerDockCss, ' id="webui-standalone-player-dock"')}
-
-${renderInlineScript(standalonePlayerDockScript)}`;
+${renderExternalStyle('/briefing-standalone-player-dock.css', ' id="webui-standalone-player-dock"')}
+${renderExternalScript('/briefing-standalone-player-dock.js')}`;
 }
 
 function injectStandalonePlayerDock(html: string) {
@@ -284,7 +275,7 @@ export function buildBriefingPageHtml(data: BriefingPageData, jobId: string, opt
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escapeHtml(data.title)}</title>
-<style>${standalonePageBaseCss}</style>
+${renderExternalStyle('/briefing-standalone-page.css')}
 </head>
 <body>
 <main class="page-shell">
