@@ -429,28 +429,36 @@
 						<div class="briefing-audio-copy">
 							<div class="briefing-audio-label">Narration</div>
 							<div class="briefing-audio-status">
-								<span>{narrationPlaying ? 'Playing' : 'Ready'}</span>
-								<span aria-hidden="true">·</span>
-								<span>Current cue {formatTime(currentTime)}</span>
+								<span class="briefing-audio-status-primary">{narrationPlaying ? 'Playing' : 'Ready'}</span>
+								<span class="briefing-audio-status-bullet" aria-hidden="true">·</span>
+								<span class="briefing-audio-status-cue">Current cue {formatTime(currentTime)}</span>
 							</div>
 						</div>
 						<div class="briefing-audio-actions">
 							<button class="secondary-button briefing-audio-toggle" type="button" onclick={toggleNarrationPlayback}>
-								{narrationPlaying ? 'Pause' : 'Play'}
-							</button>
-							<button
-								class="secondary-button briefing-audio-icon-toggle"
-								type="button"
-								onclick={toggleNarrationExpanded}
-								aria-expanded={narrationExpanded}
-								aria-controls="briefing-narration-panel"
-								aria-label={narrationExpanded ? 'Collapse narration panel' : 'Expand narration panel'}
-							>
-								<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-									<path d="M6 9l6 6 6-6" />
+								<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" class="briefing-audio-icon">
+									{#if narrationPlaying}
+										<rect x="6" y="4" width="4" height="16" rx="1" fill="currentColor" />
+										<rect x="14" y="4" width="4" height="16" rx="1" fill="currentColor" />
+									{:else}
+										<polygon points="5,3 5,21 19,12" fill="currentColor" />
+									{/if}
 								</svg>
+								<span>{narrationPlaying ? 'Pause' : 'Play'}</span>
 							</button>
 						</div>
+						<button
+							class="briefing-audio-collapse-toggle"
+							type="button"
+							onclick={toggleNarrationExpanded}
+							aria-expanded={narrationExpanded}
+							aria-controls="briefing-narration-panel"
+							aria-label={narrationExpanded ? 'Collapse narration panel' : 'Expand narration panel'}
+						>
+							<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" class="briefing-audio-collapse-icon">
+								<polyline points="6 9 12 15 18 9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+							</svg>
+						</button>
 					</div>
 					<div id="briefing-narration-panel" class="briefing-audio-body" hidden={!narrationExpanded}>
 						<audio
@@ -793,6 +801,7 @@
 		gap: 0.9rem;
 		backdrop-filter: blur(14px);
 		-webkit-backdrop-filter: blur(14px);
+		position: relative;
 	}
 
 	.briefing-audio-slot {
@@ -827,7 +836,21 @@
 
 	.briefing-audio-card.collapsed {
 		gap: 0.65rem;
-		padding: 1rem 1.15rem;
+		padding: 0.9rem 1.15rem;
+	}
+
+	.briefing-audio-card.collapsed .briefing-audio-header {
+		align-items: center;
+		gap: 0.75rem;
+	}
+
+	.briefing-audio-card.collapsed .briefing-audio-copy {
+		gap: 0.15rem;
+	}
+
+	.briefing-audio-card.collapsed .briefing-audio-label {
+		font-size: 0.85rem;
+		font-weight: 600;
 	}
 
 	.briefing-audio-header,
@@ -838,8 +861,9 @@
 	}
 
 	.briefing-audio-header {
-		grid-template-columns: minmax(0, 1fr) auto;
+		grid-template-columns: 1fr auto;
 		align-items: start;
+		position: relative;
 	}
 
 	.briefing-audio-card.collapsed .briefing-audio-header {
@@ -848,52 +872,87 @@
 
 	.briefing-audio-label {
 		font-weight: 700;
+		font-size: 0.95rem;
 	}
 
 	.briefing-audio-status {
 		display: flex;
-		flex-wrap: wrap;
+		align-items: baseline;
 		gap: 0.35rem;
 		color: rgba(51, 65, 85, 0.8);
-		font-size: 0.9rem;
+		font-size: 0.87rem;
+	}
+
+	.briefing-audio-status-primary {
+		font-weight: 600;
+		color: rgba(51, 65, 85, 1);
+	}
+
+	.briefing-audio-status-bullet {
+		opacity: 0.5;
+	}
+
+	.briefing-audio-status-cue {
+		font-variant-numeric: tabular-nums;
+	}
+
+	.briefing-audio-card.collapsed .briefing-audio-status {
+		font-size: 0.8rem;
 	}
 
 	.briefing-audio-actions {
 		display: flex;
 		gap: 0.5rem;
-		flex-wrap: wrap;
-		justify-content: flex-end;
-	}
-
-	.briefing-audio-card.collapsed .briefing-audio-status {
-		font-size: 0.84rem;
+		align-items: center;
 	}
 
 	.briefing-audio-toggle {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.45rem 0.85rem;
+		font-size: 0.88rem;
+		font-weight: 500;
 		white-space: nowrap;
 	}
 
-	.briefing-audio-icon-toggle {
-		padding: 0;
-		width: 2.5rem;
-		height: 2.5rem;
-		display: inline-grid;
-		place-items: center;
-	}
-
-	.briefing-audio-icon-toggle svg {
+	.briefing-audio-icon {
 		width: 1rem;
 		height: 1rem;
-		fill: none;
-		stroke: currentColor;
-		stroke-width: 2;
-		stroke-linecap: round;
-		stroke-linejoin: round;
+		flex-shrink: 0;
+	}
+
+	.briefing-audio-collapse-toggle {
+		position: absolute;
+		top: 0.75rem;
+		right: 0.75rem;
+		padding: 0.5rem;
+		display: inline-grid;
+		place-items: center;
+		background: none;
+		border: none;
+		color: rgba(51, 65, 85, 0.7);
+		cursor: pointer;
+		transition: color 160ms ease, transform 160ms ease;
+	}
+
+	.briefing-audio-collapse-toggle:hover {
+		color: rgba(51, 65, 85, 1);
+	}
+
+	.briefing-audio-collapse-toggle:active {
+		transform: scale(0.95);
+	}
+
+	.briefing-audio-collapse-icon {
+		width: 1.2rem;
+		height: 1.2rem;
+		flex-shrink: 0;
 		transform: rotate(0deg);
 		transition: transform 160ms ease;
 	}
 
-	.briefing-audio-icon-toggle[aria-expanded='true'] svg {
+	.briefing-audio-collapse-toggle[aria-expanded='true'] .briefing-audio-collapse-icon {
 		transform: rotate(180deg);
 	}
 
