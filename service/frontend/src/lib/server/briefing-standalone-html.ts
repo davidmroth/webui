@@ -589,7 +589,7 @@ function buildStandalonePlayerDock() {
 		}
 
 		function syncExpandButtonUi() {
-			expandButton.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 9l6 6 6-6"></path></svg>';
+			expandButton.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 15l6-6 6 6"></path></svg>';
 			expandButton.setAttribute('aria-label', isExpanded ? 'Collapse narration panel' : 'Expand narration panel');
 		}
 
