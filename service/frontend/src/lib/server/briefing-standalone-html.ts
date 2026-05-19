@@ -337,6 +337,10 @@ function buildStandalonePlayerDock() {
 		box-shadow: 0 20px 48px rgba(63, 45, 24, 0.12);
 	}
 
+	.hero-audio.webui-docked-player .hero-audio-player {
+		position: relative;
+	}
+
 	.hero-audio.webui-docked-player .hero-audio-label {
 		margin-bottom: 0;
 	}
@@ -348,9 +352,9 @@ function buildStandalonePlayerDock() {
 	.hero-audio.webui-docked-player .webui-narration-toolbar {
 		display: grid;
 		grid-template-columns: minmax(0, 1fr) auto;
-		gap: 0.75rem;
+		gap: 0.65rem;
 		align-items: center;
-		margin-top: 0.65rem;
+		margin-top: 0.6rem;
 	}
 
 	.hero-audio.webui-docked-player[data-webui-placement="hero"] .webui-narration-toolbar {
@@ -368,20 +372,33 @@ function buildStandalonePlayerDock() {
 
 	.hero-audio.webui-docked-player .webui-narration-actions {
 		display: flex;
-		gap: 0.5rem;
+		gap: 0.4rem;
 		justify-content: flex-end;
-		flex-wrap: wrap;
+		align-items: center;
 	}
 
 	.hero-audio.webui-docked-player .webui-narration-actions button {
 		appearance: none;
 		border: 1px solid rgba(82, 62, 39, 0.14);
 		border-radius: 999px;
-		padding: 0.7rem 0.95rem;
+		padding: 0.58rem 0.92rem;
 		font: 600 0.92rem/1 var(--font-sans, system-ui, sans-serif);
 		cursor: pointer;
 		background: rgba(255, 255, 255, 0.92);
 		color: var(--ink, #22190f);
+	}
+
+	.hero-audio.webui-docked-player .webui-narration-actions .webui-play-toggle {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.45rem;
+	}
+
+	.hero-audio.webui-docked-player .webui-narration-actions .webui-play-toggle svg {
+		width: 0.95rem;
+		height: 0.95rem;
+		fill: currentColor;
+		flex: 0 0 auto;
 	}
 
 	.hero-audio.webui-docked-player .webui-narration-actions button:hover {
@@ -389,15 +406,25 @@ function buildStandalonePlayerDock() {
 		background: rgba(255, 255, 255, 1);
 	}
 
-	.hero-audio.webui-docked-player .webui-narration-actions .webui-icon-toggle {
-		padding: 0;
-		width: 2.45rem;
-		height: 2.45rem;
-		display: inline-grid;
-		place-items: center;
+	.hero-audio.webui-docked-player .webui-icon-toggle {
+		appearance: none;
+		position: absolute;
+		top: 0.75rem;
+		right: 0.75rem;
+		padding: 0.2rem;
+		border: 0;
+		border-radius: 0;
+		background: transparent;
+		color: rgba(82, 62, 39, 0.74);
+		cursor: pointer;
+		line-height: 0;
 	}
 
-	.hero-audio.webui-docked-player .webui-narration-actions .webui-icon-toggle svg {
+	.hero-audio.webui-docked-player .webui-icon-toggle:hover {
+		color: rgba(82, 62, 39, 1);
+	}
+
+	.hero-audio.webui-docked-player .webui-icon-toggle svg {
 		width: 1rem;
 		height: 1rem;
 		fill: none;
@@ -409,7 +436,7 @@ function buildStandalonePlayerDock() {
 		transform: rotate(0deg);
 	}
 
-	.hero-audio.webui-docked-player .webui-narration-actions .webui-icon-toggle[aria-expanded="true"] svg {
+	.hero-audio.webui-docked-player .webui-icon-toggle[aria-expanded="true"] svg {
 		transform: rotate(180deg);
 	}
 
@@ -418,6 +445,10 @@ function buildStandalonePlayerDock() {
 	}
 
 	.hero-audio.webui-docked-player[data-webui-expanded="false"] audio {
+		display: none;
+	}
+
+	.hero-audio.webui-docked-player[data-webui-expanded="false"] .hero-audio-label {
 		display: none;
 	}
 
@@ -455,10 +486,6 @@ function buildStandalonePlayerDock() {
 		}
 
 		.hero-audio.webui-docked-player .webui-narration-actions button {
-			width: 100%;
-		}
-
-		.hero-audio.webui-docked-player .webui-narration-actions .webui-icon-toggle {
 			width: 100%;
 		}
 	}
@@ -511,13 +538,14 @@ function buildStandalonePlayerDock() {
 
 		const playButton = document.createElement('button');
 		playButton.type = 'button';
+		playButton.className = 'webui-play-toggle';
 
 		const expandButton = document.createElement('button');
 		expandButton.type = 'button';
 		expandButton.className = 'webui-icon-toggle';
 		expandButton.setAttribute('aria-expanded', 'false');
 
-		actions.append(playButton, expandButton);
+		actions.append(playButton);
 		toolbar.append(status, actions);
 
 		const label = playerBox.querySelector('.hero-audio-label');
@@ -526,6 +554,7 @@ function buildStandalonePlayerDock() {
 		} else {
 			playerBox.insertBefore(toolbar, audio);
 		}
+		playerBox.appendChild(expandButton);
 
 		let preferencePinned = false;
 		let isExpanded = false;
@@ -562,6 +591,17 @@ function buildStandalonePlayerDock() {
 		function syncExpandButtonUi() {
 			expandButton.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 9l6 6 6-6"></path></svg>';
 			expandButton.setAttribute('aria-label', isExpanded ? 'Collapse narration panel' : 'Expand narration panel');
+		}
+
+		function syncPlayButtonUi() {
+			if (audio.paused) {
+				playButton.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><polygon points="7,5 7,19 19,12"></polygon></svg><span>Play</span>';
+				playButton.setAttribute('aria-label', 'Play narration');
+				return;
+			}
+
+			playButton.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="6" y="5" width="4" height="14" rx="1"></rect><rect x="14" y="5" width="4" height="14" rx="1"></rect></svg><span>Pause</span>';
+			playButton.setAttribute('aria-label', 'Pause narration');
 		}
 
 		function setPlacement(nextPlacement) {
@@ -627,7 +667,7 @@ function buildStandalonePlayerDock() {
 		function syncPlaybackState() {
 			stateLabel.textContent = audio.paused ? 'Ready' : 'Playing';
 			cueLabel.textContent = 'Current cue ' + formatTime(audio.currentTime || 0);
-			playButton.textContent = audio.paused ? 'Play' : 'Pause';
+			syncPlayButtonUi();
 			syncActiveCueState();
 		}
 
