@@ -390,7 +390,7 @@ function buildStandalonePlayerDock() {
 		appearance: none;
 		border: 1px solid rgba(82, 62, 39, 0.14);
 		border-radius: 999px;
-		padding: 0.58rem 0.92rem;
+		padding: 0.4rem 0.8rem;
 		font: 600 0.92rem/1 var(--font-sans, system-ui, sans-serif);
 		cursor: pointer;
 		background: rgba(255, 255, 255, 0.92);
@@ -594,13 +594,24 @@ function buildStandalonePlayerDock() {
 			const rootStyles = getComputedStyle(document.documentElement);
 			const viewportOffset = Number.parseFloat(rootStyles.getPropertyValue('--chat-viewport-offset-top'));
 			const stickyOffset = Number.isFinite(viewportOffset) ? viewportOffset + 12 : 12;
+			const placement = stickyPlayer.dataset.webuiPlacement || 'hero';
 			const playerRect = stickyPlayer.getBoundingClientRect();
+			const sectionCard = document.querySelector('.section-card');
+			const articleBody = document.querySelector('.article-body');
+			const alignmentRect =
+				placement === 'hero'
+					? sectionCard instanceof HTMLElement
+						? sectionCard.getBoundingClientRect()
+						: articleBody instanceof HTMLElement
+							? articleBody.getBoundingClientRect()
+							: playerRect
+					: playerRect;
 			const maxStickyWidth = 800;
 			const viewportGutter = 16;
-			const viewportWidth = Number.isFinite(window.innerWidth) ? window.innerWidth : playerRect.width;
+			const viewportWidth = Number.isFinite(window.innerWidth) ? window.innerWidth : alignmentRect.width;
 			const availableWidth = Math.max(280, viewportWidth - viewportGutter * 2);
-			const stickyWidth = Math.min(playerRect.width, maxStickyWidth, availableWidth);
-			const centeredLeft = playerRect.left + (playerRect.width - stickyWidth) / 2;
+			const stickyWidth = Math.min(alignmentRect.width, maxStickyWidth, availableWidth);
+			const centeredLeft = alignmentRect.left + (alignmentRect.width - stickyWidth) / 2;
 			const stickyLeft = Math.max(viewportGutter, Math.min(centeredLeft, viewportWidth - viewportGutter - stickyWidth));
 
 			stickyPlayer.style.setProperty('--webui-sticky-top', stickyOffset + 'px');
