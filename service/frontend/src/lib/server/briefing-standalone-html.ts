@@ -327,14 +327,13 @@ function buildStandalonePlayerDock() {
 		background: rgba(255, 252, 247, 0.94);
 		backdrop-filter: blur(14px);
 		-webkit-backdrop-filter: blur(14px);
+		height: 100px;
 	}
 
 	.hero-audio.webui-docked-player[data-webui-placement="hero"] .hero-audio-player {
 		padding: 1.1rem 1.2rem;
-		border-radius: 1.7rem;
+		border-radius: 0.75rem;
 		border: 1px solid rgba(82, 62, 39, 0.1);
-		background: rgba(255, 252, 247, 0.96);
-		box-shadow: 0 20px 48px rgba(63, 45, 24, 0.12);
 	}
 
 	.hero-audio.webui-docked-player .hero-audio-player {
@@ -1008,7 +1007,7 @@ audio{width:100%;display:block;margin-top:.5rem}
 .article-nav-item a:hover{background:rgba(184,134,11,.1);color:#8a4315}
 .article-nav-item a.active{background:rgba(184,134,11,.15);font-weight:600;color:#8a4315}
 .article-body{min-width:0}
-.briefing-metadata{background:rgba(82,62,39,.05);padding:1rem 1.5rem;border-radius:.75rem;margin:0 0 1.5rem;font-size:.9rem}
+.briefing-metadata{background:rgba(82,62,39,.05);padding:1rem 1.5rem;border-radius:.75rem;margin:0 0 1.5rem;font-size:.9rem;height:100px;}
 .metadata-item{display:grid;grid-template-columns:120px minmax(0,1fr);gap:1rem;margin:0 0 .5rem}
 .metadata-label{font-weight:700;color:rgba(82,62,39,.7)}
 .metadata-value{color:#1a1409}
