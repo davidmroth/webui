@@ -547,8 +547,12 @@ function buildStandalonePlayerDock() {
 			const stickyOffset = Number.isFinite(viewportOffset) ? viewportOffset + 12 : 12;
 			const playerRect = stickyPlayer.getBoundingClientRect();
 			const maxStickyWidth = 800;
-			const stickyWidth = Math.min(playerRect.width, maxStickyWidth);
-			const stickyLeft = playerRect.left + (playerRect.width - stickyWidth) / 2;
+			const viewportGutter = 16;
+			const viewportWidth = Number.isFinite(window.innerWidth) ? window.innerWidth : playerRect.width;
+			const availableWidth = Math.max(280, viewportWidth - viewportGutter * 2);
+			const stickyWidth = Math.min(playerRect.width, maxStickyWidth, availableWidth);
+			const centeredLeft = playerRect.left + (playerRect.width - stickyWidth) / 2;
+			const stickyLeft = Math.max(viewportGutter, Math.min(centeredLeft, viewportWidth - viewportGutter - stickyWidth));
 
 			stickyPlayer.style.setProperty('--webui-sticky-top', stickyOffset + 'px');
 			stickyPlayer.style.setProperty('--webui-sticky-left', stickyLeft + 'px');
