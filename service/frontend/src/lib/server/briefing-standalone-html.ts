@@ -325,7 +325,6 @@ function buildStandalonePlayerDock() {
 		border-radius: 1.4rem;
 		border: 1px solid rgba(82, 62, 39, 0.12);
 		background: rgba(255, 252, 247, 0.94);
-		box-shadow: 0 18px 40px rgba(63, 45, 24, 0.16);
 		backdrop-filter: blur(14px);
 		-webkit-backdrop-filter: blur(14px);
 	}
@@ -804,6 +803,38 @@ function buildStandalonePlayerDock() {
 			});
 		}
 
+		function localizeGeneratedAt() {
+			const generatedNodes = document.querySelectorAll('[data-generated-at]');
+
+			generatedNodes.forEach((node) => {
+				if (!(node instanceof HTMLElement)) {
+					return;
+				}
+
+				const rawValue = node.dataset.generatedAt;
+				if (!rawValue) {
+					return;
+				}
+
+				const parsed = new Date(rawValue);
+				if (Number.isNaN(parsed.getTime())) {
+					return;
+				}
+
+				const formatter = new Intl.DateTimeFormat(undefined, {
+					year: 'numeric',
+					month: 'short',
+					day: 'numeric',
+					hour: 'numeric',
+					minute: '2-digit',
+					timeZoneName: 'short'
+				});
+
+				node.textContent = formatter.format(parsed);
+				node.setAttribute('title', rawValue);
+			});
+		}
+
 		playButton.addEventListener('click', async () => {
 			if (audio.paused) {
 				await audio.play().catch(() => {});
@@ -839,6 +870,7 @@ function buildStandalonePlayerDock() {
 
 		dockForViewport();
 		observeStickyActivation();
+		localizeGeneratedAt();
 		syncPlaybackState();
 		syncExpandButtonUi();
 		requestAnimationFrame(applyStickyGeometry);
@@ -1100,7 +1132,7 @@ export function buildBriefingPageHtml(data: BriefingPageData, jobId: string, opt
 <body>
 <main class="page-shell">
 <section class="hero">
-<div class="hero-eyebrow">Explainer briefing</div>
+<div class="hero-eyebrow">Briefing</div>
 <h1 class="hero-title">${escapeHtml(data.title)}</h1>
 <p class="hero-subtitle">${escapeHtml(data.topic || data.title)}</p>
 <div class="hero-audio" data-sticky-player>
@@ -1117,12 +1149,8 @@ ${navHtml}
 <article class="article-body">
 <div class="briefing-metadata">
 <div class="metadata-item">
-<div class="metadata-label">Topic:</div>
-<div class="metadata-value">${escapeHtml(data.topic || 'Briefing')}</div>
-</div>
-<div class="metadata-item">
 <div class="metadata-label">Generated:</div>
-<div class="metadata-value">${escapeHtml(data.generatedAt || 'Recently')}</div>
+<div class="metadata-value"><time data-generated-at="${escapeAttribute(data.generatedAt || '')}">${escapeHtml(data.generatedAt || 'Recently')}</time></div>
 </div>
 <div class="metadata-item">
 <div class="metadata-label">Sources:</div>
