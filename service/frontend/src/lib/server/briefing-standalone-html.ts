@@ -362,11 +362,21 @@ function buildStandalonePlayerDock() {
 	}
 
 	.hero-audio.webui-docked-player .webui-narration-status {
+		display: grid;
+		gap: 0.25rem;
+	}
+
+	.hero-audio.webui-docked-player .webui-narration-status-primary {
 		display: flex;
 		flex-wrap: wrap;
 		gap: 0.35rem;
 		font: 500 0.92rem/1.4 var(--font-sans, system-ui, sans-serif);
 		color: var(--muted, rgba(82, 62, 39, 0.7));
+	}
+
+	.hero-audio.webui-docked-player .webui-narration-status-secondary {
+		font: 500 0.78rem/1.3 var(--font-sans, system-ui, sans-serif);
+		color: rgba(82, 62, 39, 0.54);
 	}
 
 	.hero-audio.webui-docked-player .webui-narration-actions {
@@ -528,13 +538,21 @@ function buildStandalonePlayerDock() {
 		const status = document.createElement('div');
 		status.className = 'webui-narration-status';
 
+		const primaryStatus = document.createElement('div');
+		primaryStatus.className = 'webui-narration-status-primary';
+
 		const stateLabel = document.createElement('span');
 		const separator = document.createElement('span');
 		separator.setAttribute('aria-hidden', 'true');
 		separator.textContent = '·';
 		const cueLabel = document.createElement('span');
 
-		status.append(stateLabel, separator, cueLabel);
+		primaryStatus.append(stateLabel, separator, cueLabel);
+
+		const secondaryStatus = document.createElement('div');
+		secondaryStatus.className = 'webui-narration-status-secondary';
+
+		status.append(primaryStatus, secondaryStatus);
 
 		const actions = document.createElement('div');
 		actions.className = 'webui-narration-actions';
@@ -636,6 +654,13 @@ function buildStandalonePlayerDock() {
 		const cueTargets = Array.from(document.querySelectorAll('[data-start][data-end]'));
 		const navLinks = Array.from(document.querySelectorAll('.article-nav-item a[href^="#section-"]'));
 
+		navLinks.forEach((link) => {
+			link.addEventListener('click', () => {
+				navLinks.forEach((l) => l.classList.remove('active'));
+				link.classList.add('active');
+			});
+		});
+
 		function syncActiveCueState() {
 			const currentTime = Number.isFinite(audio.currentTime) ? audio.currentTime : 0;
 			let activeSectionId = null;
@@ -668,8 +693,12 @@ function buildStandalonePlayerDock() {
 		}
 
 		function syncPlaybackState() {
+			const currentTime = audio.currentTime || 0;
+			const duration = audio.duration || 0;
+			const isFinite = Number.isFinite(duration);
 			stateLabel.textContent = audio.paused ? 'Ready' : 'Playing';
-			cueLabel.textContent = 'Current cue ' + formatTime(audio.currentTime || 0);
+			cueLabel.textContent = 'Current cue ' + formatTime(currentTime);
+			secondaryStatus.textContent = isFinite ? 'Duration ' + formatTime(duration) : '';
 			syncPlayButtonUi();
 			syncActiveCueState();
 		}
@@ -898,6 +927,7 @@ function buildStandalonePlayerDock() {
 		audio.addEventListener('play', syncPlaybackState);
 		audio.addEventListener('pause', syncPlaybackState);
 		audio.addEventListener('ended', syncPlaybackState);
+		syncActiveCueState();
 		document.addEventListener('click', handleDelegatedCueSeek, true);
 		bindDirectCueSeek();
 
@@ -1001,11 +1031,13 @@ audio{width:100%;display:block;margin-top:.5rem}
 .content-wrap{display:grid;grid-template-columns:260px minmax(0,1fr);gap:2rem;padding:1.4rem .6rem 0;align-items:start}
 .article-rail{display:grid;gap:1rem;align-content:start;position:sticky;top:1.5rem;max-height:calc(100vh - 3rem);overflow-y:auto;padding-right:.2rem}
 .article-nav{position:static;max-height:none;overflow:visible}
-.article-nav-title{font-size:.85rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:rgba(82,62,39,.6);margin:0 0 1rem}
-.article-nav-list{list-style:none;margin:0;padding:0;display:grid;gap:.5rem}
-.article-nav-item a{display:block;padding:.5rem .75rem;font-size:.9rem;color:#b8860b;border-radius:.75rem;transition:all .2s}
-.article-nav-item a:hover{background:rgba(184,134,11,.1);color:#8a4315}
-.article-nav-item a.active{background:rgba(184,134,11,.15);font-weight:600;color:#8a4315}
+.article-nav-title{font-size:.75rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:rgba(82,62,39,.5);margin:0 0 1.25rem;display:block}
+.article-nav-list{list-style:none;margin:0;padding:0;display:grid;gap:.375rem}
+.article-nav-item a{display:flex;align-items:center;justify-content:space-between;padding:.75rem .875rem;font-size:.85rem;color:rgba(82,62,39,.8);border-left:3px solid transparent;border-radius:.5rem;transition:all .25s cubic-bezier(.4,0,.2,1);position:relative;background:rgba(184,134,11,.02)}
+.article-nav-item a:hover{background:rgba(184,134,11,.08);color:rgba(82,62,39,.95);border-left-color:rgba(184,134,11,.3);padding-left:1.125rem}
+.article-nav-item a.active{background:rgba(184,134,11,.12);color:#5a3e1f;border-left-color:#b8860b;font-weight:600;padding-left:1.125rem}
+.article-nav-label{display:flex;flex:1;align-items:baseline;gap:.375rem}
+.article-nav-time{font-size:.78rem;color:rgba(82,62,39,.55);font-weight:500;flex-shrink:0;margin-left:.5rem}
 .article-body{min-width:0}
 .briefing-metadata{background:rgba(82,62,39,.05);padding:1rem 1.5rem;border-radius:.75rem;margin:0 0 1.5rem;font-size:.9rem;height:100px;}
 .metadata-item{display:grid;grid-template-columns:120px minmax(0,1fr);gap:1rem;margin:0 0 .5rem}
@@ -1039,7 +1071,8 @@ audio{width:100%;display:block;margin-top:.5rem}
 .source-title{font-weight:700;color:#b8860b;display:block}
 .source-publisher{font-size:.85rem;color:rgba(82,62,39,.6);display:block;margin-top:.25rem}
 .on-this-page{font-size:.75rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:rgba(82,62,39,.6);margin:2rem 0 .75rem}
-@media(max-width:960px){.page-shell{padding:1rem .85rem 2rem}.hero{padding:1.2rem 1rem 1rem;border-radius:.75rem}.hero-audio-player{margin-top:1rem;padding:.8rem .85rem}.content-wrap{grid-template-columns:1fr;padding:1.1rem 0 0}.article-rail{position:static;top:auto;max-height:none;overflow:visible;padding-right:0}.article-nav{position:static;max-height:none;margin-bottom:1.5rem;padding-bottom:1.5rem;border-bottom:1px solid rgba(82,62,39,.1)}}
+@media(max-width:960px){.page-shell{padding:1rem .85rem 2rem}.hero{padding:1.2rem 1rem 1rem;border-radius:.75rem}.hero-audio-player{margin-top:1rem;padding:.8rem .85rem}.content-wrap{grid-template-columns:1fr;padding:1.1rem 0 0}.article-rail{position:static;top:auto;max-height:none;overflow:visible;padding-right:0}.article-nav{position:static;max-height:none;margin-bottom:1.5rem;padding-bottom:1.5rem;border-bottom:1px solid rgba(82,62,39,.1)}.article-nav-item a{padding:.65rem .75rem}.article-nav-item a:hover{padding-left:1rem}.article-nav-item a.active{padding-left:1rem}}
+@media(max-width:600px){.article-nav-item a{flex-direction:column;align-items:flex-start}.article-nav-time{margin-left:0;margin-top:.25rem}}
 `.trim();
 
 function formatSeconds(sec: number): string {
@@ -1137,14 +1170,13 @@ function renderSectionNavigation(sections: BriefingPageSection[]): string {
 	const items = sections
 		.map((s, i) => {
 			const sectionNum = String(i + 1).padStart(2, '0');
-			const timing = s.start != null ? ` ${formatSeconds(s.start)} section window` : '';
-			return `<li class="article-nav-item"><a href="#section-${i}">${sectionNum} ${escapeHtml(s.title)}${timing}</a></li>`;
+			const timing = s.start != null ? formatSeconds(s.start) : '—';
+			return `<li class="article-nav-item"><a href="#section-${i}" data-section-num="${sectionNum}"><span class="article-nav-label">${sectionNum} ${escapeHtml(s.title)}</span><span class="article-nav-time">${timing}</span></a></li>`;
 		})
 		.join('');
 	return `<aside class="article-rail"><nav class="article-nav">
 		<h2 class="article-nav-title">Article navigation</h2>
 		<ul class="article-nav-list">${items}</ul>
-		<div class="on-this-page">On this page</div>
 	</nav></aside>`;
 }
 
