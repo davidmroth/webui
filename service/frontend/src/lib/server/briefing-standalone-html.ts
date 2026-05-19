@@ -309,18 +309,18 @@ function injectManagementBar(html: string, jobId: string, options?: StandaloneMa
 function buildStandalonePlayerDock() {
 	return `
 <style id="webui-standalone-player-dock">
-	.hero-audio.webui-docked-player {
+	.hero-audio.webui-docked-player[data-webui-placement="rail"] {
 		margin-top: 0;
 		padding-top: 0;
 		border-top: 0;
 	}
 
-	.article-rail > .hero-audio.webui-docked-player {
+	.article-rail > .hero-audio.webui-docked-player[data-webui-placement="rail"] {
 		order: -1;
 		margin-bottom: 0.25rem;
 	}
 
-	.hero-audio.webui-docked-player .hero-audio-player {
+	.hero-audio.webui-docked-player[data-webui-placement="rail"] .hero-audio-player {
 		padding: 1rem 1.1rem;
 		border-radius: 1.4rem;
 		border: 1px solid rgba(82, 62, 39, 0.12);
@@ -330,8 +330,20 @@ function buildStandalonePlayerDock() {
 		-webkit-backdrop-filter: blur(14px);
 	}
 
+	.hero-audio.webui-docked-player[data-webui-placement="hero"] .hero-audio-player {
+		padding: 1.1rem 1.2rem;
+		border-radius: 1.7rem;
+		border: 1px solid rgba(82, 62, 39, 0.1);
+		background: rgba(255, 252, 247, 0.96);
+		box-shadow: 0 20px 48px rgba(63, 45, 24, 0.12);
+	}
+
 	.hero-audio.webui-docked-player .hero-audio-label {
 		margin-bottom: 0;
+	}
+
+	.hero-audio.webui-docked-player[data-webui-placement="hero"] .hero-audio-label {
+		margin-bottom: 10px;
 	}
 
 	.hero-audio.webui-docked-player .webui-narration-toolbar {
@@ -340,6 +352,11 @@ function buildStandalonePlayerDock() {
 		gap: 0.75rem;
 		align-items: center;
 		margin-top: 0.65rem;
+	}
+
+	.hero-audio.webui-docked-player[data-webui-placement="hero"] .webui-narration-toolbar {
+		margin-top: 0;
+		margin-bottom: 0.75rem;
 	}
 
 	.hero-audio.webui-docked-player .webui-narration-status {
@@ -390,20 +407,15 @@ function buildStandalonePlayerDock() {
 		max-width: none;
 	}
 
-	.hero-audio.webui-docked-player[data-webui-inline="true"] {
+	.hero-audio.webui-docked-player[data-webui-placement="hero"] {
 		margin-top: 22px;
-		padding-top: 18px;
-		border-top: 1px solid rgba(82, 62, 39, 0.10);
+		padding-top: 0;
+		border-top: 0;
 	}
 
-	.hero-audio.webui-docked-player[data-webui-inline="true"] .hero-audio-player {
-		padding: 0;
-		border: 0;
-		border-radius: 0;
-		background: transparent;
-		box-shadow: none;
-		backdrop-filter: none;
-		-webkit-backdrop-filter: none;
+	.hero-audio.webui-docked-player[data-webui-placement="hero"] .hero-audio-player {
+		backdrop-filter: blur(14px);
+		-webkit-backdrop-filter: blur(14px);
 	}
 
 	@media (max-width: 960px) {
@@ -478,6 +490,22 @@ function buildStandalonePlayerDock() {
 		let preferencePinned = false;
 		let isExpanded = false;
 
+		function setPlacement(nextPlacement) {
+			stickyPlayer.dataset.webuiPlacement = nextPlacement;
+			if (nextPlacement === 'hero') {
+				if (anchor.parentNode) {
+					anchor.parentNode.insertBefore(stickyPlayer, anchor.nextSibling);
+				}
+				return;
+			}
+
+			if (rail.firstChild) {
+				rail.insertBefore(stickyPlayer, rail.firstChild);
+			} else {
+				rail.appendChild(stickyPlayer);
+			}
+		}
+
 		function formatTime(seconds) {
 			const safeSeconds = Number.isFinite(seconds) ? Math.max(0, Math.floor(seconds)) : 0;
 			const minutes = Math.floor(safeSeconds / 60);
@@ -496,25 +524,53 @@ function buildStandalonePlayerDock() {
 			stickyPlayer.dataset.webuiExpanded = nextExpanded ? 'true' : 'false';
 			expandButton.textContent = nextExpanded ? 'Collapse' : 'Expand';
 			expandButton.setAttribute('aria-expanded', nextExpanded ? 'true' : 'false');
+			setPlacement(breakpoint.matches || nextExpanded ? 'hero' : 'rail');
 		}
 
 		function dockForViewport() {
 			const isInline = breakpoint.matches;
 			stickyPlayer.dataset.webuiInline = isInline ? 'true' : 'false';
 
-			if (isInline) {
-				if (anchor.parentNode) {
-					anchor.parentNode.insertBefore(stickyPlayer, anchor.nextSibling);
-				}
-			} else if (rail.firstChild) {
-				rail.insertBefore(stickyPlayer, rail.firstChild);
+			if (!preferencePinned) {
+				setExpanded(true);
 			} else {
-				rail.appendChild(stickyPlayer);
+				setPlacement(isInline || isExpanded ? 'hero' : 'rail');
+			}
+		}
+
+		function resolveCueTarget(startNode) {
+			if (!(startNode instanceof Element)) {
+				return null;
 			}
 
-			if (!preferencePinned) {
-				setExpanded(isInline);
+			const directTarget = startNode.closest('[data-start][data-end]');
+			if (directTarget instanceof HTMLElement) {
+				return directTarget;
 			}
+
+			const sectionCard = startNode.closest('.section-card');
+			return sectionCard instanceof HTMLElement ? sectionCard : null;
+		}
+
+		function handleDelegatedCueSeek(event) {
+			const target = resolveCueTarget(event.target);
+			if (!(target instanceof HTMLElement)) {
+				return;
+			}
+
+			if (event.target instanceof Element && event.target.closest('a[href]')) {
+				return;
+			}
+
+			const cueStart = Number.parseFloat(target.dataset.start || 'NaN');
+			if (!Number.isFinite(cueStart)) {
+				return;
+			}
+
+			event.preventDefault();
+			event.stopImmediatePropagation();
+			audio.currentTime = cueStart;
+			void audio.play().catch(() => {});
 		}
 
 		playButton.addEventListener('click', async () => {
@@ -542,6 +598,7 @@ function buildStandalonePlayerDock() {
 		});
 		audio.addEventListener('pause', syncPlaybackState);
 		audio.addEventListener('ended', syncPlaybackState);
+		document.addEventListener('click', handleDelegatedCueSeek, true);
 
 		if (typeof breakpoint.addEventListener === 'function') {
 			breakpoint.addEventListener('change', dockForViewport);

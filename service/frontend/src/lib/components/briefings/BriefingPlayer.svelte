@@ -268,7 +268,6 @@
 				<span class:invalid={!briefing.validation.valid} class="briefing-pill">
 					{briefing.validation.valid ? 'Validated' : 'Needs review'}
 				</span>
-				<span class="briefing-meta-line">{briefing.generatedBy} · {briefing.locale}</span>
 			</div>
 			<h1>{briefing.title}</h1>
 			<p class="briefing-topic">{briefing.topic}</p>

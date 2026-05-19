@@ -38,6 +38,11 @@ test('rewriteStandaloneAssetUrls injects the standalone narration dock override'
 	assert.match(html, /webui-docked-player/);
 	assert.match(html, /webui-narration-toolbar/);
 	assert.match(html, /matchMedia\('\(max-width: 960px\)'\)/);
+	assert.match(html, /data-webui-placement/);
+	assert.match(html, /function setPlacement\(nextPlacement\)/);
+	assert.match(html, /setExpanded\(true\)/);
+	assert.match(html, /function handleDelegatedCueSeek\(event\)/);
+	assert.match(html, /document\.addEventListener\('click', handleDelegatedCueSeek, true\)/);
 	assert.match(html, /article-rail/);
 	assert.match(html, /Current cue/);
 });
@@ -53,6 +58,8 @@ test('rewriteStandaloneAssetUrls injects standalone sharing controls for manager
 	assert.match(html, /Manage access/);
 	assert.match(html, /Make public/);
 	assert.match(html, /Copy link/);
+	assert.match(html, /#briefing-share-launcher/);
+	assert.match(html, /background: rgba\(17, 24, 39, 0\.94\)/);
 	assert.match(html, /role="dialog"/);
 	assert.match(html, /data-standalone-path="\/briefings\/job-42"/);
 	assert.match(html, /dialog\.dataset\.open = open \? 'true' : 'false'/);
