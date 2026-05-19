@@ -28,6 +28,20 @@ test('rewriteStandaloneAssetUrls rewrites illustration assets', () => {
 	);
 });
 
+test('rewriteStandaloneAssetUrls injects the standalone narration dock override', () => {
+	const html = rewriteStandaloneAssetUrls(
+		'<html><head><link rel="stylesheet" href="./player.css" /></head><body><main class="page-shell"><section class="hero"><div class="hero-audio" data-sticky-player><div class="hero-audio-player"><div class="hero-audio-label">Narration</div><audio controls preload="metadata" data-briefing-audio><source src="./audio.mp3" type="audio/mpeg" /></audio></div></div></section><div class="content-shell"><aside class="article-rail"><section class="rail-card">Rail</section></aside><div class="article-body">Body</div></div></main><script src="./player.js"></script></body></html>',
+		'job-42'
+	);
+
+	assert.match(html, /webui-standalone-player-dock/);
+	assert.match(html, /webui-docked-player/);
+	assert.match(html, /webui-narration-toolbar/);
+	assert.match(html, /matchMedia\('\(max-width: 960px\)'\)/);
+	assert.match(html, /article-rail/);
+	assert.match(html, /Current cue/);
+});
+
 test('rewriteStandaloneAssetUrls injects standalone sharing controls for managers', () => {
 	const html = rewriteStandaloneAssetUrls('<html><body><h1>Briefing</h1></body></html>', 'job-42', {
 		canManage: true,

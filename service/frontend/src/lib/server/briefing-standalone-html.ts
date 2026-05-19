@@ -306,6 +306,264 @@ function injectManagementBar(html: string, jobId: string, options?: StandaloneMa
 	return `${managementBar}${html}`;
 }
 
+function buildStandalonePlayerDock() {
+	return `
+<style id="webui-standalone-player-dock">
+	.hero-audio.webui-docked-player {
+		margin-top: 0;
+		padding-top: 0;
+		border-top: 0;
+	}
+
+	.article-rail > .hero-audio.webui-docked-player {
+		order: -1;
+		margin-bottom: 0.25rem;
+	}
+
+	.hero-audio.webui-docked-player .hero-audio-player {
+		padding: 1rem 1.1rem;
+		border-radius: 1.4rem;
+		border: 1px solid rgba(82, 62, 39, 0.12);
+		background: rgba(255, 252, 247, 0.94);
+		box-shadow: 0 18px 40px rgba(63, 45, 24, 0.16);
+		backdrop-filter: blur(14px);
+		-webkit-backdrop-filter: blur(14px);
+	}
+
+	.hero-audio.webui-docked-player .hero-audio-label {
+		margin-bottom: 0;
+	}
+
+	.hero-audio.webui-docked-player .webui-narration-toolbar {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) auto;
+		gap: 0.75rem;
+		align-items: center;
+		margin-top: 0.65rem;
+	}
+
+	.hero-audio.webui-docked-player .webui-narration-status {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.35rem;
+		font: 500 0.92rem/1.4 var(--font-sans, system-ui, sans-serif);
+		color: var(--muted, rgba(82, 62, 39, 0.7));
+	}
+
+	.hero-audio.webui-docked-player .webui-narration-actions {
+		display: flex;
+		gap: 0.5rem;
+		justify-content: flex-end;
+		flex-wrap: wrap;
+	}
+
+	.hero-audio.webui-docked-player .webui-narration-actions button {
+		appearance: none;
+		border: 1px solid rgba(82, 62, 39, 0.14);
+		border-radius: 999px;
+		padding: 0.7rem 0.95rem;
+		font: 600 0.92rem/1 var(--font-sans, system-ui, sans-serif);
+		cursor: pointer;
+		background: rgba(255, 255, 255, 0.92);
+		color: var(--ink, #22190f);
+	}
+
+	.hero-audio.webui-docked-player .webui-narration-actions button:hover {
+		border-color: rgba(138, 67, 21, 0.24);
+		background: rgba(255, 255, 255, 1);
+	}
+
+	.hero-audio.webui-docked-player[data-webui-expanded="false"] audio {
+		display: none;
+	}
+
+	.hero-audio.webui-docked-player[data-webui-expanded="true"] audio {
+		display: block;
+		margin-top: 0.75rem;
+	}
+
+	.hero-audio.webui-docked-player.is-sticky .hero-audio-player {
+		position: static;
+		top: auto;
+		left: auto;
+		width: auto;
+		max-width: none;
+	}
+
+	.hero-audio.webui-docked-player[data-webui-inline="true"] {
+		margin-top: 22px;
+		padding-top: 18px;
+		border-top: 1px solid rgba(82, 62, 39, 0.10);
+	}
+
+	.hero-audio.webui-docked-player[data-webui-inline="true"] .hero-audio-player {
+		padding: 0;
+		border: 0;
+		border-radius: 0;
+		background: transparent;
+		box-shadow: none;
+		backdrop-filter: none;
+		-webkit-backdrop-filter: none;
+	}
+
+	@media (max-width: 960px) {
+		.hero-audio.webui-docked-player .webui-narration-toolbar {
+			grid-template-columns: 1fr;
+		}
+
+		.hero-audio.webui-docked-player .webui-narration-actions {
+			justify-content: stretch;
+		}
+
+		.hero-audio.webui-docked-player .webui-narration-actions button {
+			width: 100%;
+		}
+	}
+</style>
+<script>
+	(() => {
+		const stickyPlayer = document.querySelector('[data-sticky-player]');
+		const hero = document.querySelector('.hero');
+		const rail = document.querySelector('.article-rail');
+		const playerBox = stickyPlayer instanceof HTMLElement ? stickyPlayer.querySelector('.hero-audio-player') : null;
+		const audio = stickyPlayer instanceof HTMLElement ? stickyPlayer.querySelector('[data-briefing-audio]') : null;
+
+		if (!(stickyPlayer instanceof HTMLElement) || !(hero instanceof HTMLElement) || !(rail instanceof HTMLElement) || !(playerBox instanceof HTMLElement) || !(audio instanceof HTMLAudioElement)) {
+			return;
+		}
+
+		stickyPlayer.classList.add('webui-docked-player');
+
+		const breakpoint = window.matchMedia('(max-width: 960px)');
+		const anchor = document.createComment('webui-standalone-player-anchor');
+		const parent = stickyPlayer.parentNode;
+		if (parent) {
+			parent.insertBefore(anchor, stickyPlayer);
+		}
+
+		const toolbar = document.createElement('div');
+		toolbar.className = 'webui-narration-toolbar';
+
+		const status = document.createElement('div');
+		status.className = 'webui-narration-status';
+
+		const stateLabel = document.createElement('span');
+		const separator = document.createElement('span');
+		separator.setAttribute('aria-hidden', 'true');
+		separator.textContent = '·';
+		const cueLabel = document.createElement('span');
+
+		status.append(stateLabel, separator, cueLabel);
+
+		const actions = document.createElement('div');
+		actions.className = 'webui-narration-actions';
+
+		const playButton = document.createElement('button');
+		playButton.type = 'button';
+
+		const expandButton = document.createElement('button');
+		expandButton.type = 'button';
+		expandButton.setAttribute('aria-expanded', 'false');
+
+		actions.append(playButton, expandButton);
+		toolbar.append(status, actions);
+
+		const label = playerBox.querySelector('.hero-audio-label');
+		if (label instanceof HTMLElement) {
+			label.insertAdjacentElement('afterend', toolbar);
+		} else {
+			playerBox.insertBefore(toolbar, audio);
+		}
+
+		let preferencePinned = false;
+		let isExpanded = false;
+
+		function formatTime(seconds) {
+			const safeSeconds = Number.isFinite(seconds) ? Math.max(0, Math.floor(seconds)) : 0;
+			const minutes = Math.floor(safeSeconds / 60);
+			const remainder = safeSeconds % 60;
+			return minutes + ':' + String(remainder).padStart(2, '0');
+		}
+
+		function syncPlaybackState() {
+			stateLabel.textContent = audio.paused ? 'Ready' : 'Playing';
+			cueLabel.textContent = 'Current cue ' + formatTime(audio.currentTime || 0);
+			playButton.textContent = audio.paused ? 'Play' : 'Pause';
+		}
+
+		function setExpanded(nextExpanded) {
+			isExpanded = nextExpanded;
+			stickyPlayer.dataset.webuiExpanded = nextExpanded ? 'true' : 'false';
+			expandButton.textContent = nextExpanded ? 'Collapse' : 'Expand';
+			expandButton.setAttribute('aria-expanded', nextExpanded ? 'true' : 'false');
+		}
+
+		function dockForViewport() {
+			const isInline = breakpoint.matches;
+			stickyPlayer.dataset.webuiInline = isInline ? 'true' : 'false';
+
+			if (isInline) {
+				if (anchor.parentNode) {
+					anchor.parentNode.insertBefore(stickyPlayer, anchor.nextSibling);
+				}
+			} else if (rail.firstChild) {
+				rail.insertBefore(stickyPlayer, rail.firstChild);
+			} else {
+				rail.appendChild(stickyPlayer);
+			}
+
+			if (!preferencePinned) {
+				setExpanded(isInline);
+			}
+		}
+
+		playButton.addEventListener('click', async () => {
+			if (audio.paused) {
+				await audio.play().catch(() => {});
+				return;
+			}
+
+			audio.pause();
+		});
+
+		expandButton.addEventListener('click', () => {
+			preferencePinned = true;
+			setExpanded(!isExpanded);
+		});
+
+		audio.addEventListener('timeupdate', syncPlaybackState);
+		audio.addEventListener('seeked', syncPlaybackState);
+		audio.addEventListener('loadedmetadata', syncPlaybackState);
+		audio.addEventListener('play', () => {
+			syncPlaybackState();
+			if (!breakpoint.matches && !preferencePinned) {
+				setExpanded(false);
+			}
+		});
+		audio.addEventListener('pause', syncPlaybackState);
+		audio.addEventListener('ended', syncPlaybackState);
+
+		if (typeof breakpoint.addEventListener === 'function') {
+			breakpoint.addEventListener('change', dockForViewport);
+		} else if (typeof breakpoint.addListener === 'function') {
+			breakpoint.addListener(dockForViewport);
+		}
+
+		dockForViewport();
+		syncPlaybackState();
+	})();
+</script>`;
+}
+
+function injectStandalonePlayerDock(html: string) {
+	const dock = buildStandalonePlayerDock();
+	if (/<\/body>/i.test(html)) {
+		return html.replace(/<\/body>/i, `${dock}</body>`);
+	}
+
+	return `${html}${dock}`;
+}
+
 export function rewriteStandaloneAssetUrls(html: string, jobId: string, options?: StandaloneManagementOptions) {
 	const rewritten = html
 		.replaceAll('./player.css', buildAssetUrl(jobId, 'player.css'))
@@ -315,5 +573,5 @@ export function rewriteStandaloneAssetUrls(html: string, jobId: string, options?
 			return buildAssetUrl(jobId, `illustrations/${assetName}`);
 		});
 
-	return injectManagementBar(rewritten, jobId, options);
+	return injectManagementBar(injectStandalonePlayerDock(rewritten), jobId, options);
 }

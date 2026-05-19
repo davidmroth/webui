@@ -15,15 +15,46 @@
 	let shareBusy = $state(false);
 	let shareError = $state<string | null>(null);
 	let shareNotice = $state<string | null>(null);
-	let narrationExpanded = $state(true);
+	let narrationExpanded = $state(false);
 	let narrationPlaying = $state(false);
 	let narrationAutoCollapsed = $state(false);
+	let narrationPreferencePinned = $state(false);
+	let narrationInlineLayout = $state(false);
+
+	const narrationInlineBreakpointQuery = '(max-width: 960px)';
 
 	$effect(() => {
 		shareState = sharing;
 		shareBusy = false;
 		shareError = null;
 		shareNotice = null;
+	});
+
+	$effect(() => {
+		if (!browser) {
+			return;
+		}
+
+		const mediaQuery = window.matchMedia(narrationInlineBreakpointQuery);
+
+		const syncNarrationLayout = (matches: boolean) => {
+			narrationInlineLayout = matches;
+			if (!narrationPreferencePinned && !narrationPlaying) {
+				narrationExpanded = matches;
+			}
+		};
+
+		syncNarrationLayout(mediaQuery.matches);
+
+		const handleChange = (event: MediaQueryListEvent) => {
+			syncNarrationLayout(event.matches);
+		};
+
+		mediaQuery.addEventListener('change', handleChange);
+
+		return () => {
+			mediaQuery.removeEventListener('change', handleChange);
+		};
 	});
 
 	$effect(() => {
@@ -82,6 +113,7 @@
 	}
 
 	function toggleNarrationExpanded() {
+		narrationPreferencePinned = true;
 		narrationExpanded = !narrationExpanded;
 	}
 
@@ -306,7 +338,7 @@
 		</div>
 	</header>
 
-	<div class="briefing-layout">
+	<div class:has-audio={Boolean(briefing.audioAsset)} class="briefing-layout">
 		<div class="briefing-main-column">
 			{#each briefing.sections as section}
 				<section
@@ -407,9 +439,14 @@
 			{/each}
 		</div>
 
-		<aside class="briefing-side-column">
-			{#if briefing.audioAsset}
-				<section class:expanded={narrationExpanded} class:collapsed={!narrationExpanded} class:is-playing={narrationPlaying} class="briefing-audio-card">
+		{#if briefing.audioAsset}
+			<div class:sticky={narrationPlaying && !narrationInlineLayout} class="briefing-audio-slot">
+				<section
+					class:expanded={narrationExpanded}
+					class:collapsed={!narrationExpanded}
+					class:is-playing={narrationPlaying}
+					class="briefing-audio-card"
+				>
 					<div class="briefing-audio-header">
 						<div class="briefing-audio-copy">
 							<div class="briefing-audio-label">Narration</div>
@@ -450,12 +487,14 @@
 							Your browser does not support inline audio playback.
 						</audio>
 						<p class="briefing-audio-note">
-							Narration collapses into this rail while playback continues so the briefing stays readable.
+							Expand the player to use native audio controls without covering the right-side briefing rail.
 						</p>
 					</div>
 				</section>
-			{/if}
+			</div>
+		{/if}
 
+		<aside class="briefing-side-column">
 			<section class="briefing-panel">
 				<h2>Sources</h2>
 				{#if briefing.sources.length === 0}
@@ -675,14 +714,22 @@
 		-webkit-backdrop-filter: blur(14px);
 	}
 
-	.briefing-audio-card.is-playing {
+	.briefing-audio-slot {
+		grid-column: 2;
+		grid-row: 1;
+		display: grid;
+		align-content: start;
+	}
+
+	.briefing-audio-slot.sticky {
 		position: sticky;
 		top: calc(var(--chat-viewport-offset-top, 0px) + 0.75rem);
 		z-index: 20;
 	}
 
 	.briefing-audio-card.collapsed {
-		gap: 0.75rem;
+		gap: 0.65rem;
+		padding: 1rem 1.15rem;
 	}
 
 	.briefing-audio-header,
@@ -695,6 +742,10 @@
 	.briefing-audio-header {
 		grid-template-columns: minmax(0, 1fr) auto;
 		align-items: start;
+	}
+
+	.briefing-audio-card.collapsed .briefing-audio-header {
+		align-items: center;
 	}
 
 	.briefing-audio-label {
@@ -716,6 +767,10 @@
 		justify-content: flex-end;
 	}
 
+	.briefing-audio-card.collapsed .briefing-audio-status {
+		font-size: 0.84rem;
+	}
+
 	.briefing-audio-toggle {
 		white-space: nowrap;
 	}
@@ -735,6 +790,7 @@
 		display: grid;
 		gap: 1.5rem;
 		grid-template-columns: minmax(0, 2fr) minmax(18rem, 0.95fr);
+		align-items: start;
 	}
 
 	.briefing-main-column,
@@ -742,6 +798,20 @@
 		display: grid;
 		gap: 1rem;
 		align-content: start;
+	}
+
+	.briefing-main-column {
+		grid-column: 1;
+		grid-row: 1 / span 2;
+	}
+
+	.briefing-side-column {
+		grid-column: 2;
+		grid-row: 2;
+	}
+
+	.briefing-layout:not(.has-audio) .briefing-side-column {
+		grid-row: 1;
 	}
 
 	.briefing-section-card {
@@ -914,6 +984,13 @@
 			grid-template-columns: 1fr;
 		}
 
+		.briefing-main-column,
+		.briefing-audio-slot,
+		.briefing-side-column {
+			grid-column: 1;
+			grid-row: auto;
+		}
+
 		.briefing-hero {
 			display: grid;
 		}
@@ -923,7 +1000,7 @@
 			width: 100%;
 		}
 
-		.briefing-audio-card.is-playing {
+		.briefing-audio-slot.sticky {
 			position: static;
 		}
 	}
