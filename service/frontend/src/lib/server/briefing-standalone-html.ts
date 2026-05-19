@@ -322,7 +322,7 @@ function buildStandalonePlayerDock() {
 
 	.hero-audio.webui-docked-player[data-webui-placement="rail"] .hero-audio-player {
 		padding: 1rem 1.1rem;
-		border-radius: 1.4rem;
+		border-radius: 0.75rem;
 		border: 1px solid rgba(82, 62, 39, 0.12);
 		background: rgba(255, 252, 247, 0.94);
 		backdrop-filter: blur(14px);
@@ -449,6 +449,10 @@ function buildStandalonePlayerDock() {
 	}
 
 	.hero-audio.webui-docked-player[data-webui-expanded="false"] .hero-audio-label {
+		display: none;
+	}
+
+	.hero-audio.webui-docked-player[data-webui-expanded="true"] .webui-play-toggle {
 		display: none;
 	}
 
@@ -1178,7 +1182,7 @@ export function buildBriefingPageHtml(data: BriefingPageData, jobId: string, opt
 <div class="hero-audio" data-sticky-player>
 <div class="hero-audio-player">
 <div class="hero-audio-label">Narration</div>
-<audio controls preload="none" data-briefing-audio>
+<audio controls preload="auto" data-briefing-audio>
 <source src="${escapeAttribute(data.audioUrl)}" type="audio/mpeg" />
 </audio>
 </div>
