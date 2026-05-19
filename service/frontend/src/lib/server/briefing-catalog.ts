@@ -135,10 +135,15 @@ function normalizeValidation(value: RendererValidationResult | null | undefined)
 	};
 }
 
+function shouldSyncBriefingAsset(role: string) {
+	return role !== 'standalone_html' && role !== 'player_css' && role !== 'player_js';
+}
+
 function manifestAssetInputs(jobId: string, manifest: RendererBriefingResult): BriefingAssetInput[] {
 	const assetInputs = Array.isArray(manifest.assets)
 		? manifest.assets
 				.filter((asset): asset is RendererHostedAsset => Boolean(asset) && typeof asset === 'object')
+				.filter((asset) => shouldSyncBriefingAsset(normalizeOptionalString(asset.role) ?? 'asset'))
 				.map((asset) => {
 					const role = normalizeOptionalString(asset.role) ?? 'asset';
 					const assetPath = normalizeOptionalString(asset.path);

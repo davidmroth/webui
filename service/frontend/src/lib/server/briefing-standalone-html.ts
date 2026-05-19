@@ -423,9 +423,11 @@ function buildStandalonePlayerDock() {
 		margin-top: 0.75rem;
 	}
 
-	.hero-audio.webui-docked-player[data-webui-inline="false"] .hero-audio-player {
-		position: sticky;
-		top: calc(var(--chat-viewport-offset-top, 0px) + 0.75rem);
+	.hero-audio.webui-docked-player[data-webui-sticky="true"][data-webui-inline="false"] .hero-audio-player {
+		position: fixed;
+		top: var(--webui-sticky-top, calc(var(--chat-viewport-offset-top, 0px) + 0.75rem));
+		left: var(--webui-sticky-left, 0px);
+		width: var(--webui-sticky-width, auto);
 		z-index: 20;
 	}
 
@@ -479,6 +481,14 @@ function buildStandalonePlayerDock() {
 			parent.insertBefore(anchor, stickyPlayer);
 		}
 
+		const stickySentinel = document.createElement('div');
+		stickySentinel.setAttribute('aria-hidden', 'true');
+		stickySentinel.style.height = '1px';
+		stickySentinel.style.pointerEvents = 'none';
+		if (parent) {
+			parent.insertBefore(stickySentinel, stickyPlayer);
+		}
+
 		const toolbar = document.createElement('div');
 		toolbar.className = 'webui-narration-toolbar';
 
@@ -517,6 +527,28 @@ function buildStandalonePlayerDock() {
 		let preferencePinned = false;
 		let isExpanded = false;
 
+		function applyStickyGeometry() {
+			const stickyEnabled = stickyPlayer.dataset.webuiSticky === 'true' && stickyPlayer.dataset.webuiInline === 'false';
+
+			if (!stickyEnabled) {
+				stickyPlayer.style.removeProperty('--webui-sticky-top');
+				stickyPlayer.style.removeProperty('--webui-sticky-left');
+				stickyPlayer.style.removeProperty('--webui-sticky-width');
+				stickyPlayer.style.removeProperty('min-height');
+				return;
+			}
+
+			const rootStyles = getComputedStyle(document.documentElement);
+			const viewportOffset = Number.parseFloat(rootStyles.getPropertyValue('--chat-viewport-offset-top'));
+			const stickyOffset = Number.isFinite(viewportOffset) ? viewportOffset + 12 : 12;
+			const playerRect = stickyPlayer.getBoundingClientRect();
+
+			stickyPlayer.style.setProperty('--webui-sticky-top', stickyOffset + 'px');
+			stickyPlayer.style.setProperty('--webui-sticky-left', playerRect.left + 'px');
+			stickyPlayer.style.setProperty('--webui-sticky-width', playerRect.width + 'px');
+			stickyPlayer.style.minHeight = playerBox.offsetHeight + 'px';
+		}
+
 		function syncExpandButtonUi() {
 			expandButton.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 9l6 6 6-6"></path></svg>';
 			expandButton.setAttribute('aria-label', isExpanded ? 'Collapse narration panel' : 'Expand narration panel');
@@ -528,6 +560,7 @@ function buildStandalonePlayerDock() {
 				if (anchor.parentNode) {
 					anchor.parentNode.insertBefore(stickyPlayer, anchor.nextSibling);
 				}
+				requestAnimationFrame(applyStickyGeometry);
 				return;
 			}
 
@@ -536,6 +569,8 @@ function buildStandalonePlayerDock() {
 			} else {
 				rail.appendChild(stickyPlayer);
 			}
+
+			requestAnimationFrame(applyStickyGeometry);
 		}
 
 		function formatTime(seconds) {
@@ -568,6 +603,30 @@ function buildStandalonePlayerDock() {
 			} else {
 				setPlacement(isInline || isExpanded ? 'hero' : 'rail');
 			}
+		}
+
+		function observeStickyActivation() {
+			if (!(stickySentinel instanceof HTMLElement)) {
+				stickyPlayer.dataset.webuiSticky = 'false';
+				return;
+			}
+
+			const rootStyles = getComputedStyle(document.documentElement);
+			const viewportOffset = Number.parseFloat(rootStyles.getPropertyValue('--chat-viewport-offset-top'));
+			const stickyOffset = Number.isFinite(viewportOffset) ? viewportOffset + 12 : 12;
+
+			const observer = new IntersectionObserver(
+				([entry]) => {
+					stickyPlayer.dataset.webuiSticky = entry && !entry.isIntersecting ? 'true' : 'false';
+					requestAnimationFrame(applyStickyGeometry);
+				},
+				{
+					threshold: 0,
+					rootMargin: '-' + stickyOffset + 'px 0px 0px 0px'
+				}
+			);
+
+			observer.observe(stickySentinel);
 		}
 
 		function resolveCueTarget(startNode) {
@@ -622,12 +681,7 @@ function buildStandalonePlayerDock() {
 		audio.addEventListener('timeupdate', syncPlaybackState);
 		audio.addEventListener('seeked', syncPlaybackState);
 		audio.addEventListener('loadedmetadata', syncPlaybackState);
-		audio.addEventListener('play', () => {
-			syncPlaybackState();
-			if (!breakpoint.matches && !preferencePinned) {
-				setExpanded(false);
-			}
-		});
+		audio.addEventListener('play', syncPlaybackState);
 		audio.addEventListener('pause', syncPlaybackState);
 		audio.addEventListener('ended', syncPlaybackState);
 		document.addEventListener('click', handleDelegatedCueSeek, true);
@@ -638,9 +692,15 @@ function buildStandalonePlayerDock() {
 			breakpoint.addListener(dockForViewport);
 		}
 
+		window.addEventListener('resize', () => {
+			requestAnimationFrame(applyStickyGeometry);
+		});
+
 		dockForViewport();
+		observeStickyActivation();
 		syncPlaybackState();
 		syncExpandButtonUi();
+		requestAnimationFrame(applyStickyGeometry);
 	})();
 </script>`;
 }

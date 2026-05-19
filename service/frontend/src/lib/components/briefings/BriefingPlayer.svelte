@@ -17,9 +17,11 @@
 	let shareNotice = $state<string | null>(null);
 	let narrationExpanded = $state(false);
 	let narrationPlaying = $state(false);
-	let narrationAutoCollapsed = $state(false);
 	let narrationPreferencePinned = $state(false);
 	let narrationInlineLayout = $state(false);
+	let narrationStickyActive = $state(false);
+	let narrationStickySentinel = $state<HTMLDivElement | null>(null);
+	let narrationStickySlot = $state<HTMLDivElement | null>(null);
 
 	const narrationInlineBreakpointQuery = '(max-width: 960px)';
 
@@ -39,7 +41,7 @@
 
 		const syncNarrationLayout = (matches: boolean) => {
 			narrationInlineLayout = matches;
-			if (!narrationPreferencePinned && !narrationPlaying) {
+			if (!narrationPreferencePinned) {
 				narrationExpanded = true;
 			}
 		};
@@ -54,6 +56,78 @@
 
 		return () => {
 			mediaQuery.removeEventListener('change', handleChange);
+		};
+	});
+
+	$effect(() => {
+		if (!browser || !narrationStickySentinel) {
+			narrationStickyActive = false;
+			return;
+		}
+
+		const rootStyles = getComputedStyle(document.documentElement);
+		const viewportOffset = Number.parseFloat(rootStyles.getPropertyValue('--chat-viewport-offset-top'));
+		const stickyOffset = Number.isFinite(viewportOffset) ? viewportOffset + 12 : 12;
+
+		const observer = new IntersectionObserver(
+			([entry]) => {
+				narrationStickyActive = !entry?.isIntersecting;
+			},
+			{
+				threshold: 0,
+				rootMargin: `-${stickyOffset}px 0px 0px 0px`
+			}
+		);
+
+		observer.observe(narrationStickySentinel);
+
+		return () => {
+			observer.disconnect();
+		};
+	});
+
+	$effect(() => {
+		if (!browser || !narrationStickySlot) {
+			return;
+		}
+
+		const stickyEnabled = narrationStickyActive && !narrationInlineLayout;
+
+		if (!stickyEnabled) {
+			narrationStickySlot.style.removeProperty('--briefing-sticky-top');
+			narrationStickySlot.style.removeProperty('--briefing-sticky-left');
+			narrationStickySlot.style.removeProperty('--briefing-sticky-width');
+			narrationStickySlot.style.removeProperty('min-height');
+			return;
+		}
+
+		const rootStyles = getComputedStyle(document.documentElement);
+		const viewportOffset = Number.parseFloat(rootStyles.getPropertyValue('--chat-viewport-offset-top'));
+		const stickyOffset = Number.isFinite(viewportOffset) ? viewportOffset + 12 : 12;
+		const slotRect = narrationStickySlot.getBoundingClientRect();
+		const cardElement = narrationStickySlot.querySelector('.briefing-audio-card');
+
+		narrationStickySlot.style.setProperty('--briefing-sticky-top', `${stickyOffset}px`);
+		narrationStickySlot.style.setProperty('--briefing-sticky-left', `${slotRect.left}px`);
+		narrationStickySlot.style.setProperty('--briefing-sticky-width', `${slotRect.width}px`);
+		narrationStickySlot.style.minHeight = `${cardElement instanceof HTMLElement ? cardElement.offsetHeight : slotRect.height}px`;
+
+		const handleResize = () => {
+			const updatedRect = narrationStickySlot?.getBoundingClientRect();
+			if (!updatedRect || !narrationStickySlot) {
+				return;
+			}
+
+			const updatedCard = narrationStickySlot.querySelector('.briefing-audio-card');
+			narrationStickySlot.style.setProperty('--briefing-sticky-left', `${updatedRect.left}px`);
+			narrationStickySlot.style.setProperty('--briefing-sticky-width', `${updatedRect.width}px`);
+			narrationStickySlot.style.minHeight = `${updatedCard instanceof HTMLElement ? updatedCard.offsetHeight : updatedRect.height}px`;
+		};
+
+		window.addEventListener('resize', handleResize);
+
+		return () => {
+			window.removeEventListener('resize', handleResize);
 		};
 	});
 
@@ -87,10 +161,6 @@
 
 	function handleAudioPlay() {
 		narrationPlaying = true;
-		if (!narrationInlineLayout && !narrationAutoCollapsed) {
-			narrationExpanded = false;
-			narrationAutoCollapsed = true;
-		}
 	}
 
 	function handleAudioPause() {
@@ -260,7 +330,7 @@
 		return cueStarts;
 	});
 
-	const narrationDockedToSidebar = $derived(narrationPlaying && !narrationInlineLayout);
+	const narrationDockedToSidebar = $derived(!narrationExpanded && !narrationInlineLayout);
 </script>
 
 <section class="briefing-player-shell">
@@ -341,10 +411,12 @@
 
 	<div class:has-audio={Boolean(briefing.audioAsset)} class="briefing-layout">
 		{#if briefing.audioAsset}
+			<div bind:this={narrationStickySentinel} class="briefing-audio-sentinel" aria-hidden="true"></div>
 			<div
+				bind:this={narrationStickySlot}
 				class:mode-full={!narrationDockedToSidebar}
 				class:mode-rail={narrationDockedToSidebar}
-				class:sticky={!narrationInlineLayout}
+				class:sticky={!narrationInlineLayout && narrationStickyActive}
 				class="briefing-audio-slot"
 			>
 				<section
@@ -730,6 +802,13 @@
 		align-content: start;
 	}
 
+	.briefing-audio-sentinel {
+		grid-column: 1 / -1;
+		grid-row: 1;
+		height: 1px;
+		pointer-events: none;
+	}
+
 	.briefing-audio-slot.mode-rail {
 		grid-column: 2;
 	}
@@ -739,8 +818,10 @@
 	}
 
 	.briefing-audio-slot.sticky {
-		position: sticky;
-		top: calc(var(--chat-viewport-offset-top, 0px) + 0.75rem);
+		position: fixed;
+		top: var(--briefing-sticky-top, calc(var(--chat-viewport-offset-top, 0px) + 0.75rem));
+		left: var(--briefing-sticky-left, 0px);
+		width: var(--briefing-sticky-width, auto);
 		z-index: 20;
 	}
 
