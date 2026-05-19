@@ -317,15 +317,10 @@ export function renderBriefingStatusPage(
 					</div>`
 					: '';
 
-	const retryActionMarkup =
-		options.retryHref && ((preview.state === 'failed' && preview.canRetry) || (preview.state === 'error' && preview.canRetry))
-			? `<a href="${escapeHtml(options.retryHref)}">Retry loading briefing</a>`
-			: '';
-
 	const retryBriefingMarkup =
 		options.retryBriefingAction && preview.state === 'failed' && preview.canRetry
 			? `<form method="POST" action="${escapeHtml(options.retryBriefingAction)}">
-				<button type="submit">Retry briefing</button>
+				<button type="submit">Rebuild briefing</button>
 			</form>`
 			: '';
 
@@ -561,7 +556,6 @@ export function renderBriefingStatusPage(
 			${calloutMarkup}
 			<div class="actions">
 				${retryBriefingMarkup}
-				${retryActionMarkup}
 				<a class="primary" href="/chat">Return to chat</a>
 			</div>
 		</section>

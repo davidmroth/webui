@@ -24,11 +24,11 @@ function escapeAttribute(value: string) {
 }
 
 function buildManagementBar(jobId: string, options: StandaloneManagementOptions) {
-	const buttonLabel = options.isPublic ? 'Make standalone private' : 'Make standalone public';
-	const statusLabel = options.isPublic ? 'Standalone HTML is public' : 'Standalone HTML is private';
+	const buttonLabel = options.isPublic ? 'Make private' : 'Make public';
+	const statusLabel = options.isPublic ? 'HTML export is public' : 'HTML export is private';
 	const statusDescription = options.isPublic
-		? 'Anyone with this standalone link can open it.'
-		: 'Authentication is required until you explicitly make this standalone export public.';
+		? 'Anyone with this link can open it.'
+		: 'Authentication is required until you explicitly make this export public.';
 
 	return `
 <aside id="briefing-share-manager" data-job-id="${escapeAttribute(jobId)}" data-public="${options.isPublic ? 'true' : 'false'}" data-standalone-path="${escapeAttribute(options.standalonePath)}">
@@ -179,20 +179,20 @@ function buildManagementBar(jobId: string, options: StandaloneManagementOptions)
 			}
 		}
 	</style>
-	<button type="button" id="briefing-share-launcher" aria-haspopup="dialog" aria-expanded="false">Manage standalone access</button>
+	<button type="button" id="briefing-share-launcher" aria-haspopup="dialog" aria-expanded="false">Manage access</button>
 	<div id="briefing-share-dialog" aria-hidden="true">
 		<section id="briefing-share-panel" role="dialog" aria-modal="true" aria-labelledby="briefing-share-title">
 			<div id="briefing-share-panel-header">
 				<div class="share-manager-copy">
-					<div class="share-manager-kicker">Standalone access</div>
+					<div class="share-manager-kicker">Access</div>
 					<div class="share-manager-status" id="briefing-share-title">${statusLabel}</div>
 					<div class="share-manager-detail">${statusDescription}</div>
 				</div>
-				<button type="button" id="briefing-share-close" aria-label="Close standalone access panel">×</button>
+				<button type="button" id="briefing-share-close" aria-label="Close access panel">×</button>
 			</div>
 			<div class="share-manager-actions">
 				<button type="button" id="share-toggle-button">${buttonLabel}</button>
-				<button type="button" id="share-copy-button" class="secondary">Copy standalone link</button>
+				<button type="button" id="share-copy-button" class="secondary">Copy link</button>
 			</div>
 			<div id="share-manager-message" class="share-manager-message" aria-live="polite"></div>
 		</section>
@@ -235,15 +235,15 @@ function buildManagementBar(jobId: string, options: StandaloneManagementOptions)
 					toggleButton.textContent = busy
 						? 'Updating...'
 						: nextPublic
-							? 'Make standalone private'
-							: 'Make standalone public';
+							? 'Make private'
+							: 'Make public';
 				}
 				const status = root.querySelector('.share-manager-status');
 				const detail = root.querySelector('.share-manager-detail');
-				if (status) status.textContent = nextPublic ? 'Standalone HTML is public' : 'Standalone HTML is private';
+				if (status) status.textContent = nextPublic ? 'HTML export is public' : 'HTML export is private';
 				if (detail) detail.textContent = nextPublic
-					? 'Anyone with this standalone link can open it.'
-					: 'Authentication is required until you explicitly make this standalone export public.';
+					? 'Anyone with this link can open it.'
+					: 'Authentication is required until you explicitly make this export public.';
 			};
 			launcher?.addEventListener('click', () => setOpen(true));
 			closeButton?.addEventListener('click', () => setOpen(false));
@@ -269,20 +269,20 @@ function buildManagementBar(jobId: string, options: StandaloneManagementOptions)
 					});
 					const payload = await response.json().catch(() => ({}));
 					if (!response.ok) {
-						throw new Error(typeof payload.error === 'string' ? payload.error : 'Unable to update standalone sharing.');
+						throw new Error(typeof payload.error === 'string' ? payload.error : 'Unable to update access.');
 					}
 					setState(payload.isPublic === true, false);
-					setMessage(payload.isPublic === true ? 'Standalone HTML access enabled.' : 'Standalone HTML access disabled.');
+					setMessage(payload.isPublic === true ? 'Access enabled.' : 'Access disabled.');
 				} catch (error) {
 					setState(isPublic, false);
-					setMessage(error instanceof Error ? error.message : 'Unable to update standalone sharing.', true);
+					setMessage(error instanceof Error ? error.message : 'Unable to update access.', true);
 				}
 			});
 			copyButton?.addEventListener('click', async () => {
 				const link = new URL(standalonePath, window.location.origin).toString();
 				try {
 					await navigator.clipboard.writeText(link);
-					setMessage('Standalone link copied.');
+					setMessage('Link copied.');
 				} catch {
 					setMessage(link);
 				}

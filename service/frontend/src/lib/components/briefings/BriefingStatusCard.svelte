@@ -159,11 +159,8 @@
 	<div class="briefing-status-actions">
 		{#if preview.state === 'failed' && preview.canRetry && retryBriefingAction}
 			<form method="POST" action={retryBriefingAction}>
-				<button class="secondary-button" type="submit">Retry briefing</button>
+				<button class="secondary-button" type="submit">Rebuild briefing</button>
 			</form>
-		{/if}
-		{#if (preview.state === 'failed' && preview.canRetry) || (preview.state === 'error' && preview.canRetry)}
-			<a class="secondary-button" href={refreshHref}>Retry loading briefing</a>
 		{/if}
 		<a class="secondary-button" href={refreshHref}>Reload page</a>
 		<a class="secondary-button" href="/chat">Back to chat</a>

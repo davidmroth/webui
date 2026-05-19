@@ -66,8 +66,8 @@ test('renderBriefingStatusPage surfaces failure details without auto-refresh', (
 	assert.match(html, /The renderer timed out while verifying the briefing assets\./);
 	assert.match(html, /Retry loading the briefing\. The export may already be available\./);
 	assert.match(html, /<form method="POST" action="\/briefings\/briefing-fail">/);
-	assert.match(html, /Retry briefing/);
-	assert.match(html, /Retry loading briefing/);
+	assert.match(html, /Rebuild briefing/);
+	assert.doesNotMatch(html, /Retry loading briefing/);
 	assert.match(html, /Return to chat/);
 });
 
@@ -98,7 +98,7 @@ test('renderBriefingStatusPage labels publish-pending previews as publishing ins
 	assert.doesNotMatch(html, /Briefing status unavailable/);
 });
 
-test('renderBriefingStatusPage escapes retry links and does not expose raw endpoint urls', () => {
+test('renderBriefingStatusPage omits retry-loading links from the status page actions', () => {
 	const html = renderBriefingStatusPage({
 		state: 'failed',
 		status: 'failed',
@@ -116,9 +116,10 @@ test('renderBriefingStatusPage escapes retry links and does not expose raw endpo
 		retryHref: '/briefings/briefing-timeout?retry=1&from=status'
 	});
 
-	assert.match(html, /Retry loading briefing/);
+	assert.doesNotMatch(html, /Retry loading briefing/);
+	assert.doesNotMatch(html, /retry=1&amp;from=status/);
 	assert.doesNotMatch(html, /https:\/\//);
-	assert.match(html, /\?retry=1&amp;from=status/);
+	assert.match(html, /Return to chat/);
 });
 
 test('renderBriefingUnauthorizedPage shows a private standalone message without login prompts', () => {

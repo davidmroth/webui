@@ -15,6 +15,9 @@
 	let shareBusy = $state(false);
 	let shareError = $state<string | null>(null);
 	let shareNotice = $state<string | null>(null);
+	let narrationExpanded = $state(true);
+	let narrationPlaying = $state(false);
+	let narrationAutoCollapsed = $state(false);
 
 	$effect(() => {
 		shareState = sharing;
@@ -49,6 +52,37 @@
 
 	function updateCurrentTime() {
 		currentTime = audioElement?.currentTime ?? 0;
+	}
+
+	function handleAudioPlay() {
+		narrationPlaying = true;
+		if (!narrationAutoCollapsed) {
+			narrationExpanded = false;
+			narrationAutoCollapsed = true;
+		}
+	}
+
+	function handleAudioPause() {
+		narrationPlaying = false;
+	}
+
+	async function toggleNarrationPlayback() {
+		if (!audioElement) {
+			return;
+		}
+
+		if (audioElement.paused) {
+			await audioElement.play().catch(() => {
+				// Native controls remain available when autoplay is blocked.
+			});
+			return;
+		}
+
+		audioElement.pause();
+	}
+
+	function toggleNarrationExpanded() {
+		narrationExpanded = !narrationExpanded;
 	}
 
 	function isCueActive(cue: BriefingTimelineCue | null | undefined) {
@@ -272,19 +306,6 @@
 		</div>
 	</header>
 
-	{#if briefing.audioAsset}
-		<div class="briefing-audio-card">
-			<div>
-				<div class="briefing-audio-label">Narration</div>
-				<div class="briefing-audio-time">Current cue time {formatTime(currentTime)}</div>
-			</div>
-			<audio bind:this={audioElement} controls preload="metadata" ontimeupdate={updateCurrentTime} onseeked={updateCurrentTime} onloadedmetadata={updateCurrentTime}>
-				<source src={briefing.audioAsset.url} type={briefing.audioAsset.contentType} />
-				Your browser does not support inline audio playback.
-			</audio>
-		</div>
-	{/if}
-
 	<div class="briefing-layout">
 		<div class="briefing-main-column">
 			{#each briefing.sections as section}
@@ -387,6 +408,54 @@
 		</div>
 
 		<aside class="briefing-side-column">
+			{#if briefing.audioAsset}
+				<section class:expanded={narrationExpanded} class:collapsed={!narrationExpanded} class:is-playing={narrationPlaying} class="briefing-audio-card">
+					<div class="briefing-audio-header">
+						<div class="briefing-audio-copy">
+							<div class="briefing-audio-label">Narration</div>
+							<div class="briefing-audio-status">
+								<span>{narrationPlaying ? 'Playing' : 'Ready'}</span>
+								<span aria-hidden="true">·</span>
+								<span>Current cue {formatTime(currentTime)}</span>
+							</div>
+						</div>
+						<div class="briefing-audio-actions">
+							<button class="secondary-button briefing-audio-toggle" type="button" onclick={toggleNarrationPlayback}>
+								{narrationPlaying ? 'Pause' : 'Play'}
+							</button>
+							<button
+								class="secondary-button briefing-audio-toggle"
+								type="button"
+								onclick={toggleNarrationExpanded}
+								aria-expanded={narrationExpanded}
+								aria-controls="briefing-narration-panel"
+							>
+								{narrationExpanded ? 'Collapse' : 'Expand'}
+							</button>
+						</div>
+					</div>
+					<div id="briefing-narration-panel" class="briefing-audio-body" hidden={!narrationExpanded}>
+						<audio
+							bind:this={audioElement}
+							controls
+							preload="metadata"
+							ontimeupdate={updateCurrentTime}
+							onseeked={updateCurrentTime}
+							onloadedmetadata={updateCurrentTime}
+							onplay={handleAudioPlay}
+							onpause={handleAudioPause}
+							onended={handleAudioPause}
+						>
+							<source src={briefing.audioAsset.url} type={briefing.audioAsset.contentType} />
+							Your browser does not support inline audio playback.
+						</audio>
+						<p class="briefing-audio-note">
+							Narration collapses into this rail while playback continues so the briefing stays readable.
+						</p>
+					</div>
+				</section>
+			{/if}
+
 			<section class="briefing-panel">
 				<h2>Sources</h2>
 				{#if briefing.sources.length === 0}
@@ -601,20 +670,65 @@
 	.briefing-audio-card {
 		padding: 1.25rem 1.5rem;
 		display: grid;
-		gap: 0.75rem;
+		gap: 0.9rem;
+		backdrop-filter: blur(14px);
+		-webkit-backdrop-filter: blur(14px);
+	}
+
+	.briefing-audio-card.is-playing {
 		position: sticky;
 		top: calc(var(--chat-viewport-offset-top, 0px) + 0.75rem);
 		z-index: 20;
-		backdrop-filter: blur(14px);
-		-webkit-backdrop-filter: blur(14px);
+	}
+
+	.briefing-audio-card.collapsed {
+		gap: 0.75rem;
+	}
+
+	.briefing-audio-header,
+	.briefing-audio-copy,
+	.briefing-audio-body {
+		display: grid;
+		gap: 0.75rem;
+	}
+
+	.briefing-audio-header {
+		grid-template-columns: minmax(0, 1fr) auto;
+		align-items: start;
 	}
 
 	.briefing-audio-label {
 		font-weight: 700;
 	}
 
+	.briefing-audio-status {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.35rem;
+		color: rgba(51, 65, 85, 0.8);
+		font-size: 0.9rem;
+	}
+
+	.briefing-audio-actions {
+		display: flex;
+		gap: 0.5rem;
+		flex-wrap: wrap;
+		justify-content: flex-end;
+	}
+
+	.briefing-audio-toggle {
+		white-space: nowrap;
+	}
+
 	.briefing-audio-card audio {
 		width: 100%;
+	}
+
+	.briefing-audio-note {
+		margin: 0;
+		color: rgba(51, 65, 85, 0.8);
+		font-size: 0.9rem;
+		line-height: 1.5;
 	}
 
 	.briefing-layout {
@@ -808,6 +922,10 @@
 			max-width: none;
 			width: 100%;
 		}
+
+		.briefing-audio-card.is-playing {
+			position: static;
+		}
 	}
 
 	@media (max-width: 640px) {
@@ -816,8 +934,19 @@
 		}
 
 		.share-toggle-button,
-		.share-copy-button {
+		.share-copy-button,
+		.briefing-audio-toggle {
 			width: 100%;
+		}
+
+		.briefing-audio-header,
+		.briefing-audio-actions {
+			grid-template-columns: 1fr;
+			justify-content: stretch;
+		}
+
+		.briefing-audio-actions {
+			flex-direction: column;
 		}
 	}
 </style>
