@@ -414,6 +414,10 @@ function buildStandalonePlayerDock() {
 		transform: rotate(180deg);
 	}
 
+	[data-webui-active="true"] {
+		scroll-margin-top: 8rem;
+	}
+
 	.hero-audio.webui-docked-player[data-webui-expanded="false"] audio {
 		display: none;
 	}
@@ -580,10 +584,80 @@ function buildStandalonePlayerDock() {
 			return minutes + ':' + String(remainder).padStart(2, '0');
 		}
 
+		const cueTargets = Array.from(document.querySelectorAll('[data-start][data-end]'));
+		const navLinks = Array.from(document.querySelectorAll('.article-nav-item a[href^="#section-"]'));
+
+		function syncActiveCueState() {
+			const currentTime = Number.isFinite(audio.currentTime) ? audio.currentTime : 0;
+			let activeSectionId = null;
+
+			cueTargets.forEach((target) => {
+				if (!(target instanceof HTMLElement)) {
+					return;
+				}
+
+				const cueStart = Number.parseFloat(target.dataset.start || 'NaN');
+				const cueEnd = Number.parseFloat(target.dataset.end || 'NaN');
+				const isActive = Number.isFinite(cueStart) && Number.isFinite(cueEnd) && currentTime >= cueStart && currentTime < cueEnd;
+				target.dataset.webuiActive = isActive ? 'true' : 'false';
+
+				if (isActive && target.classList.contains('section-card')) {
+					activeSectionId = target.id || null;
+				}
+			});
+
+			navLinks.forEach((link) => {
+				if (!(link instanceof HTMLAnchorElement)) {
+					return;
+				}
+
+				const targetSectionId = link.getAttribute('href')?.slice(1) || '';
+				const isActive = Boolean(activeSectionId) && targetSectionId === activeSectionId;
+				link.classList.toggle('active', isActive);
+				link.dataset.webuiActive = isActive ? 'true' : 'false';
+			});
+		}
+
 		function syncPlaybackState() {
 			stateLabel.textContent = audio.paused ? 'Ready' : 'Playing';
 			cueLabel.textContent = 'Current cue ' + formatTime(audio.currentTime || 0);
 			playButton.textContent = audio.paused ? 'Play' : 'Pause';
+			syncActiveCueState();
+		}
+
+		function seekAndPlay(cueStart) {
+			const canSeekNow = () => {
+				for (let i = 0; i < audio.seekable.length; i += 1) {
+					if (cueStart >= audio.seekable.start(i) && cueStart <= audio.seekable.end(i)) {
+						return true;
+					}
+				}
+				return false;
+			};
+
+			const applySeek = () => {
+				audio.currentTime = cueStart;
+				syncPlaybackState();
+			};
+
+			applySeek();
+			if (audio.paused) {
+				void audio.play().catch(() => {});
+				return;
+			}
+
+			if (canSeekNow()) {
+				return;
+			}
+
+			const replaySeek = () => {
+				applySeek();
+			};
+
+			audio.addEventListener('loadedmetadata', replaySeek, { once: true });
+			audio.addEventListener('canplay', replaySeek, { once: true });
+
+			void audio.play().catch(() => {});
 		}
 
 		function setExpanded(nextExpanded) {
@@ -630,16 +704,28 @@ function buildStandalonePlayerDock() {
 		}
 
 		function resolveCueTarget(startNode) {
-			if (!(startNode instanceof Element)) {
+			const baseElement = startNode instanceof Element
+				? startNode
+				: startNode instanceof Node
+					? startNode.parentElement
+					: null;
+
+			if (!(baseElement instanceof Element)) {
 				return null;
 			}
 
-			const directTarget = startNode.closest('[data-start][data-end]');
+			const directTarget = baseElement.closest('[data-start][data-end]');
 			if (directTarget instanceof HTMLElement) {
 				return directTarget;
 			}
 
-			const sectionCard = startNode.closest('.section-card');
+			const sectionCard = baseElement.closest('.section-card');
+			const isBodyTextClick = Boolean(baseElement.closest('.section-body'));
+
+			if (isBodyTextClick && sectionCard instanceof HTMLElement) {
+				return sectionCard;
+			}
+
 			return sectionCard instanceof HTMLElement ? sectionCard : null;
 		}
 
@@ -660,8 +746,39 @@ function buildStandalonePlayerDock() {
 
 			event.preventDefault();
 			event.stopImmediatePropagation();
-			audio.currentTime = cueStart;
-			void audio.play().catch(() => {});
+			seekAndPlay(cueStart);
+		}
+
+		function bindDirectCueSeek() {
+			const textTargets = document.querySelectorAll('.section-sentence, .section-body p');
+
+			textTargets.forEach((node) => {
+				if (!(node instanceof HTMLElement)) {
+					return;
+				}
+
+				node.addEventListener('click', (event) => {
+					const directTarget = node.closest('[data-start][data-end]');
+					const sectionCard = node.closest('.section-card');
+					if (!(sectionCard instanceof HTMLElement)) {
+						return;
+					}
+
+					const cueSource =
+						directTarget instanceof HTMLElement && Number.isFinite(Number.parseFloat(directTarget.dataset.start || 'NaN'))
+							? directTarget
+							: sectionCard;
+
+					const cueStart = Number.parseFloat(cueSource.dataset.start || 'NaN');
+					if (!Number.isFinite(cueStart)) {
+						return;
+					}
+
+					event.preventDefault();
+					event.stopPropagation();
+					seekAndPlay(cueStart);
+				});
+			});
 		}
 
 		playButton.addEventListener('click', async () => {
@@ -685,6 +802,7 @@ function buildStandalonePlayerDock() {
 		audio.addEventListener('pause', syncPlaybackState);
 		audio.addEventListener('ended', syncPlaybackState);
 		document.addEventListener('click', handleDelegatedCueSeek, true);
+		bindDirectCueSeek();
 
 		if (typeof breakpoint.addEventListener === 'function') {
 			breakpoint.addEventListener('change', dockForViewport);
@@ -713,6 +831,290 @@ function injectStandalonePlayerDock(html: string) {
 
 	return `${html}${dock}`;
 }
+
+// ─── Page generation from manifest data ──────────────────────────────────────
+
+interface BriefingPageMetricCard {
+	id: string;
+	label: string;
+	value: string;
+	trend: string | null;
+	cue: { start: number; end: number } | null;
+}
+
+interface BriefingPageSentenceSpan {
+	text: string;
+	start: number;
+	end: number;
+	cue?: { start: number; end: number } | null;
+}
+
+interface BriefingPageSection {
+	id: string;
+	title: string;
+	body: string[];
+	narration?: string;
+	sentences?: BriefingPageSentenceSpan[];
+	metrics: BriefingPageMetricCard[];
+	start: number;
+	end: number;
+	cue: { start: number; end: number } | null;
+}
+
+interface BriefingPageSource {
+	id: string;
+	title: string;
+	publisher: string;
+	url: string;
+}
+
+interface BriefingPageData {
+	title: string;
+	topic?: string;
+	generatedAt?: string;
+	locale: string;
+	audioUrl: string;
+	sections: BriefingPageSection[];
+	sources: BriefingPageSource[];
+}
+
+function escapeHtml(value: string) {
+	return value
+		.replaceAll('&', '&amp;')
+		.replaceAll('<', '&lt;')
+		.replaceAll('>', '&gt;')
+		.replaceAll('"', '&quot;');
+}
+
+const PAGE_BASE_CSS = `
+*,*::before,*::after{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;font-family:Georgia,'Times New Roman',serif;font-size:1rem;line-height:1.6;color:#1a1409;background:#fffcf7}
+a{color:#b8860b;text-decoration:none}a:hover{color:#8a4315}
+.page-shell{max-width:1400px;margin:0 auto}
+.hero{padding:2rem 1.5rem;border-bottom:1px solid rgba(82,62,39,.1);background:#fff}
+.hero-audio{data-sticky-player:true}
+.hero-audio-player{max-width:48rem;margin:0}
+.hero-audio-label{font-size:.75rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:rgba(82,62,39,.6);margin:0 0 .5rem}
+audio{width:100%;display:block;margin-top:.5rem}
+.content-wrap{display:grid;grid-template-columns:260px minmax(0,1fr);gap:2rem;padding:2rem 1.5rem;align-items:start}
+.article-rail{display:grid;gap:1rem;align-content:start}
+.article-nav{position:sticky;top:1.5rem;max-height:calc(100vh - 3rem);overflow-y:auto}
+.article-nav-title{font-size:.85rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:rgba(82,62,39,.6);margin:0 0 1rem}
+.article-nav-list{list-style:none;margin:0;padding:0;display:grid;gap:.5rem}
+.article-nav-item a{display:block;padding:.5rem .75rem;font-size:.9rem;color:#b8860b;border-radius:.5rem;transition:all .2s}
+.article-nav-item a:hover{background:rgba(184,134,11,.1);color:#8a4315}
+.article-nav-item a.active{background:rgba(184,134,11,.15);font-weight:600;color:#8a4315}
+.article-body{min-width:0}
+.briefing-metadata{background:rgba(82,62,39,.05);padding:1rem 1.5rem;border-radius:.75rem;margin:0 0 1.5rem;font-size:.9rem}
+.metadata-item{display:grid;grid-template-columns:120px minmax(0,1fr);gap:1rem;margin:0 0 .5rem}
+.metadata-label{font-weight:700;color:rgba(82,62,39,.7)}
+.metadata-value{color:#1a1409}
+.section-card{margin:0 0 2rem;padding:1.5rem;background:#fff;border-radius:.75rem;border:1px solid rgba(82,62,39,.08)}
+.section-card[data-webui-active="true"]{border-color:rgba(184,134,11,.32);box-shadow:0 18px 36px rgba(184,134,11,.08)}
+.section-header{display:grid;grid-template-columns:1fr auto;align-items:flex-start;gap:1rem;margin:0 0 1rem;padding-bottom:1rem;border-bottom:1px solid rgba(82,62,39,.1)}
+.section-meta{font-size:.8rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:rgba(82,62,39,.6);margin:0}
+.section-heading{font-size:1.35rem;font-weight:700;margin:0;color:#1a1409}
+.section-timing{text-align:right;font-size:.8rem;color:rgba(82,62,39,.6)}
+.section-body{display:grid;gap:1rem}
+.section-body p{margin:0;font-size:1.05rem;line-height:1.7;color:#2d241a}
+.section-body p:has(.section-sentence){display:block}
+.section-sentence{appearance:none;border:0;background:none;padding:0;margin:0;color:inherit;font:inherit;line-height:inherit;text-align:left;cursor:pointer}
+.section-sentence + .section-sentence{margin-left:.35ch}
+.section-sentence:hover{text-decoration:underline;text-decoration-color:rgba(138,67,21,.35);text-decoration-thickness:.08em;text-underline-offset:.16em}
+.section-sentence:focus-visible{outline:2px solid rgba(184,134,11,.45);outline-offset:2px;border-radius:.2rem}
+.section-sentence[data-webui-active="true"]{background:linear-gradient(180deg, rgba(255,248,220,0) 0%, rgba(255,232,163,.72) 100%);border-radius:.2rem;box-shadow:0 0 0 .12rem rgba(255,232,163,.42)}
+.source-cue{background:rgba(184,134,11,.08);padding:.75rem 1rem;border-left:3px solid #b8860b;margin:1rem 0;font-size:.9rem;border-radius:.25rem}
+.source-cue-label{font-weight:700;color:#b8860b;display:block;margin-bottom:.25rem}
+.source-cue-text{color:rgba(82,62,39,.7)}
+.metrics-display{display:flex;flex-wrap:wrap;gap:1rem;margin:1rem 0}
+.metric-badge{padding:.75rem 1.25rem;background:rgba(255,252,247,.8);border:1px solid rgba(82,62,39,.12);border-radius:.75rem;font-size:.95rem;display:grid;gap:.25rem}
+.metric-badge[data-webui-active="true"]{border-color:rgba(184,134,11,.36);background:rgba(255,248,220,.92)}
+.metric-label{font-size:.75rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:rgba(82,62,39,.6)}
+.metric-value{font-size:1.25rem;font-weight:700;color:#1a1409}
+.sources-list{list-style:none;margin:2rem 0 0;padding:0;border-top:1px solid rgba(82,62,39,.1);padding-top:1.5rem;display:grid;gap:.75rem}
+.sources-heading{font-size:.9rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:rgba(82,62,39,.6);margin:0 0 1rem}
+.source-link{display:block;padding:.75rem;border-radius:.5rem;transition:all .2s}
+.source-link:hover{background:rgba(184,134,11,.1)}
+.source-title{font-weight:700;color:#b8860b;display:block}
+.source-publisher{font-size:.85rem;color:rgba(82,62,39,.6);display:block;margin-top:.25rem}
+.on-this-page{font-size:.75rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:rgba(82,62,39,.6);margin:2rem 0 .75rem}
+@media(max-width:960px){.content-wrap{grid-template-columns:1fr}.article-nav{position:static;max-height:none;margin-bottom:1.5rem;padding-bottom:1.5rem;border-bottom:1px solid rgba(82,62,39,.1)}}
+`.trim();
+
+function formatSeconds(sec: number): string {
+	const total = Math.floor(sec);
+	const h = Math.floor(total / 3600);
+	const m = Math.floor((total % 3600) / 60);
+	const s = total % 60;
+	if (h > 0) return `${h}h ${m}m ${s}s`;
+	if (m > 0) return `${m}m ${s}s`;
+	return `${s}s`;
+}
+
+function renderMetricCards(metrics: BriefingPageMetricCard[]): string {
+	if (!metrics.length) return '';
+	const cards = metrics.map((m) => {
+		const cueAttrs = m.cue ? ` data-start="${m.cue.start}" data-end="${m.cue.end}"` : '';
+		const trend = m.trend ? `<div style="margin-top:.15rem">${escapeHtml(m.trend)}</div>` : '';
+		return `<div class="metric-badge" id="${escapeAttribute(m.id)}"${cueAttrs}><div class="metric-label">${escapeHtml(m.label)}</div><div class="metric-value">${escapeHtml(m.value)}</div>${trend}</div>`;
+	});
+	return `<div class="metrics-display">${cards.join('')}</div>`;
+}
+
+function splitNarrationIntoParagraphs(narration: string): string[] {
+	return narration
+		.split(/\n\s*\n/)
+		.map((paragraph) => paragraph.trim())
+		.filter(Boolean);
+}
+
+function resolveSectionParagraphs(section: BriefingPageSection): string[] {
+	if (section.body.length > 0) {
+		return section.body;
+	}
+
+	const narration = typeof section.narration === 'string' ? section.narration.trim() : '';
+	if (narration) {
+		return splitNarrationIntoParagraphs(narration);
+	}
+
+	if (Array.isArray(section.sentences) && section.sentences.length > 0) {
+		const sentenceCopy = section.sentences
+			.map((sentence) => sentence.text.trim())
+			.filter(Boolean)
+			.join(' ')
+			.trim();
+		return sentenceCopy ? [sentenceCopy] : [];
+	}
+
+	return [];
+}
+
+function renderSentenceCopy(section: BriefingPageSection): string {
+	if (!Array.isArray(section.sentences) || section.sentences.length === 0) {
+		return '';
+	}
+
+	const sentenceHtml = section.sentences
+		.map((sentence) => {
+			const cueStart = sentence.cue?.start ?? sentence.start;
+			const cueEnd = sentence.cue?.end ?? sentence.end;
+			return `<button type="button" class="section-sentence" data-start="${cueStart}" data-end="${cueEnd}">${escapeHtml(sentence.text)}</button>`;
+		})
+		.join('');
+
+	return `<div class="section-body"><p>${sentenceHtml}</p>${renderMetricCards(section.metrics)}</div>`;
+}
+
+function renderPageSection(idx: number, section: BriefingPageSection): string {
+	const sectionNum = String(idx + 1).padStart(2, '0');
+	const cueAttrs = section.cue
+		? ` data-start="${section.cue.start}" data-end="${section.cue.end}"`
+		: section.start != null
+			? ` data-start="${section.start}" data-end="${section.end}"`
+			: '';
+	const timing = section.start != null ? `Narration cue ${formatSeconds(section.start)} to ${formatSeconds(section.end)}` : '';
+	const headerHtml = `<div class="section-header">
+		<div>
+			<h2 class="section-meta">SECTION ${sectionNum}</h2>
+			<h3 class="section-heading" style="margin-top:.5rem">${escapeHtml(section.title)}</h3>
+		</div>
+		${timing ? `<div class="section-timing">${escapeHtml(timing)}</div>` : ''}
+	</div>`;
+
+	const sentenceBodyHtml = renderSentenceCopy(section);
+	const paragraphs = sentenceBodyHtml ? [] : resolveSectionParagraphs(section);
+	const paragraphBodyHtml = paragraphs.length
+		? `<div class="section-body">${paragraphs.map((paragraph) => `<p>${escapeHtml(paragraph)}</p>`).join('\n')}${renderMetricCards(section.metrics)}</div>`
+		: '';
+	const bodyHtml = sentenceBodyHtml || paragraphBodyHtml;
+
+	return `<section class="section-card" id="section-${idx}"${cueAttrs}>${headerHtml}${bodyHtml}</section>`;
+}
+
+function renderSectionNavigation(sections: BriefingPageSection[]): string {
+	const items = sections
+		.map((s, i) => {
+			const sectionNum = String(i + 1).padStart(2, '0');
+			const timing = s.start != null ? ` ${formatSeconds(s.start)} section window` : '';
+			return `<li class="article-nav-item"><a href="#section-${i}">${sectionNum} ${escapeHtml(s.title)}${timing}</a></li>`;
+		})
+		.join('');
+	return `<aside class="article-rail"><nav class="article-nav">
+		<h2 class="article-nav-title">Article navigation</h2>
+		<ul class="article-nav-list">${items}</ul>
+		<div class="on-this-page">On this page</div>
+	</nav></aside>`;
+}
+
+function renderPageSources(sources: BriefingPageSource[]): string {
+	if (!sources.length) return '';
+	const items = sources
+		.map((s) => `<a href="${escapeAttribute(s.url)}" class="source-link" target="_blank" rel="noopener noreferrer">
+			<span class="source-title">${escapeHtml(s.title)}</span>
+			<span class="source-publisher">${escapeHtml(s.publisher)}</span>
+		</a>`)
+		.join('');
+	return `<section><h2 class="sources-heading">Sources</h2><div class="sources-list">${items}</div></section>`;
+}
+
+export function buildBriefingPageHtml(data: BriefingPageData, jobId: string, options?: StandaloneManagementOptions): string {
+	const navHtml = renderSectionNavigation(data.sections);
+	const sectionsHtml = data.sections.map((s, i) => renderPageSection(i, s)).join('\n');
+	const sourcesHtml = renderPageSources(data.sources);
+
+	const html = `<!DOCTYPE html>
+<html lang="${escapeAttribute(data.locale ?? 'en')}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${escapeHtml(data.title)}</title>
+<style>${PAGE_BASE_CSS}</style>
+</head>
+<body>
+<main class="page-shell">
+<section class="hero">
+<div class="hero-audio" data-sticky-player>
+<div class="hero-audio-player">
+<div class="hero-audio-label">Narration</div>
+<audio controls preload="none" data-briefing-audio>
+<source src="${escapeAttribute(data.audioUrl)}" type="audio/mpeg" />
+</audio>
+</div>
+</div>
+</section>
+<div class="content-wrap">
+${navHtml}
+<article class="article-body">
+<h1 style="font-size:1.75rem;margin:0 0 1rem;color:#1a1409">${escapeHtml(data.title)}</h1>
+<div class="briefing-metadata">
+<div class="metadata-item">
+<div class="metadata-label">Topic:</div>
+<div class="metadata-value">${escapeHtml(data.topic || 'Briefing')}</div>
+</div>
+<div class="metadata-item">
+<div class="metadata-label">Generated:</div>
+<div class="metadata-value">${escapeHtml(data.generatedAt || 'Recently')}</div>
+</div>
+<div class="metadata-item">
+<div class="metadata-label">Sources:</div>
+<div class="metadata-value">${data.sources.length}</div>
+</div>
+</div>
+${sectionsHtml}
+${sourcesHtml}
+</article>
+</div>
+</main>
+${buildStandalonePlayerDock()}
+</body>
+</html>`;
+
+	return injectManagementBar(html, jobId, options);
+}
+
+// ─── Legacy: rewrite asset URLs in renderer-generated standalone.html ─────────
 
 export function rewriteStandaloneAssetUrls(html: string, jobId: string, options?: StandaloneManagementOptions) {
 	const rewritten = html

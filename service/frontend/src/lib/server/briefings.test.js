@@ -211,3 +211,126 @@ test('fetchBriefingAsset returns 404 instead of calling the renderer when a publ
 	assert.equal(response.status, 404);
 	assert.match(await response.text(), /published briefing asset not found/i);
 });
+
+test('fetchBriefingAsset supports byte-range requests for audio assets', async () => {
+	const manifest = {
+		schema_version: 'briefing-renderer/v1',
+		render_mode: 'synthetic-v1',
+		job_id: 'job-range-123',
+		briefing_id: 'briefing-range-123',
+		title: 'Range Briefing',
+		topic: 'Range support',
+		summary: null,
+		generated_at: '2026-05-13T10:00:00+00:00',
+		locale: 'en-US',
+		generated_by: 'hermes',
+		standalone_html_path: 'standalone.html',
+		audio_path: 'audio.mp3',
+		sections: [],
+		sources: [],
+		timeline_cues: [],
+		assets: [
+			{ role: 'audio', path: 'audio.mp3', content_type: 'audio/mpeg', size_bytes: 12, sha256: 'a', cache_control: 'private, max-age=300' }
+		],
+		validation: { valid: true, warnings: [], errors: [] }
+	};
+
+	const response = await fetchBriefingAsset('job-range-123', 'audio.mp3', {
+		readObjectBuffer: async (storageKey) => {
+			if (storageKey.endsWith('/briefing.json')) {
+				return Buffer.from(JSON.stringify(manifest), 'utf-8');
+			}
+
+			assert.equal(storageKey, 'webui/briefings/job-range-123/audio.mp3');
+			return Buffer.from('ABCDEFGHIJ', 'utf-8');
+		},
+		requestHeaders: new Headers({ range: 'bytes=2-5' })
+	});
+
+	assert.equal(response.status, 206);
+	assert.equal(response.headers.get('accept-ranges'), 'bytes');
+	assert.equal(response.headers.get('content-range'), 'bytes 2-5/10');
+	assert.equal(response.headers.get('content-length'), '4');
+	assert.equal(await response.text(), 'CDEF');
+	assert.equal(response.headers.get('etag'), '"a"');
+});
+
+test('fetchBriefingAsset returns 416 for invalid byte-range requests', async () => {
+	const manifest = {
+		schema_version: 'briefing-renderer/v1',
+		render_mode: 'synthetic-v1',
+		job_id: 'job-range-416',
+		briefing_id: 'briefing-range-416',
+		title: 'Range Briefing',
+		topic: 'Range support',
+		summary: null,
+		generated_at: '2026-05-13T10:00:00+00:00',
+		locale: 'en-US',
+		generated_by: 'hermes',
+		standalone_html_path: 'standalone.html',
+		audio_path: 'audio.mp3',
+		sections: [],
+		sources: [],
+		timeline_cues: [],
+		assets: [
+			{ role: 'audio', path: 'audio.mp3', content_type: 'audio/mpeg', size_bytes: 12, sha256: 'a', cache_control: 'private, max-age=300' }
+		],
+		validation: { valid: true, warnings: [], errors: [] }
+	};
+
+	const response = await fetchBriefingAsset('job-range-416', 'audio.mp3', {
+		readObjectBuffer: async (storageKey) => {
+			if (storageKey.endsWith('/briefing.json')) {
+				return Buffer.from(JSON.stringify(manifest), 'utf-8');
+			}
+
+			assert.equal(storageKey, 'webui/briefings/job-range-416/audio.mp3');
+			return Buffer.from('ABCDEFGHIJ', 'utf-8');
+		},
+		requestHeaders: new Headers({ range: 'bytes=999-1000' })
+	});
+
+	assert.equal(response.status, 416);
+	assert.equal(response.headers.get('accept-ranges'), 'bytes');
+	assert.equal(response.headers.get('content-range'), 'bytes */10');
+});
+
+test('fetchBriefingAsset returns 304 when ETag matches without range', async () => {
+	const manifest = {
+		schema_version: 'briefing-renderer/v1',
+		render_mode: 'synthetic-v1',
+		job_id: 'job-etag-304',
+		briefing_id: 'briefing-etag-304',
+		title: 'Range Briefing',
+		topic: 'Range support',
+		summary: null,
+		generated_at: '2026-05-13T10:00:00+00:00',
+		locale: 'en-US',
+		generated_by: 'hermes',
+		standalone_html_path: 'standalone.html',
+		audio_path: 'audio.mp3',
+		sections: [],
+		sources: [],
+		timeline_cues: [],
+		assets: [
+			{ role: 'audio', path: 'audio.mp3', content_type: 'audio/mpeg', size_bytes: 12, sha256: 'etag-audio', cache_control: 'private, max-age=300' }
+		],
+		validation: { valid: true, warnings: [], errors: [] }
+	};
+
+	const response = await fetchBriefingAsset('job-etag-304', 'audio.mp3', {
+		readObjectBuffer: async (storageKey) => {
+			if (storageKey.endsWith('/briefing.json')) {
+				return Buffer.from(JSON.stringify(manifest), 'utf-8');
+			}
+
+			assert.equal(storageKey, 'webui/briefings/job-etag-304/audio.mp3');
+			return Buffer.from('ABCDEFGHIJ', 'utf-8');
+		},
+		requestHeaders: new Headers({ 'if-none-match': '"etag-audio"' })
+	});
+
+	assert.equal(response.status, 304);
+	assert.equal(response.headers.get('etag'), '"etag-audio"');
+	assert.equal(response.headers.get('accept-ranges'), 'bytes');
+});

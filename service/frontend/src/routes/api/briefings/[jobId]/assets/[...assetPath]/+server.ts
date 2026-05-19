@@ -36,7 +36,7 @@ export async function GET(event) {
 		);
 	}
 
-	if (!upstream.ok) {
+	if (upstream.status >= 400) {
 		await upstream.text();
 		const safeStatus = upstream.status === 401 || upstream.status === 403 ? 502 : upstream.status;
 		const issue = buildPublicBriefingIssue(

@@ -104,6 +104,13 @@ interface RendererHostedAsset {
 	cache_control: string;
 }
 
+interface PublishedBriefingAssetPayload {
+	buffer: Buffer;
+	contentType: string;
+	cacheControl: string;
+	etag: string | null;
+}
+
 interface RendererBriefingResult {
 	job_id: string;
 	briefing_id: string;
@@ -140,6 +147,7 @@ interface RendererJobStatus {
 interface BriefingClientOptions {
 	readObjectBuffer?: (storageKey: string) => Promise<Buffer>;
 	now?: number;
+	requestHeaders?: Headers;
 }
 
 interface PublicBriefingIssue {
@@ -353,7 +361,11 @@ async function loadPublishedBriefingStatus(jobId: string, options: BriefingClien
 	}
 }
 
-async function loadPublishedBriefingAsset(jobId: string, assetPath: string, options: BriefingClientOptions = {}) {
+async function loadPublishedBriefingAsset(
+	jobId: string,
+	assetPath: string,
+	options: BriefingClientOptions = {}
+): Promise<PublishedBriefingAssetPayload | null> {
 	const readObjectBuffer = options.readObjectBuffer ?? getBriefingObjectBuffer;
 	const manifest = await loadPublishedBriefingResult(jobId, options);
 	if (manifest === null) {
@@ -361,18 +373,27 @@ async function loadPublishedBriefingAsset(jobId: string, assetPath: string, opti
 	}
 
 	const buffer = await readObjectBuffer(buildPublishedStorageKey(jobId, assetPath));
+	const matchedAsset = manifest.assets.find((entry) => entry.path === assetPath) ?? null;
 	const asset =
 		assetPath === manifest.manifest_path
 			? {
 				content_type: 'application/vnd.hermes.briefing+json; charset=utf-8',
-				cache_control: 'private, max-age=0, must-revalidate'
+				cache_control: 'private, max-age=0, must-revalidate',
+				sha256: null
 			}
-			: manifest.assets.find((entry) => entry.path === assetPath) ?? null;
+			: matchedAsset;
+
+	const isAudioAsset = assetPath.toLowerCase().endsWith('.mp3');
+	const cacheControl = isAudioAsset
+		? 'private, max-age=31536000, immutable'
+		: asset?.cache_control ?? inferAssetCacheControl(assetPath);
+	const etag = asset?.sha256 ? `"${asset.sha256}"` : null;
 
 	return {
 		buffer,
 		contentType: asset?.content_type ?? inferAssetContentType(assetPath),
-		cacheControl: asset?.cache_control ?? inferAssetCacheControl(assetPath),
+		cacheControl,
+		etag
 	};
 }
 
@@ -811,12 +832,89 @@ export async function fetchBriefingAsset(jobId: string, assetPath: string, optio
 		throw new Error('Unable to read the published briefing asset.');
 	}
 	if (publishedAsset !== null) {
+		const totalBytes = publishedAsset.buffer.length;
+		const rangeHeader = options.requestHeaders?.get('range')?.trim() ?? null;
+		const ifNoneMatch = options.requestHeaders?.get('if-none-match')?.trim() ?? null;
+		const ifRange = options.requestHeaders?.get('if-range')?.trim() ?? null;
+		const rangeAllowed = !ifRange || (publishedAsset.etag !== null && ifRange === publishedAsset.etag);
+
+		const baseHeaders = {
+			'content-type': publishedAsset.contentType,
+			'cache-control': publishedAsset.cacheControl,
+			'accept-ranges': 'bytes',
+			...(publishedAsset.etag ? { etag: publishedAsset.etag } : {}),
+			'x-content-type-options': 'nosniff'
+		};
+
+		if (!rangeHeader && publishedAsset.etag && ifNoneMatch && ifNoneMatch === publishedAsset.etag) {
+			return new Response(null, {
+				status: 304,
+				headers: {
+					...baseHeaders
+				}
+			});
+		}
+
+		if (rangeAllowed && rangeHeader && rangeHeader.toLowerCase().startsWith('bytes=')) {
+			const rangeValue = rangeHeader.slice('bytes='.length).trim();
+			const [rawStart, rawEnd] = rangeValue.split('-', 2);
+
+			const startValue = rawStart?.trim() ?? '';
+			const endValue = rawEnd?.trim() ?? '';
+
+			let start = Number.NaN;
+			let end = Number.NaN;
+
+			if (startValue) {
+				start = Number.parseInt(startValue, 10);
+				if (endValue) {
+					end = Number.parseInt(endValue, 10);
+				} else {
+					end = totalBytes - 1;
+				}
+			} else if (endValue) {
+				const suffixLength = Number.parseInt(endValue, 10);
+				if (Number.isFinite(suffixLength) && suffixLength > 0) {
+					start = Math.max(totalBytes - suffixLength, 0);
+					end = totalBytes - 1;
+				}
+			}
+
+			const rangeInvalid =
+				!Number.isFinite(start) ||
+				!Number.isFinite(end) ||
+				start < 0 ||
+				end < start ||
+				start >= totalBytes;
+
+			if (rangeInvalid) {
+				return new Response(null, {
+					status: 416,
+					headers: {
+						...baseHeaders,
+						'content-range': `bytes */${totalBytes}`
+					}
+				});
+			}
+
+			const boundedEnd = Math.min(end, totalBytes - 1);
+			const chunk = publishedAsset.buffer.subarray(start, boundedEnd + 1);
+
+			return new Response(chunk, {
+				status: 206,
+				headers: {
+					...baseHeaders,
+					'content-length': String(chunk.length),
+					'content-range': `bytes ${start}-${boundedEnd}/${totalBytes}`
+				}
+			});
+		}
+
 		return new Response(publishedAsset.buffer, {
 			status: 200,
 			headers: {
-				'content-type': publishedAsset.contentType,
-				'cache-control': publishedAsset.cacheControl,
-				'x-content-type-options': 'nosniff'
+				...baseHeaders,
+				'content-length': String(totalBytes)
 			}
 		});
 	}

@@ -1,7 +1,107 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { rewriteStandaloneAssetUrls } from './briefing-standalone-html.ts';
+import { buildBriefingPageHtml, rewriteStandaloneAssetUrls } from './briefing-standalone-html.ts';
+
+test('buildBriefingPageHtml falls back to narration text when section body is empty', () => {
+	const html = buildBriefingPageHtml(
+		{
+			title: 'Fallback briefing',
+			topic: 'Standalone text fallback',
+			generatedAt: '2026-05-19T00:00:00Z',
+			locale: 'en-US',
+			audioUrl: '/audio.mp3',
+			sections: [
+				{
+					id: 'section-1',
+					title: 'Executive Summary',
+					body: [],
+					narration: 'The missing paragraph should still render even when body is empty.',
+					metrics: [],
+					start: 0,
+					end: 30,
+					cue: null
+				}
+			],
+			sources: []
+		},
+		'job-42'
+	);
+
+	assert.match(html, /<p>The missing paragraph should still render even when body is empty\.<\/p>/);
+});
+
+test('buildBriefingPageHtml renders sentence-level cue targets for clickable article text', () => {
+	const html = buildBriefingPageHtml(
+		{
+			title: 'Cue-linked briefing',
+			topic: 'Sentence cue targets',
+			generatedAt: '2026-05-19T00:00:00Z',
+			locale: 'en-US',
+			audioUrl: '/audio.mp3',
+			sections: [
+				{
+					id: 'section-1',
+					title: 'Executive Summary',
+					body: ['This paragraph should defer to sentence cue markup.'],
+					narration: 'This paragraph should defer to sentence cue markup.',
+					sentences: [
+						{
+							text: 'First sentence.',
+							start: 12.5,
+							end: 15.1,
+							cue: null
+						},
+						{
+							text: 'Second sentence.',
+							start: 15.1,
+							end: 18.2,
+							cue: { start: 15.25, end: 18.25 }
+						}
+					],
+					metrics: [],
+					start: 0,
+					end: 30,
+					cue: null
+				}
+			],
+			sources: []
+		},
+		'job-42'
+	);
+
+	assert.match(html, /class="section-sentence" data-start="12\.5" data-end="15\.1"/);
+	assert.match(html, /class="section-sentence" data-start="15\.25" data-end="18\.25"/);
+	assert.doesNotMatch(html, /<p>This paragraph should defer to sentence cue markup\.<\/p>/);
+});
+
+test('buildBriefingPageHtml emits the article rail wrapper expected by the standalone dock', () => {
+	const html = buildBriefingPageHtml(
+		{
+			title: 'Rail briefing',
+			topic: 'Dock layout',
+			generatedAt: '2026-05-19T00:00:00Z',
+			locale: 'en-US',
+			audioUrl: '/audio.mp3',
+			sections: [
+				{
+					id: 'section-1',
+					title: 'Executive Summary',
+					body: ['Rail content.'],
+					metrics: [],
+					start: 0,
+					end: 30,
+					cue: null
+				}
+			],
+			sources: []
+		},
+		'job-42'
+	);
+
+	assert.match(html, /<aside class="article-rail"><nav class="article-nav">/);
+	assert.match(html, /const rail = document\.querySelector\('\.article-rail'\);/);
+});
 
 test('rewriteStandaloneAssetUrls leaves fragment links anchored to the current page', () => {
 	const html = rewriteStandaloneAssetUrls(
@@ -43,6 +143,23 @@ test('rewriteStandaloneAssetUrls injects the standalone narration dock override'
 	assert.match(html, /setExpanded\(true\)/);
 	assert.match(html, /function handleDelegatedCueSeek\(event\)/);
 	assert.match(html, /document\.addEventListener\('click', handleDelegatedCueSeek, true\)/);
+	assert.match(html, /startNode instanceof Node\s*\?\s*startNode\.parentElement/);
+	assert.match(html, /const isBodyTextClick =/);
+	assert.match(html, /const directTarget = baseElement\.closest\('\[data-start\]\[data-end\]'\);/);
+	assert.match(html, /if \(directTarget instanceof HTMLElement\) \{/);
+	assert.match(html, /if \(isBodyTextClick && sectionCard instanceof HTMLElement\) \{/);
+	assert.match(html, /function syncActiveCueState\(\)/);
+	assert.match(html, /target\.dataset\.webuiActive = isActive \? 'true' : 'false'/);
+	assert.match(html, /function seekAndPlay\(cueStart\)/);
+	assert.match(html, /const canSeekNow = \(\) => \{/);
+	assert.match(html, /if \(canSeekNow\(\)\) \{/);
+	assert.match(html, /audio\.addEventListener\('loadedmetadata', replaySeek, \{ once: true \}\);/);
+	assert.match(html, /audio\.addEventListener\('canplay', replaySeek, \{ once: true \}\);/);
+	assert.match(html, /seekAndPlay\(cueStart\);/);
+	assert.match(html, /function bindDirectCueSeek\(\)/);
+	assert.match(html, /document\.querySelectorAll\('\.section-sentence, \.section-body p'\)/);
+	assert.match(html, /const cueSource =/);
+	assert.match(html, /bindDirectCueSeek\(\);/);
 	assert.match(html, /article-rail/);
 	assert.match(html, /Current cue/);
 });
