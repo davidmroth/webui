@@ -390,6 +390,30 @@ function buildStandalonePlayerDock() {
 		background: rgba(255, 255, 255, 1);
 	}
 
+	.hero-audio.webui-docked-player .webui-narration-actions .webui-icon-toggle {
+		padding: 0;
+		width: 2.45rem;
+		height: 2.45rem;
+		display: inline-grid;
+		place-items: center;
+	}
+
+	.hero-audio.webui-docked-player .webui-narration-actions .webui-icon-toggle svg {
+		width: 1rem;
+		height: 1rem;
+		fill: none;
+		stroke: currentColor;
+		stroke-width: 2;
+		stroke-linecap: round;
+		stroke-linejoin: round;
+		transition: transform 160ms ease;
+		transform: rotate(0deg);
+	}
+
+	.hero-audio.webui-docked-player .webui-narration-actions .webui-icon-toggle[aria-expanded="true"] svg {
+		transform: rotate(180deg);
+	}
+
 	.hero-audio.webui-docked-player[data-webui-expanded="false"] audio {
 		display: none;
 	}
@@ -399,12 +423,10 @@ function buildStandalonePlayerDock() {
 		margin-top: 0.75rem;
 	}
 
-	.hero-audio.webui-docked-player.is-sticky .hero-audio-player {
-		position: static;
-		top: auto;
-		left: auto;
-		width: auto;
-		max-width: none;
+	.hero-audio.webui-docked-player[data-webui-inline="false"] .hero-audio-player {
+		position: sticky;
+		top: calc(var(--chat-viewport-offset-top, 0px) + 0.75rem);
+		z-index: 20;
 	}
 
 	.hero-audio.webui-docked-player[data-webui-placement="hero"] {
@@ -428,6 +450,10 @@ function buildStandalonePlayerDock() {
 		}
 
 		.hero-audio.webui-docked-player .webui-narration-actions button {
+			width: 100%;
+		}
+
+		.hero-audio.webui-docked-player .webui-narration-actions .webui-icon-toggle {
 			width: 100%;
 		}
 	}
@@ -475,6 +501,7 @@ function buildStandalonePlayerDock() {
 
 		const expandButton = document.createElement('button');
 		expandButton.type = 'button';
+		expandButton.className = 'webui-icon-toggle';
 		expandButton.setAttribute('aria-expanded', 'false');
 
 		actions.append(playButton, expandButton);
@@ -489,6 +516,11 @@ function buildStandalonePlayerDock() {
 
 		let preferencePinned = false;
 		let isExpanded = false;
+
+		function syncExpandButtonUi() {
+			expandButton.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 9l6 6 6-6"></path></svg>';
+			expandButton.setAttribute('aria-label', isExpanded ? 'Collapse narration panel' : 'Expand narration panel');
+		}
 
 		function setPlacement(nextPlacement) {
 			stickyPlayer.dataset.webuiPlacement = nextPlacement;
@@ -522,8 +554,8 @@ function buildStandalonePlayerDock() {
 		function setExpanded(nextExpanded) {
 			isExpanded = nextExpanded;
 			stickyPlayer.dataset.webuiExpanded = nextExpanded ? 'true' : 'false';
-			expandButton.textContent = nextExpanded ? 'Collapse' : 'Expand';
 			expandButton.setAttribute('aria-expanded', nextExpanded ? 'true' : 'false');
+			syncExpandButtonUi();
 			setPlacement(breakpoint.matches || nextExpanded ? 'hero' : 'rail');
 		}
 
@@ -608,6 +640,7 @@ function buildStandalonePlayerDock() {
 
 		dockForViewport();
 		syncPlaybackState();
+		syncExpandButtonUi();
 	})();
 </script>`;
 }

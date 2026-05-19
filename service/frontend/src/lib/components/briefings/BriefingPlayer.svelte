@@ -40,7 +40,7 @@
 		const syncNarrationLayout = (matches: boolean) => {
 			narrationInlineLayout = matches;
 			if (!narrationPreferencePinned && !narrationPlaying) {
-				narrationExpanded = matches;
+				narrationExpanded = true;
 			}
 		};
 
@@ -87,7 +87,7 @@
 
 	function handleAudioPlay() {
 		narrationPlaying = true;
-		if (!narrationAutoCollapsed) {
+		if (!narrationInlineLayout && !narrationAutoCollapsed) {
 			narrationExpanded = false;
 			narrationAutoCollapsed = true;
 		}
@@ -259,6 +259,8 @@
 
 		return cueStarts;
 	});
+
+	const narrationDockedToSidebar = $derived(narrationPlaying && !narrationInlineLayout);
 </script>
 
 <section class="briefing-player-shell">
@@ -338,6 +340,69 @@
 	</header>
 
 	<div class:has-audio={Boolean(briefing.audioAsset)} class="briefing-layout">
+		{#if briefing.audioAsset}
+			<div
+				class:mode-full={!narrationDockedToSidebar}
+				class:mode-rail={narrationDockedToSidebar}
+				class:sticky={!narrationInlineLayout}
+				class="briefing-audio-slot"
+			>
+				<section
+					class:expanded={narrationExpanded}
+					class:collapsed={!narrationExpanded}
+					class:is-playing={narrationPlaying}
+					class="briefing-audio-card"
+				>
+					<div class="briefing-audio-header">
+						<div class="briefing-audio-copy">
+							<div class="briefing-audio-label">Narration</div>
+							<div class="briefing-audio-status">
+								<span>{narrationPlaying ? 'Playing' : 'Ready'}</span>
+								<span aria-hidden="true">·</span>
+								<span>Current cue {formatTime(currentTime)}</span>
+							</div>
+						</div>
+						<div class="briefing-audio-actions">
+							<button class="secondary-button briefing-audio-toggle" type="button" onclick={toggleNarrationPlayback}>
+								{narrationPlaying ? 'Pause' : 'Play'}
+							</button>
+							<button
+								class="secondary-button briefing-audio-icon-toggle"
+								type="button"
+								onclick={toggleNarrationExpanded}
+								aria-expanded={narrationExpanded}
+								aria-controls="briefing-narration-panel"
+								aria-label={narrationExpanded ? 'Collapse narration panel' : 'Expand narration panel'}
+							>
+								<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+									<path d="M6 9l6 6 6-6" />
+								</svg>
+							</button>
+						</div>
+					</div>
+					<div id="briefing-narration-panel" class="briefing-audio-body" hidden={!narrationExpanded}>
+						<audio
+							bind:this={audioElement}
+							controls
+							preload="metadata"
+							ontimeupdate={updateCurrentTime}
+							onseeked={updateCurrentTime}
+							onloadedmetadata={updateCurrentTime}
+							onplay={handleAudioPlay}
+							onpause={handleAudioPause}
+							onended={handleAudioPause}
+						>
+							<source src={briefing.audioAsset.url} type={briefing.audioAsset.contentType} />
+							Your browser does not support inline audio playback.
+						</audio>
+						<p class="briefing-audio-note">
+							Expand the player to use native audio controls without covering the right-side briefing rail.
+						</p>
+					</div>
+				</section>
+			</div>
+		{/if}
+
 		<div class="briefing-main-column">
 			{#each briefing.sections as section}
 				<section
@@ -437,61 +502,6 @@
 				</section>
 			{/each}
 		</div>
-
-		{#if briefing.audioAsset}
-			<div class:sticky={narrationPlaying && !narrationInlineLayout} class="briefing-audio-slot">
-				<section
-					class:expanded={narrationExpanded}
-					class:collapsed={!narrationExpanded}
-					class:is-playing={narrationPlaying}
-					class="briefing-audio-card"
-				>
-					<div class="briefing-audio-header">
-						<div class="briefing-audio-copy">
-							<div class="briefing-audio-label">Narration</div>
-							<div class="briefing-audio-status">
-								<span>{narrationPlaying ? 'Playing' : 'Ready'}</span>
-								<span aria-hidden="true">·</span>
-								<span>Current cue {formatTime(currentTime)}</span>
-							</div>
-						</div>
-						<div class="briefing-audio-actions">
-							<button class="secondary-button briefing-audio-toggle" type="button" onclick={toggleNarrationPlayback}>
-								{narrationPlaying ? 'Pause' : 'Play'}
-							</button>
-							<button
-								class="secondary-button briefing-audio-toggle"
-								type="button"
-								onclick={toggleNarrationExpanded}
-								aria-expanded={narrationExpanded}
-								aria-controls="briefing-narration-panel"
-							>
-								{narrationExpanded ? 'Collapse' : 'Expand'}
-							</button>
-						</div>
-					</div>
-					<div id="briefing-narration-panel" class="briefing-audio-body" hidden={!narrationExpanded}>
-						<audio
-							bind:this={audioElement}
-							controls
-							preload="metadata"
-							ontimeupdate={updateCurrentTime}
-							onseeked={updateCurrentTime}
-							onloadedmetadata={updateCurrentTime}
-							onplay={handleAudioPlay}
-							onpause={handleAudioPause}
-							onended={handleAudioPause}
-						>
-							<source src={briefing.audioAsset.url} type={briefing.audioAsset.contentType} />
-							Your browser does not support inline audio playback.
-						</audio>
-						<p class="briefing-audio-note">
-							Expand the player to use native audio controls without covering the right-side briefing rail.
-						</p>
-					</div>
-				</section>
-			</div>
-		{/if}
 
 		<aside class="briefing-side-column">
 			<section class="briefing-panel">
@@ -714,10 +724,18 @@
 	}
 
 	.briefing-audio-slot {
-		grid-column: 2;
+		grid-column: 1 / -1;
 		grid-row: 1;
 		display: grid;
 		align-content: start;
+	}
+
+	.briefing-audio-slot.mode-rail {
+		grid-column: 2;
+	}
+
+	.briefing-audio-slot.mode-rail + .briefing-main-column {
+		grid-row: 1;
 	}
 
 	.briefing-audio-slot.sticky {
@@ -774,6 +792,30 @@
 		white-space: nowrap;
 	}
 
+	.briefing-audio-icon-toggle {
+		padding: 0;
+		width: 2.5rem;
+		height: 2.5rem;
+		display: inline-grid;
+		place-items: center;
+	}
+
+	.briefing-audio-icon-toggle svg {
+		width: 1rem;
+		height: 1rem;
+		fill: none;
+		stroke: currentColor;
+		stroke-width: 2;
+		stroke-linecap: round;
+		stroke-linejoin: round;
+		transform: rotate(0deg);
+		transition: transform 160ms ease;
+	}
+
+	.briefing-audio-icon-toggle[aria-expanded='true'] svg {
+		transform: rotate(180deg);
+	}
+
 	.briefing-audio-card audio {
 		width: 100%;
 	}
@@ -801,7 +843,7 @@
 
 	.briefing-main-column {
 		grid-column: 1;
-		grid-row: 1 / span 2;
+		grid-row: 2;
 	}
 
 	.briefing-side-column {
@@ -809,6 +851,7 @@
 		grid-row: 2;
 	}
 
+	.briefing-layout:not(.has-audio) .briefing-main-column,
 	.briefing-layout:not(.has-audio) .briefing-side-column {
 		grid-row: 1;
 	}
@@ -1012,6 +1055,10 @@
 		.share-toggle-button,
 		.share-copy-button,
 		.briefing-audio-toggle {
+			width: 100%;
+		}
+
+		.briefing-audio-icon-toggle {
 			width: 100%;
 		}
 
