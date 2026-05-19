@@ -752,32 +752,48 @@ function buildStandalonePlayerDock() {
 		function bindDirectCueSeek() {
 			const textTargets = document.querySelectorAll('.section-sentence, .section-body p');
 
+			const activateNodeSeek = (node, event) => {
+				const directTarget = node.closest('[data-start][data-end]');
+				const sectionCard = node.closest('.section-card');
+				if (!(sectionCard instanceof HTMLElement)) {
+					return;
+				}
+
+				const cueSource =
+					directTarget instanceof HTMLElement && Number.isFinite(Number.parseFloat(directTarget.dataset.start || 'NaN'))
+						? directTarget
+						: sectionCard;
+
+				const cueStart = Number.parseFloat(cueSource.dataset.start || 'NaN');
+				if (!Number.isFinite(cueStart)) {
+					return;
+				}
+
+				event.preventDefault();
+				event.stopPropagation();
+				seekAndPlay(cueStart);
+			};
+
 			textTargets.forEach((node) => {
 				if (!(node instanceof HTMLElement)) {
 					return;
 				}
 
 				node.addEventListener('click', (event) => {
-					const directTarget = node.closest('[data-start][data-end]');
-					const sectionCard = node.closest('.section-card');
-					if (!(sectionCard instanceof HTMLElement)) {
-						return;
-					}
-
-					const cueSource =
-						directTarget instanceof HTMLElement && Number.isFinite(Number.parseFloat(directTarget.dataset.start || 'NaN'))
-							? directTarget
-							: sectionCard;
-
-					const cueStart = Number.parseFloat(cueSource.dataset.start || 'NaN');
-					if (!Number.isFinite(cueStart)) {
-						return;
-					}
-
-					event.preventDefault();
-					event.stopPropagation();
-					seekAndPlay(cueStart);
+					activateNodeSeek(node, event);
 				});
+
+				if (node.classList.contains('section-sentence')) {
+					node.addEventListener('keydown', (event) => {
+						if (!(event instanceof KeyboardEvent)) {
+							return;
+						}
+						if (event.key !== 'Enter' && event.key !== ' ') {
+							return;
+						}
+						activateNodeSeek(node, event);
+					});
+				}
 			});
 		}
 
@@ -919,8 +935,7 @@ audio{width:100%;display:block;margin-top:.5rem}
 .section-body{display:grid;gap:1rem}
 .section-body p{margin:0;font-size:1.05rem;line-height:1.7;color:#2d241a}
 .section-body p:has(.section-sentence){display:block}
-.section-sentence{appearance:none;border:0;background:none;padding:0;margin:0;color:inherit;font:inherit;line-height:inherit;text-align:left;cursor:pointer}
-.section-sentence + .section-sentence{margin-left:.35ch}
+.section-sentence{display:inline;color:inherit;cursor:pointer;border-radius:.2rem;padding:0;margin:0;line-height:inherit}
 .section-sentence:hover{text-decoration:underline;text-decoration-color:rgba(138,67,21,.35);text-decoration-thickness:.08em;text-underline-offset:.16em}
 .section-sentence:focus-visible{outline:2px solid rgba(184,134,11,.45);outline-offset:2px;border-radius:.2rem}
 .section-sentence[data-webui-active="true"]{background:linear-gradient(180deg, rgba(255,248,220,0) 0%, rgba(255,232,163,.72) 100%);border-radius:.2rem;box-shadow:0 0 0 .12rem rgba(255,232,163,.42)}
@@ -1000,9 +1015,9 @@ function renderSentenceCopy(section: BriefingPageSection): string {
 		.map((sentence) => {
 			const cueStart = sentence.cue?.start ?? sentence.start;
 			const cueEnd = sentence.cue?.end ?? sentence.end;
-			return `<button type="button" class="section-sentence" data-start="${cueStart}" data-end="${cueEnd}">${escapeHtml(sentence.text)}</button>`;
+			return `<span class="section-sentence" data-start="${cueStart}" data-end="${cueEnd}" tabindex="0" role="button">${escapeHtml(sentence.text)}</span>`;
 		})
-		.join('');
+		.join(' ');
 
 	return `<div class="section-body"><p>${sentenceHtml}</p>${renderMetricCards(section.metrics)}</div>`;
 }
