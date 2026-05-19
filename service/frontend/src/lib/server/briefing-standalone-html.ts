@@ -546,10 +546,13 @@ function buildStandalonePlayerDock() {
 			const viewportOffset = Number.parseFloat(rootStyles.getPropertyValue('--chat-viewport-offset-top'));
 			const stickyOffset = Number.isFinite(viewportOffset) ? viewportOffset + 12 : 12;
 			const playerRect = stickyPlayer.getBoundingClientRect();
+			const maxStickyWidth = 800;
+			const stickyWidth = Math.min(playerRect.width, maxStickyWidth);
+			const stickyLeft = playerRect.left + (playerRect.width - stickyWidth) / 2;
 
 			stickyPlayer.style.setProperty('--webui-sticky-top', stickyOffset + 'px');
-			stickyPlayer.style.setProperty('--webui-sticky-left', playerRect.left + 'px');
-			stickyPlayer.style.setProperty('--webui-sticky-width', playerRect.width + 'px');
+			stickyPlayer.style.setProperty('--webui-sticky-left', stickyLeft + 'px');
+			stickyPlayer.style.setProperty('--webui-sticky-width', stickyWidth + 'px');
 			stickyPlayer.style.minHeight = playerBox.offsetHeight + 'px';
 		}
 
@@ -905,17 +908,20 @@ function escapeHtml(value: string) {
 const PAGE_BASE_CSS = `
 *,*::before,*::after{box-sizing:border-box}
 html{scroll-behavior:smooth}
-body{margin:0;font-family:Georgia,'Times New Roman',serif;font-size:1rem;line-height:1.6;color:#1a1409;background:#fffcf7}
+body{margin:0;font-family:Georgia,'Times New Roman',serif;font-size:1rem;line-height:1.6;color:#1a1409;background:radial-gradient(140% 110% at 18% 6%, #f6efe1 0%, #efebe3 46%, #e8e4dd 100%)}
 a{color:#b8860b;text-decoration:none}a:hover{color:#8a4315}
-.page-shell{max-width:1400px;margin:0 auto}
-.hero{padding:2rem 1.5rem;border-bottom:1px solid rgba(82,62,39,.1);background:#fff}
+.page-shell{max-width:1400px;margin:0 auto;padding:2rem 1.25rem 2.5rem}
+.hero{padding:2.3rem 2.2rem 2rem;border:1px solid rgba(82,62,39,.08);border-radius:2rem;background:linear-gradient(112deg, rgba(255,252,247,.98) 0%, rgba(251,247,240,.96) 55%, rgba(245,239,230,.92) 100%);box-shadow:0 28px 62px rgba(63,45,24,.12)}
+.hero-eyebrow{display:inline-flex;align-items:center;justify-content:center;padding:.36rem .9rem;border-radius:999px;background:#22190f;color:rgba(255,252,247,.92);font:700 .78rem/1.1 system-ui,-apple-system,'Segoe UI',sans-serif;letter-spacing:.13em;text-transform:uppercase}
+.hero-title{margin:.95rem 0 0;color:#1a1409;font-size:clamp(2.1rem,5.5vw,6rem);line-height:.95;letter-spacing:-.02em;text-wrap:balance}
+.hero-subtitle{margin:1rem 0 0;color:rgba(63,45,24,.76);font-size:clamp(1.1rem,2.2vw,2.2rem);line-height:1.2}
 .hero-audio{data-sticky-player:true}
-.hero-audio-player{max-width:48rem;margin:0}
+.hero-audio-player{max-width:100%;margin:0;padding:1rem 1.2rem;border-radius:1.35rem;background:rgba(245,244,242,.9)}
 .hero-audio-label{font-size:.75rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:rgba(82,62,39,.6);margin:0 0 .5rem}
 audio{width:100%;display:block;margin-top:.5rem}
-.content-wrap{display:grid;grid-template-columns:260px minmax(0,1fr);gap:2rem;padding:2rem 1.5rem;align-items:start}
-.article-rail{display:grid;gap:1rem;align-content:start}
-.article-nav{position:sticky;top:1.5rem;max-height:calc(100vh - 3rem);overflow-y:auto}
+.content-wrap{display:grid;grid-template-columns:260px minmax(0,1fr);gap:2rem;padding:1.4rem .6rem 0;align-items:start}
+.article-rail{display:grid;gap:1rem;align-content:start;position:sticky;top:1.5rem;max-height:calc(100vh - 3rem);overflow-y:auto;padding-right:.2rem}
+.article-nav{position:static;max-height:none;overflow:visible}
 .article-nav-title{font-size:.85rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:rgba(82,62,39,.6);margin:0 0 1rem}
 .article-nav-list{list-style:none;margin:0;padding:0;display:grid;gap:.5rem}
 .article-nav-item a{display:block;padding:.5rem .75rem;font-size:.9rem;color:#b8860b;border-radius:.5rem;transition:all .2s}
@@ -954,7 +960,7 @@ audio{width:100%;display:block;margin-top:.5rem}
 .source-title{font-weight:700;color:#b8860b;display:block}
 .source-publisher{font-size:.85rem;color:rgba(82,62,39,.6);display:block;margin-top:.25rem}
 .on-this-page{font-size:.75rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:rgba(82,62,39,.6);margin:2rem 0 .75rem}
-@media(max-width:960px){.content-wrap{grid-template-columns:1fr}.article-nav{position:static;max-height:none;margin-bottom:1.5rem;padding-bottom:1.5rem;border-bottom:1px solid rgba(82,62,39,.1)}}
+@media(max-width:960px){.page-shell{padding:1rem .85rem 2rem}.hero{padding:1.2rem 1rem 1rem;border-radius:1.25rem}.hero-audio-player{margin-top:1rem;padding:.8rem .85rem}.content-wrap{grid-template-columns:1fr;padding:1.1rem 0 0}.article-rail{position:static;top:auto;max-height:none;overflow:visible;padding-right:0}.article-nav{position:static;max-height:none;margin-bottom:1.5rem;padding-bottom:1.5rem;border-bottom:1px solid rgba(82,62,39,.1)}}
 `.trim();
 
 function formatSeconds(sec: number): string {
@@ -1090,6 +1096,9 @@ export function buildBriefingPageHtml(data: BriefingPageData, jobId: string, opt
 <body>
 <main class="page-shell">
 <section class="hero">
+<div class="hero-eyebrow">Explainer briefing</div>
+<h1 class="hero-title">${escapeHtml(data.title)}</h1>
+<p class="hero-subtitle">${escapeHtml(data.topic || data.title)}</p>
 <div class="hero-audio" data-sticky-player>
 <div class="hero-audio-player">
 <div class="hero-audio-label">Narration</div>
@@ -1102,7 +1111,6 @@ export function buildBriefingPageHtml(data: BriefingPageData, jobId: string, opt
 <div class="content-wrap">
 ${navHtml}
 <article class="article-body">
-<h1 style="font-size:1.75rem;margin:0 0 1rem;color:#1a1409">${escapeHtml(data.title)}</h1>
 <div class="briefing-metadata">
 <div class="metadata-item">
 <div class="metadata-label">Topic:</div>
