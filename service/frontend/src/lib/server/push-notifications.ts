@@ -5,10 +5,10 @@ import { getConfig } from './env';
 
 type StoredPushSubscription = {
   endpoint: string;
-  expirationTime?: number | null;
-  keys?: {
-    auth?: string;
-    p256dh?: string;
+  expirationTime: number | null;
+  keys: {
+    auth: string;
+    p256dh: string;
   };
 };
 
@@ -99,11 +99,11 @@ export function normalizeStoredPushSubscription(value: unknown): StoredPushSubsc
   return {
     endpoint,
     expirationTime,
-    ...(keys ? { keys } : {})
+    keys
   };
 }
 
-function parseStoredPushSubscription(value: string | StoredPushSubscription) {
+function parseStoredPushSubscription(value: string | StoredPushSubscription): StoredPushSubscription | null {
   if (typeof value === 'string') {
     try {
       return normalizeStoredPushSubscription(JSON.parse(value));
@@ -179,7 +179,7 @@ export function buildPushReplyNotificationPayload(options: {
 export function buildWebPushNotificationOptions() {
   return {
     TTL: PUSH_NOTIFICATION_TTL_SECONDS,
-    urgency: PUSH_NOTIFICATION_URGENCY
+    urgency: PUSH_NOTIFICATION_URGENCY as 'high'
   };
 }
 
@@ -484,15 +484,22 @@ export async function processQueuedPushNotifications(options: { limit?: number }
       continue;
     }
 
-    await markPushQueueFailed(row.id, result.failure, nextAttemptCount);
+    const failure = result.failure ?? {
+      code: 'push_delivery_failed',
+      message: 'Web Push delivery failed.',
+      retryable: true,
+      removeSubscription: false
+    };
+
+    await markPushQueueFailed(row.id, failure, nextAttemptCount);
     failed += 1;
     console.error('Failed to deliver queued Web Push notification', {
       userId: row.user_id,
       conversationId: row.conversation_id,
       messageId: row.message_id,
       queueId: row.id,
-      error: result.failure.message,
-      errorCode: result.failure.code
+      error: failure.message,
+      errorCode: failure.code
     });
   }
 

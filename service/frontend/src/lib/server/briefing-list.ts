@@ -265,16 +265,16 @@ export async function listBriefingsForUser(
   userId: string,
   options: { page?: number; pageSize?: number } & BriefingListDeps = {}
 ): Promise<BriefingListResult> {
-  const queryFn = options.queryFn ?? query;
-  const executeFn = options.executeFn ?? execute;
+  const queryFn: NonNullable<BriefingListDeps['queryFn']> = options.queryFn ?? query;
+  const executeFn: NonNullable<BriefingListDeps['executeFn']> = options.executeFn ?? execute;
   const pageSize = clampInteger(options.pageSize ?? 12, 1, 100);
   try {
     await syncBriefingCatalogFromStorage({
-			queryFn,
-			executeFn,
-			listObjectKeysFn: options.listObjectKeysFn ?? listBriefingObjectKeys,
-			readObjectBufferFn: options.readObjectBufferFn ?? getBriefingObjectBuffer
-		});
+      queryFn: queryFn as unknown as typeof query,
+      executeFn,
+      listObjectKeysFn: options.listObjectKeysFn ?? listBriefingObjectKeys,
+      readObjectBufferFn: options.readObjectBufferFn ?? getBriefingObjectBuffer
+    } as Parameters<typeof syncBriefingCatalogFromStorage>[0]);
   } catch {
     // Ignore sync failures and serve the last known DB state.
   }

@@ -375,7 +375,7 @@ async function loadPublishedBriefingAsset(
 	const buffer = await readObjectBuffer(buildPublishedStorageKey(jobId, assetPath));
 	const matchedAsset = manifest.assets.find((entry) => entry.path === assetPath) ?? null;
 	const asset =
-		assetPath === manifest.manifest_path
+		assetPath === DEFAULT_BRIEFING_MANIFEST_PATH
 			? {
 				content_type: 'application/vnd.hermes.briefing+json; charset=utf-8',
 				cache_control: 'private, max-age=0, must-revalidate',
@@ -900,7 +900,7 @@ export async function fetchBriefingAsset(jobId: string, assetPath: string, optio
 			const boundedEnd = Math.min(end, totalBytes - 1);
 			const chunk = publishedAsset.buffer.subarray(start, boundedEnd + 1);
 
-			return new Response(chunk, {
+						return new Response(new Uint8Array(chunk), {
 				status: 206,
 				headers: {
 					...baseHeaders,
@@ -910,7 +910,7 @@ export async function fetchBriefingAsset(jobId: string, assetPath: string, optio
 			});
 		}
 
-		return new Response(publishedAsset.buffer, {
+				return new Response(new Uint8Array(publishedAsset.buffer), {
 			status: 200,
 			headers: {
 				...baseHeaders,

@@ -200,8 +200,8 @@
   let streamedAssistantSeqByMessageId: Record<string, number> = {};
   let lastSlashCommandsLoadAt = 0;
   let slashCommandsLoadInFlight: Promise<void> | null = null;
-  let composerStatsFadeTimer: ReturnType<typeof setTimeout> | null = null;
-  let composerStatsHideTimer: ReturnType<typeof setTimeout> | null = null;
+  let composerStatsFadeTimer: number | null = null;
+  let composerStatsHideTimer: number | null = null;
   let composerStatsCapsLoadInFlight: Promise<void> | null = null;
   let lastComposerStatsCapsLoadAt = 0;
   let pendingLayoutAutoScroll = false;
@@ -2042,7 +2042,8 @@
       sizeBytes: pendingFile.file.size,
       downloadUrl: pendingFile.previewUrl,
       isImage: pendingFile.file.type.startsWith('image/'),
-      isHtml: (pendingFile.file.type || '').split(';', 1)[0]?.trim().toLowerCase() === 'text/html'
+      isHtml: (pendingFile.file.type || '').split(';', 1)[0]?.trim().toLowerCase() === 'text/html',
+      isAudio: pendingFile.file.type.startsWith('audio/')
     }));
 
     const optimisticMessage: ChatMessage = {

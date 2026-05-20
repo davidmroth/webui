@@ -99,7 +99,8 @@ test('loadBriefingPreview reports publish-pending progress when status is comple
 				validation: null,
 				asset_count: 0
 			});
-		}
+		},
+		now: Date.parse('2026-05-13T17:09:00.000Z')
 	});
 
 	assert.equal(preview.state, 'processing');

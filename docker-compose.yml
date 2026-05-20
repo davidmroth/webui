@@ -3,7 +3,7 @@ services:
     build:
       context: .
       dockerfile: service/frontend/Dockerfile
-      target: runtime-deps
+      target: base
     restart: always
     command: yarn dev
     working_dir: /app
@@ -18,7 +18,7 @@ services:
       HERMES_WEBCHAT_SERVICE_TOKEN: ${HERMES_WEBCHAT_SERVICE_TOKEN}
     volumes:
       - ./service/frontend:/app
-      - webui_node_modules:/app/node_modules
+      - webui_node_modules_dev:/app/node_modules
     depends_on:
       mysql:
         condition: service_healthy
@@ -71,4 +71,4 @@ volumes:
   hermes_home:
   mysql_data:
   minio_data:
-  webui_node_modules:
+  webui_node_modules_dev:

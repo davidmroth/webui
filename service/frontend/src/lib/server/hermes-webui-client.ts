@@ -5,8 +5,8 @@ export type HermesAssistantAttachment =
   | {
       fileName: string;
       contentType?: string;
-      text: string;
-    }
+		text: string;
+	}
   | {
       fileName: string;
       contentType?: string;
@@ -177,9 +177,17 @@ export async function postAssistantMessage(
     throw new Error(buildErrorMessage(response.status, payload));
   }
 
-  if (!payload || typeof payload !== 'object' || payload.ok !== true || typeof payload.messageId !== 'string') {
+  if (!payload || typeof payload !== 'object') {
     throw new Error('Hermes WebUI returned an unexpected response payload.');
   }
 
-  return payload as AssistantPostSuccess;
+  const payloadRecord = payload as Record<string, unknown>;
+  if (payloadRecord.ok !== true || typeof payloadRecord.messageId !== 'string') {
+    throw new Error('Hermes WebUI returned an unexpected response payload.');
+  }
+
+  return {
+    ok: true,
+    messageId: payloadRecord.messageId
+  };
 }

@@ -4,7 +4,7 @@ import { requireSession } from '$server/auth';
 import { loadBriefingPreview } from '$server/briefings';
 import { getConversationOwnerId, storeAssistantMessage } from '$server/chat';
 import { upsertBriefingRecord } from '$server/briefing-records';
-import type { BriefingReference, BriefingPreview } from '$lib/types-legacy';
+import type { BriefingReference } from '$lib/types-legacy';
 
 function buildBriefingReference(preview: Awaited<ReturnType<typeof loadBriefingPreview>> & { state: 'ready' }): BriefingReference {
   return {

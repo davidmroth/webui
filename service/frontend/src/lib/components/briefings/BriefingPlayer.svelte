@@ -188,7 +188,7 @@
 	}
 
 	function isCueActive(cue: BriefingTimelineCue | null | undefined) {
-		return Boolean(cue) && currentTime >= cue.start && currentTime < cue.end;
+		return cue ? currentTime >= cue.start && currentTime < cue.end : false;
 	}
 
 	function seekTo(seconds: number) {

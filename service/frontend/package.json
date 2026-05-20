@@ -11,7 +11,7 @@
     "migrate": "tsx scripts/migrate.ts",
     "post-assistant-message": "tsx scripts/post-assistant-message.ts",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
-    "test": "sh -lc 'find src -name \"*.test.js\" | sort | xargs tsx --test'"
+    "test": "sh -lc 'files=$(find src -name \"*.test.js\" | sort); ./node_modules/.bin/tsx --test $files'"
   },
   "dependencies": {
     "clsx": "^2.1.1",
@@ -35,6 +35,8 @@
     "@sveltejs/kit": "^2.26.0",
     "@sveltejs/vite-plugin-svelte": "^5.1.0",
     "@tailwindcss/vite": "^4.2.2",
+    "@types/node": "^22.15.30",
+    "@types/web-push": "^3.6.4",
     "bits-ui": "^2.18.0",
     "dexie": "^4.4.2",
     "highlight.js": "^11.11.1",

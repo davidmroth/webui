@@ -10,7 +10,7 @@ import {
 	upsertBriefingRecord
 } from './briefing-records';
 
-type QueryFn = typeof query;
+type QueryFn = <T>(sql: string, params?: Record<string, unknown>) => Promise<T[]>;
 
 interface RendererValidationResult {
 	valid?: unknown;
@@ -140,27 +140,28 @@ function shouldSyncBriefingAsset(role: string) {
 }
 
 function manifestAssetInputs(jobId: string, manifest: RendererBriefingResult): BriefingAssetInput[] {
-	const assetInputs = Array.isArray(manifest.assets)
+	const assetInputs: BriefingAssetInput[] = Array.isArray(manifest.assets)
 		? manifest.assets
 				.filter((asset): asset is RendererHostedAsset => Boolean(asset) && typeof asset === 'object')
 				.filter((asset) => shouldSyncBriefingAsset(normalizeOptionalString(asset.role) ?? 'asset'))
-				.map((asset) => {
+				.flatMap((asset): BriefingAssetInput[] => {
 					const role = normalizeOptionalString(asset.role) ?? 'asset';
 					const assetPath = normalizeOptionalString(asset.path);
 					if (!assetPath) {
-						return null;
+						return [];
 					}
-					return {
-						role,
-						assetPath,
-						storageKey: buildPublishedStorageKey(jobId, assetPath),
-						contentType: normalizeOptionalString(asset.content_type),
-						sizeBytes: normalizeNonNegativeInteger(asset.size_bytes),
-						sha256: normalizeOptionalString(asset.sha256),
-						cacheControl: normalizeOptionalString(asset.cache_control)
-					};
+					return [
+						{
+							role,
+							assetPath,
+							storageKey: buildPublishedStorageKey(jobId, assetPath),
+							contentType: normalizeOptionalString(asset.content_type),
+							sizeBytes: normalizeNonNegativeInteger(asset.size_bytes),
+							sha256: normalizeOptionalString(asset.sha256),
+							cacheControl: normalizeOptionalString(asset.cache_control)
+						}
+					];
 				})
-				.filter((asset): asset is BriefingAssetInput => asset !== null)
 		: [];
 
 	assetInputs.push({
