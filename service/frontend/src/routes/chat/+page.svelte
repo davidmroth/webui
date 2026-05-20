@@ -205,6 +205,49 @@
   let composerStatsCapsLoadInFlight: Promise<void> | null = null;
   let lastComposerStatsCapsLoadAt = 0;
   let pendingLayoutAutoScroll = false;
+  let streamHealthState = $state<'connected' | 'degraded' | 'disconnected'>('disconnected');
+  let activePollerStopFn: (() => void) | null = null;
+  let refreshCoalesceTimer: number | null = null;
+  let pendingRefreshConversations = false;
+  let pendingRefreshMessages = false;
+  let conversationsEtag: string | null = null;
+  let messagesEtagByConversation = $state<Record<string, string>>({});
+  let dismissedStalledNoticeByConversation = $state<Record<string, true>>({});
+
+  function scheduleRefreshCoalesce() {
+    if (refreshCoalesceTimer !== null) {
+      // Already scheduled; mark what we want and let the pending timer handle it.
+      return;
+    }
+
+    refreshCoalesceTimer = window.setTimeout(() => {
+      refreshCoalesceTimer = null;
+      const conv = pendingRefreshConversations;
+      const msgs = pendingRefreshMessages;
+      pendingRefreshConversations = false;
+      pendingRefreshMessages = false;
+
+      if (conv) {
+        void refreshConversations();
+      }
+
+      if (msgs && currentConversationId) {
+        void loadMessages(currentConversationId);
+      }
+    }, 150);
+  }
+
+  function coalescedRefreshConversations() {
+    pendingRefreshConversations = true;
+    scheduleRefreshCoalesce();
+  }
+
+  function coalescedLoadMessages(conversationId: string) {
+    if (conversationId === currentConversationId) {
+      pendingRefreshMessages = true;
+      scheduleRefreshCoalesce();
+    }
+  }
 
   function loadTimeFormatPreference() {
     if (typeof window === 'undefined') {
@@ -696,26 +739,47 @@
     lastKnownAssistantBusyById = indexConversationAssistantBusy(data.conversations);
   });
 
+  // Polling fallback: only active when stream is unhealthy or unavailable.
+  // Decoupled from mutable state so polling callbacks do NOT retrigger this effect.
   $effect(() => {
     const conversationId = currentConversationId;
-    if (!conversationId || (!showStalledWarning && !currentRunState.active)) {
+    const streamHealth = streamHealthState;
+
+    // Stop any existing poller.
+    if (activePollerStopFn) {
+      activePollerStopFn();
+      activePollerStopFn = null;
+    }
+
+    // Only enable polling fallback when stream is unhealthy AND there's an active conversation.
+    if (!conversationId || streamHealth === 'connected') {
       return;
     }
 
+    // Use longer intervals for degraded/disconnected state to reduce load during stream recovery.
+    const intervalMs = streamHealth === 'degraded' ? 10_000 : 5_000;
+
     const stopPolling = startConversationStatusPolling({
       conversationId,
-      intervalMs: 5_000,
+      intervalMs,
       onUpdate(status) {
         if (!isCurrentConversationRequest(conversationId, currentConversationId)) {
           return;
         }
 
-        applyConversationStatusSnapshot(conversationId, status);
+        // Use untrack to prevent this state update from retriggering the polling effect.
+        untrack(() => {
+          applyConversationStatusSnapshot(conversationId, status);
+        });
       }
     });
 
+    activePollerStopFn = stopPolling;
     return () => {
-      stopPolling();
+      if (activePollerStopFn === stopPolling) {
+        stopPolling();
+        activePollerStopFn = null;
+      }
     };
   });
 
@@ -746,6 +810,9 @@
       ? `/api/conversations/${conversationId}/messages/stream?${streamSearchParams.toString()}`
       : `/api/conversations/${conversationId}/messages/stream`;
     const stream = new EventSource(streamPath);
+
+    // Track stream health to manage polling fallback lifecycle.
+    streamHealthState = 'connected';
 
     const handleTypingEvent = (_event: Event) => {
       if (currentConversationId !== conversationId) {
@@ -781,7 +848,7 @@
       void loadComposerStatsCaps();
       clearHermesTypingIndicator(conversationId, { updateBusy: false });
       ensureStreamingAssistantMessage(conversationId, messageId);
-      void refreshConversations();
+      coalescedRefreshConversations();
     };
 
     const handleDeltaEvent = (event: Event) => {
@@ -824,20 +891,20 @@
       clearPendingAssistant(conversationId);
       setConversationBusyState(conversationId, false);
 
-      const refreshTask = Promise.all([refreshConversations(), loadMessages(conversationId)]);
-      if (status === 'complete' && messageId) {
-        void refreshTask.then(() => {
+      const needsComposerStats = status === 'complete' && messageId;
+      if (needsComposerStats) {
+        // For completion, do an immediate refresh to show final state quickly.
+        void Promise.all([refreshConversations(), loadMessages(conversationId)]).then(() => {
           if (currentConversationId !== conversationId) {
             return;
           }
-
           revealComposerStats(messageId);
         });
-        return;
+      } else {
+        // Coalesce interim reloads to reduce fetch spam.
+        coalescedRefreshConversations();
+        coalescedLoadMessages(conversationId);
       }
-
-      resetComposerStatsCycle();
-      void refreshTask;
     };
 
     const handleStatusEvent = (event: Event) => {
@@ -866,8 +933,8 @@
       clearHermesTypingIndicator(conversationId, { updateBusy: false });
       clearPendingAssistant(conversationId);
       setConversationBusyState(conversationId, false);
-      void refreshConversations();
-      void loadMessages(conversationId);
+      coalescedRefreshConversations();
+      coalescedLoadMessages(conversationId);
     };
 
     stream.addEventListener('typing', handleTypingEvent);
@@ -885,6 +952,10 @@
       stream.removeEventListener('delta', handleDeltaEvent);
       stream.removeEventListener('done', handleDoneEvent);
       stream.close();
+      // Mark stream as disconnected to activate polling fallback.
+      if (streamHealthState === 'connected') {
+        streamHealthState = 'disconnected';
+      }
     };
   });
 
@@ -971,9 +1042,28 @@
   const currentConversationSummary = $derived.by(() =>
     conversations.find((conversation) => conversation.id === currentConversationId) ?? null
   );
-  const showStalledWarning = $derived(
-    Boolean(currentConversationSummary?.assistantStalled || currentRunState.status === 'stale')
-  );
+  const hasPendingWorkInConversation = $derived.by(() => {
+    if (!currentConversationId) {
+      return false;
+    }
+
+    return Boolean(
+      currentConversationSummary?.assistantBusy ||
+        pendingAssistantByConversation[currentConversationId] ||
+        currentRunState.active ||
+        currentRunState.status === 'queued' ||
+        currentRunState.status === 'processing'
+    );
+  });
+  const showStalledWarning = $derived.by(() => {
+    if (!currentConversationId) {
+      return false;
+    }
+
+    const dismissed = Boolean(dismissedStalledNoticeByConversation[currentConversationId]);
+    const stalled = Boolean(currentConversationSummary?.assistantStalled || currentRunState.status === 'stale');
+    return stalled && hasPendingWorkInConversation && !dismissed;
+  });
   const isReconnectingWarning = $derived(hermesConnection?.state === 'reconnecting');
   const runStateNotice = $derived.by(() => {
     if (!currentConversationId) {
@@ -1383,6 +1473,10 @@
         placeholderId
       }
     };
+
+    const nextDismissed = { ...dismissedStalledNoticeByConversation };
+    delete nextDismissed[conversationId];
+    dismissedStalledNoticeByConversation = nextDismissed;
   }
 
   function clearPendingAssistant(conversationId: string) {
@@ -1393,6 +1487,10 @@
     const nextPending = { ...pendingAssistantByConversation };
     delete nextPending[conversationId];
     pendingAssistantByConversation = nextPending;
+
+    const nextDismissed = { ...dismissedStalledNoticeByConversation };
+    delete nextDismissed[conversationId];
+    dismissedStalledNoticeByConversation = nextDismissed;
   }
 
   function hasStreamingAssistantMessage() {
@@ -1472,7 +1570,10 @@
     snapshot: ConversationStatusSnapshot
   ) {
     currentRunState = normalizeConversationRunState(snapshot.runState);
-    hermesConnection = snapshot.hermesConnection;
+    // Only update hermesConnection if it's provided (not from polling, only from page load).
+    if (snapshot.hermesConnection) {
+      hermesConnection = snapshot.hermesConnection;
+    }
     serverAssistantBusyByConversation = {
       ...serverAssistantBusyByConversation,
       [conversationId]: snapshot.assistantBusy
@@ -1487,6 +1588,12 @@
           }
         : conversation
     );
+
+    if (!snapshot.assistantStalled && currentRunState.status !== 'stale') {
+      const nextDismissed = { ...dismissedStalledNoticeByConversation };
+      delete nextDismissed[conversationId];
+      dismissedStalledNoticeByConversation = nextDismissed;
+    }
   }
 
   function ensureStreamingAssistantMessage(conversationId: string, messageId: string) {
@@ -1637,11 +1744,21 @@
   }
 
   async function refreshConversations() {
-    const response = await fetch('/api/conversations');
+    const headers: HeadersInit = {};
+    if (conversationsEtag) {
+      headers['if-none-match'] = conversationsEtag;
+    }
+
+    const response = await fetch('/api/conversations', { headers });
+    if (response.status === 304) {
+      return;
+    }
+
     if (!response.ok) {
       return;
     }
 
+    conversationsEtag = response.headers.get('etag');
     const payload = await response.json();
     await maybeNotifyOtherConversationReplies(payload.conversations);
     conversations = payload.conversations;
@@ -1681,9 +1798,27 @@
       return;
     }
 
-    const response = await fetch(`/api/conversations/${conversationId}/messages`);
+    const headers: HeadersInit = {};
+    const messagesEtag = messagesEtagByConversation[conversationId];
+    if (messagesEtag) {
+      headers['if-none-match'] = messagesEtag;
+    }
+
+    const response = await fetch(`/api/conversations/${conversationId}/messages`, { headers });
+    if (response.status === 304) {
+      return;
+    }
+
     if (!response.ok) {
       return;
+    }
+
+    const responseEtag = response.headers.get('etag');
+    if (responseEtag) {
+      messagesEtagByConversation = {
+        ...messagesEtagByConversation,
+        [conversationId]: responseEtag
+      };
     }
 
     const payload = await response.json();
@@ -2168,6 +2303,17 @@
     } finally {
       isClearingStalled = false;
     }
+  }
+
+  function dismissStalledWarning() {
+    if (!currentConversationId) {
+      return;
+    }
+
+    dismissedStalledNoticeByConversation = {
+      ...dismissedStalledNoticeByConversation,
+      [currentConversationId]: true
+    };
   }
 
   async function submitComposer() {
@@ -2728,18 +2874,13 @@
             role="status"
           >
             <strong class="llama-stalled-banner-title">
-              {isReconnectingWarning ? 'Hermes worker is reconnecting.' : 'Hermes worker appears stalled.'}
+              {isReconnectingWarning ? 'Still reconnecting to Hermes.' : 'Reply is delayed.'}
             </strong>
             <p class="llama-stalled-banner-body">
               {#if isReconnectingWarning}
-                Your message is still queued, and the last worker heartbeat went stale. Hermes is retrying the
-                webchat poller connection with backoff, so give it a moment before manually restarting the gateway.
+                Hermes is retrying the worker connection in the background. You can wait a bit longer or clear the queued turn.
               {:else}
-                Your message is queued, but the webchat worker heartbeat is stale. Check
-                <span class="llama-stalled-banner-emphasis">WEBCHAT_URL / WEBCHAT_SERVICE_TOKEN</span>
-                on Hermes and
-                <span class="llama-stalled-banner-emphasis">HERMES_WEBCHAT_SERVICE_TOKEN</span>
-                on WebUI, then restart the Hermes gateway webchat adapter.
+                The worker may be temporarily unavailable, so this turn has not completed yet.
               {/if}
             </p>
             <div class="llama-stalled-banner-actions">
@@ -2750,6 +2891,14 @@
                 disabled={isClearingStalled}
               >
                 {isClearingStalled ? 'Clearing queued turn...' : 'Clear queued turn'}
+              </button>
+              <button
+                class="llama-stalled-banner-dismiss"
+                type="button"
+                onclick={dismissStalledWarning}
+                disabled={isClearingStalled}
+              >
+                Dismiss
               </button>
             </div>
           </div>

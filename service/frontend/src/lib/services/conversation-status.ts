@@ -12,7 +12,7 @@ export interface ConversationStatusSnapshot {
   assistantBusy: boolean;
   assistantStalled: boolean;
   runState: ConversationRunState;
-  hermesConnection: MaintenanceHermesConnectionStatus;
+  hermesConnection?: MaintenanceHermesConnectionStatus;
 }
 
 interface FetchConversationStatusOptions {
@@ -64,7 +64,7 @@ function isConversationStatusSnapshot(value: unknown): value is ConversationStat
     typeof value.assistantBusy === 'boolean' &&
     typeof value.assistantStalled === 'boolean' &&
     isConversationRunState(value.runState) &&
-    isMaintenanceHermesConnectionStatus(value.hermesConnection)
+    (!value.hermesConnection || isMaintenanceHermesConnectionStatus(value.hermesConnection))
   );
 }
 

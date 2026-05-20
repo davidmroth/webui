@@ -369,12 +369,21 @@ export function renderBriefingStatusPage(
 		}
 
 		.shell {
+			position: relative;
 			background: var(--panel);
 			border: 1px solid var(--line);
 			border-radius: 28px;
 			padding: 28px;
 			box-shadow: 0 28px 80px rgba(56, 41, 26, 0.12);
 			backdrop-filter: blur(12px);
+		}
+
+		.shell-header {
+			display: flex;
+			align-items: flex-start;
+			justify-content: space-between;
+			gap: 12px;
+			margin-bottom: 18px;
 		}
 
 		.eyebrow {
@@ -386,7 +395,46 @@ export function renderBriefingStatusPage(
 			font: 600 0.88rem/1.1 "Avenir Next", "Segoe UI", sans-serif;
 			letter-spacing: 0.04em;
 			text-transform: uppercase;
-			margin-bottom: 18px;
+			margin: 0;
+		}
+
+		.refresh-control {
+			display: inline-flex;
+			align-items: center;
+			justify-content: center;
+			width: 40px;
+			height: 40px;
+			border-radius: 999px;
+			border: 1px solid var(--line);
+			background: rgba(255, 255, 255, 0.86);
+			color: var(--muted);
+			text-decoration: none;
+			transition: transform 140ms ease, background-color 140ms ease, color 140ms ease;
+		}
+
+		.refresh-control:hover {
+			background: rgba(255, 255, 255, 0.98);
+			color: var(--ink);
+			transform: rotate(-18deg);
+		}
+
+		.refresh-control:focus-visible {
+			outline: 2px solid var(--accent);
+			outline-offset: 2px;
+		}
+
+		.refresh-control svg {
+			width: 18px;
+			height: 18px;
+		}
+
+		.refresh-control.is-refreshing svg {
+			animation: refresh-spin 650ms linear infinite;
+		}
+
+		@keyframes refresh-spin {
+			from { transform: rotate(0deg); }
+			to { transform: rotate(360deg); }
 		}
 
 		.state-processing { background: var(--accent-soft); color: var(--accent); }
@@ -542,13 +590,26 @@ export function renderBriefingStatusPage(
 				flex-direction: column;
 				align-items: flex-start;
 			}
+
+			.refresh-control {
+				width: 36px;
+				height: 36px;
+			}
 		}
 	</style>
 </head>
 <body>
 	<main>
 		<section class="shell">
-			<div class="eyebrow ${badgeClass}">${escapeHtml(badgeLabel)}</div>
+			<div class="shell-header">
+				<div class="eyebrow ${badgeClass}">${escapeHtml(badgeLabel)}</div>
+				<a class="refresh-control" href="" aria-label="Refresh status" title="Refresh status" data-refresh-control>
+					<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+						<path d="M21 12a9 9 0 1 1-2.64-6.36"/>
+						<path d="M21 3v6h-6"/>
+					</svg>
+				</a>
+			</div>
 			<h1>${escapeHtml(headerTitle)}</h1>
 			<p class="lead">${escapeHtml(subtitle)}</p>
 			${progressMarkup}
@@ -560,6 +621,15 @@ export function renderBriefingStatusPage(
 			</div>
 		</section>
 	</main>
+	<script>
+		const refreshControl = document.querySelector('[data-refresh-control]');
+		if (refreshControl) {
+			refreshControl.addEventListener('click', () => {
+				refreshControl.classList.add('is-refreshing');
+				refreshControl.setAttribute('aria-busy', 'true');
+			});
+		}
+	</script>
 </body>
 </html>`;
 }

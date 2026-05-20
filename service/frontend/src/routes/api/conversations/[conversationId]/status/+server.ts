@@ -1,30 +1,24 @@
 import { json } from '@sveltejs/kit';
 import { getConversationRunState, isConversationBusy } from '$server/chat';
 import { requireSession } from '$server/auth';
-import { collectMaintenanceHermesConnectionStatus } from '$server/maintenance';
 
 export async function GET(event) {
   const session = await requireSession(event);
-  const [assistantBusy, runState, hermesConnection] = await Promise.all([
+  const [assistantBusy, runState] = await Promise.all([
     isConversationBusy(session.userId, event.params.conversationId),
-    getConversationRunState(session.userId, event.params.conversationId),
-    collectMaintenanceHermesConnectionStatus()
+    getConversationRunState(session.userId, event.params.conversationId)
   ]);
-
-  const assistantStalled =
-    runState.status === 'stale' ||
-    (runState.status === 'queued' && hermesConnection.workerHeartbeat.isOnline === false);
 
   return json(
     {
       assistantBusy,
-      assistantStalled,
-      runState,
-      hermesConnection
+      assistantStalled: runState.status === 'stale',
+      runState
     },
     {
       headers: {
-        'cache-control': 'no-store'
+        'cache-control': 'no-store',
+        'x-poll-interval': '5000'
       }
     }
   );
