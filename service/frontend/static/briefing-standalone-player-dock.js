@@ -73,6 +73,95 @@
 
 	let preferencePinned = false;
 	let isExpanded = false;
+	let autoFollowEnabled = false;
+	let activeCueElement = null;
+	let followIdleTimer = null;
+	let lastProgrammaticScrollAt = 0;
+	let lastFollowScrollAt = 0;
+
+	const AUTO_FOLLOW_IDLE_MS = 3000;
+	const PROGRAMMATIC_SCROLL_GUARD_MS = 550;
+	const FOLLOW_SCROLL_THROTTLE_MS = 700;
+
+	function clearFollowIdleTimer() {
+		if (followIdleTimer) {
+			window.clearTimeout(followIdleTimer);
+			followIdleTimer = null;
+		}
+	}
+
+	function setAutoFollowEnabled(nextEnabled) {
+		autoFollowEnabled = nextEnabled;
+		stickyPlayer.dataset.webuiAutoFollow = nextEnabled ? 'true' : 'false';
+	}
+
+	function isCueVisibleInViewport(target) {
+		if (!(target instanceof HTMLElement)) {
+			return false;
+		}
+
+		const rect = target.getBoundingClientRect();
+		if (rect.height <= 0 || rect.width <= 0) {
+			return false;
+		}
+
+		const topBand = window.innerHeight * 0.2;
+		const bottomBand = window.innerHeight * 0.8;
+		const anchorY = rect.top + Math.min(rect.height * 0.5, 80);
+		return anchorY >= topBand && anchorY <= bottomBand;
+	}
+
+	function maybeFollowActiveCue() {
+		if (!autoFollowEnabled || audio.paused || !(activeCueElement instanceof HTMLElement)) {
+			return;
+		}
+
+		const now = Date.now();
+		if (now - lastFollowScrollAt < FOLLOW_SCROLL_THROTTLE_MS) {
+			return;
+		}
+
+		if (isCueVisibleInViewport(activeCueElement)) {
+			return;
+		}
+
+		lastFollowScrollAt = now;
+		lastProgrammaticScrollAt = now;
+		activeCueElement.scrollIntoView({
+			behavior: 'smooth',
+			block: 'center',
+			inline: 'nearest'
+		});
+	}
+
+	function maybeReenableAutoFollowAfterIdle() {
+		clearFollowIdleTimer();
+		followIdleTimer = window.setTimeout(() => {
+			if (audio.paused || !(activeCueElement instanceof HTMLElement)) {
+				return;
+			}
+
+			if (isCueVisibleInViewport(activeCueElement)) {
+				setAutoFollowEnabled(true);
+				maybeFollowActiveCue();
+			}
+		}, AUTO_FOLLOW_IDLE_MS);
+	}
+
+	function handleUserScrollSignal() {
+		const now = Date.now();
+		if (now - lastProgrammaticScrollAt < PROGRAMMATIC_SCROLL_GUARD_MS) {
+			return;
+		}
+
+		if (!audio.paused && autoFollowEnabled) {
+			setAutoFollowEnabled(false);
+		}
+
+		if (!audio.paused) {
+			maybeReenableAutoFollowAfterIdle();
+		}
+	}
 
 	function applyStickyGeometry() {
 		const stickyEnabled = stickyPlayer.dataset.webuiSticky === 'true' && stickyPlayer.dataset.webuiInline === 'false';
@@ -175,6 +264,7 @@
 	function syncActiveCueState() {
 		const currentTime = Number.isFinite(audio.currentTime) ? audio.currentTime : 0;
 		let activeSectionId = null;
+		let primaryActiveTarget = null;
 
 		cueTargets.forEach((target) => {
 			if (!(target instanceof HTMLElement)) {
@@ -186,10 +276,18 @@
 			const isActive = Number.isFinite(cueStart) && Number.isFinite(cueEnd) && currentTime >= cueStart && currentTime < cueEnd;
 			target.dataset.webuiActive = isActive ? 'true' : 'false';
 
+			if (isActive && !primaryActiveTarget) {
+				primaryActiveTarget = target;
+			}
+
 			if (isActive && target.classList.contains('section-card')) {
 				activeSectionId = target.id || null;
 			}
 		});
+
+		if (primaryActiveTarget instanceof HTMLElement) {
+			activeCueElement = primaryActiveTarget;
+		}
 
 		navLinks.forEach((link) => {
 			if (!(link instanceof HTMLAnchorElement)) {
@@ -215,6 +313,7 @@
 			: '';
 		syncPlayButtonUi();
 		syncActiveCueState();
+		maybeFollowActiveCue();
 	}
 
 	function seekAndPlay(cueStart) {
@@ -423,6 +522,7 @@
 
 	playButton.addEventListener('click', async () => {
 		if (audio.paused) {
+			setAutoFollowEnabled(true);
 			await audio.play().catch(() => {});
 			return;
 		}
@@ -438,12 +538,39 @@
 	audio.addEventListener('timeupdate', syncPlaybackState);
 	audio.addEventListener('seeked', syncPlaybackState);
 	audio.addEventListener('loadedmetadata', syncPlaybackState);
-	audio.addEventListener('play', syncPlaybackState);
-	audio.addEventListener('pause', syncPlaybackState);
+	audio.addEventListener('play', () => {
+		setAutoFollowEnabled(true);
+		syncPlaybackState();
+		maybeFollowActiveCue();
+	});
+	audio.addEventListener('pause', () => {
+		clearFollowIdleTimer();
+		syncPlaybackState();
+	});
 	audio.addEventListener('ended', syncPlaybackState);
 	syncActiveCueState();
 	document.addEventListener('click', handleDelegatedCueSeek, true);
 	bindDirectCueSeek();
+	window.addEventListener('wheel', handleUserScrollSignal, { passive: true });
+	window.addEventListener('touchmove', handleUserScrollSignal, { passive: true });
+	window.addEventListener('scroll', handleUserScrollSignal, { passive: true });
+	window.addEventListener('keydown', (event) => {
+		if (!(event instanceof KeyboardEvent)) {
+			return;
+		}
+
+		if (
+			event.key === 'PageDown' ||
+			event.key === 'PageUp' ||
+			event.key === 'ArrowDown' ||
+			event.key === 'ArrowUp' ||
+			event.key === 'Home' ||
+			event.key === 'End' ||
+			event.key === ' '
+		) {
+			handleUserScrollSignal();
+		}
+	});
 
 	if (typeof breakpoint.addEventListener === 'function') {
 		breakpoint.addEventListener('change', dockForViewport);
