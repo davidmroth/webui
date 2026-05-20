@@ -417,6 +417,12 @@ function publishValidationWarnings(status: RendererJobStatus) {
 	return normalizeStringArray(status.validation?.warnings);
 }
 
+function publishFailedWarning(status: RendererJobStatus) {
+	return publishValidationWarnings(status).find((warning) =>
+		/object-storage publishing (timed out|failed)|publishing (timed out|failed)/i.test(warning)
+	);
+}
+
 function normalizeRendererProgress(status: RendererJobStatus) {
 	const stage = typeof status.stage === 'string' ? status.stage : null;
 	const percent =
@@ -538,11 +544,7 @@ function toPublishPendingState(status: RendererJobStatus): BriefingPreviewProces
 }
 
 function publishTimedOut(status: RendererJobStatus, now = Date.now()) {
-	if (
-		publishValidationWarnings(status).some((warning) =>
-			/object-storage publishing timed out|publishing timed out/i.test(warning)
-		)
-	) {
+	if (publishFailedWarning(status)) {
 		return true;
 	}
 
@@ -559,6 +561,9 @@ function toPublishTimedOutState(status: RendererJobStatus): BriefingPreviewFaile
 	const rendererHostedAssetsAvailable = warnings.some((warning) =>
 		/renderer-hosted briefing assets remain available/i.test(warning)
 	);
+	const publishFailed = warnings.some((warning) =>
+		/object-storage publishing failed|publishing failed/i.test(warning)
+	);
 	const detail = rendererHostedAssetsAvailable
 		? 'Rendering finished, but the published bundle never arrived in object storage. Renderer-hosted briefing assets remain available, but this WebUI only opens published bundles from object storage. Align the publisher and WebUI storage settings, then retry or regenerate the briefing.'
 		: 'Rendering finished, but the published bundle never arrived in object storage. Verify the publisher is writing to the same bucket and prefix the WebUI is reading, then retry or regenerate the briefing.';
@@ -570,7 +575,7 @@ function toPublishTimedOutState(status: RendererJobStatus): BriefingPreviewFaile
 		briefingId: typeof status.briefing_id === 'string' ? status.briefing_id : null,
 		createdAt: status.created_at,
 		completedAt: typeof status.completed_at === 'string' ? status.completed_at : null,
-		error: 'Publishing the briefing bundle timed out.',
+		error: publishFailed ? 'Publishing the briefing bundle failed.' : 'Publishing the briefing bundle timed out.',
 		detail,
 		validation: status.validation ? normalizeValidation(status.validation) : null,
 		assetCount: typeof status.asset_count === 'number' ? status.asset_count : 0,

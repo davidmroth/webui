@@ -174,6 +174,38 @@ test('loadBriefingPreview fails closed immediately when the published status rep
 	assert.equal(preview.canRetry, true);
 });
 
+test('loadBriefingPreview fails closed immediately when the published status reports object-storage publishing failed', async () => {
+	const preview = await loadBriefingPreview('job-publish-failed-warning', {
+		readObjectBuffer: async (storageKey) => {
+			if (storageKey === 'webui/briefings/job-publish-failed-warning/briefing.json') {
+				throw Object.assign(new Error('NoSuchKey'), { code: 'NoSuchKey' });
+			}
+			assert.equal(storageKey, 'webui/briefings/job-publish-failed-warning/status.json');
+			return storageJson({
+				job_id: 'job-publish-failed-warning',
+				briefing_id: 'briefing-publish-failed-warning',
+				status: 'completed',
+				stage: 'completed',
+				progress_percent: 100,
+				progress_detail: 'Briefing ready.',
+				created_at: '2026-05-13T17:03:53.185024+00:00',
+				completed_at: '2026-05-13T17:05:53.185024+00:00',
+				validation: {
+					valid: true,
+					warnings: ['External object-storage publishing failed. Renderer-hosted briefing assets remain available.'],
+					errors: []
+				},
+				asset_count: 0
+			});
+		}
+	});
+
+	assert.equal(preview.state, 'failed');
+	assert.equal(preview.error, 'Publishing the briefing bundle failed.');
+	assert.match(preview.detail ?? '', /renderer-hosted briefing assets remain available/i);
+	assert.equal(preview.canRetry, true);
+});
+
 test('loadBriefingPreview reports export unavailable when neither the manifest nor status snapshot exists', async () => {
 	const preview = await loadBriefingPreview('job-missing-123', {
 		readObjectBuffer: async () => {
