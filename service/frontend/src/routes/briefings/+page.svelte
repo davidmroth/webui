@@ -224,8 +224,8 @@
                 </div>
                 <h2 class="mt-2 text-xl font-semibold tracking-tight">{item.reference.title}</h2>
                 <p class="mt-2 text-xs text-muted-foreground">
-                  Briefing ID:
-                  <span class="ml-1 font-mono break-all text-[0.72rem]">{item.reference.briefingId}</span>
+                  Job ID:
+                  <span class="ml-1 font-mono break-all text-[0.72rem]">{item.reference.jobId}</span>
                 </p>
                 {#if item.reference.summary}
                   <p class="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">{item.reference.summary}</p>
