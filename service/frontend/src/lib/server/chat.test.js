@@ -668,3 +668,36 @@ test('retryBriefingJob returns null when no assistant message exists for the bri
 
   assert.equal(retry, null);
 });
+
+test('retryBriefingJob falls back to assistant message briefingReference metadata when source_message_id is missing', async () => {
+  const queryCalls = [];
+  const retry = await retryBriefingJob('user-1', 'job-42', {
+    queryFn: async (sql, params = {}) => {
+      queryCalls.push({ sql, params });
+      if (queryCalls.length === 1) {
+        return [];
+      }
+      return [{ id: 'assistant-12', conversation_id: 'conv-12' }];
+    },
+    regenerateAssistantMessageFn: async (userId, conversationId, assistantMessageId) => {
+      assert.equal(userId, 'user-1');
+      assert.equal(conversationId, 'conv-12');
+      assert.equal(assistantMessageId, 'assistant-12');
+      return {
+        eventId: 'event-12',
+        userMessageId: 'user-msg-12'
+      };
+    }
+  });
+
+  assert.equal(queryCalls.length, 2);
+  assert.match(queryCalls[0].sql, /FROM briefings/);
+  assert.match(queryCalls[1].sql, /JSON_EXTRACT\(messages\.extra, '\$\.briefingReference\.jobId'\)/);
+  assert.deepEqual(queryCalls[1].params, { user_id: 'user-1', job_id: 'job-42' });
+  assert.deepEqual(retry, {
+    conversationId: 'conv-12',
+    assistantMessageId: 'assistant-12',
+    eventId: 'event-12',
+    userMessageId: 'user-msg-12'
+  });
+});

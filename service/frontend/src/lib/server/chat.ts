@@ -2757,7 +2757,7 @@ export async function retryBriefingJob(
   const regenerateAssistantMessageFn =
     deps.regenerateAssistantMessageFn ?? regenerateAssistantMessage;
 
-  const rows = await queryFn<{ id: string; conversation_id: string }>(
+  let rows = await queryFn<{ id: string; conversation_id: string }>(
     `SELECT briefings.source_message_id AS id, briefings.conversation_id
      FROM briefings
      INNER JOIN conversations ON conversations.id = briefings.conversation_id
@@ -2770,6 +2770,25 @@ export async function retryBriefingJob(
       job_id: normalizedJobId
     }
   );
+
+  if (rows.length === 0) {
+    rows = await queryFn<{ id: string; conversation_id: string }>(
+      `SELECT messages.id, messages.conversation_id
+       FROM messages
+       INNER JOIN conversations ON conversations.id = messages.conversation_id
+       WHERE conversations.user_id = :user_id
+         AND messages.role = 'assistant'
+         AND JSON_UNQUOTE(JSON_EXTRACT(messages.extra, '$.briefingReference.jobId')) = :job_id
+       ORDER BY COALESCE(messages.msg_timestamp, messages.created_at) DESC,
+                messages.created_at DESC,
+                messages.id DESC
+       LIMIT 1`,
+      {
+        user_id: normalizedUserId,
+        job_id: normalizedJobId
+      }
+    );
+  }
 
   const target = rows[0];
   if (!target) {
