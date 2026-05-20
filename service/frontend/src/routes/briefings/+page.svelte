@@ -127,6 +127,10 @@
     return item.state === 'failed';
   }
 
+  function isProcessing(item: (typeof data.briefings.items)[number]) {
+    return item.state === 'processing';
+  }
+
   function primaryActionLabel(item: (typeof data.briefings.items)[number]) {
     if (item.state === 'failed') {
       return 'View failure';
@@ -137,6 +141,14 @@
     }
 
     return 'Open';
+  }
+
+  function primaryActionClass(item: (typeof data.briefings.items)[number]) {
+    if (item.state === 'processing') {
+      return 'inline-flex items-center justify-center rounded-full border border-amber-300/70 bg-amber-200/70 px-5 py-2 text-sm font-medium text-amber-950 transition-colors hover:bg-amber-200';
+    }
+
+    return 'primary-button';
   }
 </script>
 
@@ -185,7 +197,7 @@
         {#each data.briefings.items as item (item.reference.jobId)}
           {#if !isDeleted(item.reference.jobId)}
           <article
-            class={`relative overflow-hidden rounded-3xl border p-5 shadow-sm transition-opacity duration-200 ${isFailed(item) ? 'border-destructive/30 bg-destructive/5 ring-1 ring-destructive/15' : 'border-border bg-card'} ${isDeleting(item.reference.jobId) ? 'pointer-events-none opacity-60' : ''}`}
+            class={`relative overflow-hidden rounded-3xl border p-5 shadow-sm transition-opacity duration-200 ${isFailed(item) ? 'border-destructive/30 bg-destructive/5 ring-1 ring-destructive/15' : isProcessing(item) ? 'border-amber-300/45 bg-amber-50/40 ring-1 ring-amber-300/30' : 'border-border bg-card'} ${isDeleting(item.reference.jobId) ? 'pointer-events-none opacity-60' : ''}`}
             out:scale={{ duration: 220, start: 0.97 }}
           >
             {#if isDeleting(item.reference.jobId)}
@@ -205,6 +217,9 @@
 					{#if isFailed(item)}
 						<span aria-hidden="true">•</span>
 						<span class="rounded-full bg-destructive/12 px-2 py-1 text-destructive">Failed</span>
+          {:else if isProcessing(item)}
+            <span aria-hidden="true">•</span>
+            <span class="rounded-full bg-amber-200/70 px-2 py-1 text-amber-900">Pending</span>
 					{/if}
                 </div>
                 <h2 class="mt-2 text-xl font-semibold tracking-tight">{item.reference.title}</h2>
@@ -219,6 +234,8 @@
                   <span>Conversation: {item.conversationTitle ?? 'Archived briefing'}</span>
 					{#if isFailed(item)}
 						<span class="font-medium text-destructive">Status: Briefing export failed</span>
+          {:else if isProcessing(item)}
+            <span class="font-medium text-amber-900">Status: Pending export completion</span>
 					{/if}
                   <span>
                     Validation: {item.reference.validation.valid ? 'Valid' : 'Needs review'}
@@ -230,16 +247,10 @@
               <div class="flex shrink-0 flex-col gap-3 lg:min-h-full lg:items-end">
                 <div class="flex flex-wrap gap-2 lg:justify-end">
                   <a
-                    class="primary-button"
+                    class={primaryActionClass(item)}
                     href={item.reference.standaloneHtmlUrl}
                   >
       						{primaryActionLabel(item)}
-                  </a>
-                  <a
-                    class="inline-flex items-center justify-center rounded-full border border-border bg-background px-4 py-2 text-sm font-medium"
-                    href={item.reference.previewUrl}
-                  >
-                    Open player
                   </a>
                   {#if item.conversationId}
                     <a

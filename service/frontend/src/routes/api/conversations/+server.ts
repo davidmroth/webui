@@ -3,12 +3,12 @@ import { createHash } from 'node:crypto';
 import { createConversation, listConversations } from '$server/chat';
 import { requireSession } from '$server/auth';
 
-function buildEtag(value: unknown): string {
+export function buildEtag(value: unknown): string {
   const digest = createHash('sha1').update(JSON.stringify(value)).digest('hex');
   return `"${digest}"`;
 }
 
-function requestHasMatchingEtag(request: Request, etag: string): boolean {
+export function requestHasMatchingEtag(request: Request, etag: string): boolean {
   const header = request.headers.get('if-none-match');
   if (!header) {
     return false;
