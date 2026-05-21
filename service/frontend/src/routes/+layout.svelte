@@ -18,7 +18,20 @@
       return false;
     }
 
-    return !anchor.href.startsWith('javascript:');
+    if (anchor.href.startsWith('javascript:')) {
+      return false;
+    }
+
+    try {
+      const url = new URL(anchor.href);
+      if (url.origin === window.location.origin) {
+        return false;
+      }
+    } catch {
+      return false;
+    }
+
+    return true;
   }
 
   function applyAnchorDefaults(root: ParentNode = document) {

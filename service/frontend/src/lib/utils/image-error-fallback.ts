@@ -5,6 +5,6 @@
 export function getImageErrorFallbackHtml(src: string): string {
 	return `<div class="image-error-content">
 		<span>Image cannot be displayed</span>
-		<a href="${src}" target="_blank" rel="noopener noreferrer">(open link)</a>
+		<a href="${src}">(open link)</a>
 	</div>`;
 }

@@ -389,7 +389,7 @@
 						<p class="briefing-share-notice">{shareNotice}</p>
 					{/if}
 					{#if shareState.isPublic}
-						<a class="briefing-share-link" href={shareState.standalonePath} target="_blank" rel="noreferrer">
+						<a class="briefing-share-link" href={shareState.standalonePath}>
 							{shareUrl(shareState.standalonePath)}
 						</a>
 					{/if}
@@ -397,7 +397,7 @@
 			{/if}
 
 			{#if briefing.exportHtmlAsset}
-				<a class="secondary-button" href={briefing.exportHtmlAsset.url} target="_blank" rel="noreferrer">
+				<a class="secondary-button" href={briefing.exportHtmlAsset.url}>
 					Open standalone HTML
 				</a>
 			{/if}
@@ -609,7 +609,7 @@
 							{#if selectedSource.excerpt}
 								<blockquote>{selectedSource.excerpt}</blockquote>
 							{/if}
-							<a href={selectedSource.url} target="_blank" rel="noreferrer" aria-label={sourceHrefLabel(selectedSource.title)}>
+							<a href={selectedSource.url} aria-label={sourceHrefLabel(selectedSource.title)}>
 								Open source
 							</a>
 						</div>

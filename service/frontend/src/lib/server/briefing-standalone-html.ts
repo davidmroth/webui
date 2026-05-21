@@ -256,7 +256,7 @@ function renderSectionNavigation(sections: BriefingPageSection[]): string {
 function renderPageSources(sources: BriefingPageSource[]): string {
 	if (!sources.length) return '';
 	const items = sources
-		.map((s) => `<a href="${escapeAttribute(s.url)}" class="source-link" target="_blank" rel="noopener noreferrer">
+		.map((s) => `<a href="${escapeAttribute(s.url)}" class="source-link">
 			<span class="source-title">${escapeHtml(s.title)}</span>
 			<span class="source-publisher">${escapeHtml(s.publisher)}</span>
 		</a>`)
