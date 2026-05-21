@@ -1,6 +1,9 @@
 <script lang="ts">
+  import { browser } from '$app/environment';
   import { enhance } from '$app/forms';
   import { invalidateAll } from '$app/navigation';
+  import { estimateBriefingRenderProgress, fetchBriefingPreview } from '$lib/services/briefing-preview';
+  import type { BriefingPreview } from '$lib/types/briefing';
   import { Trash2 } from '@lucide/svelte';
   import { scale } from 'svelte/transition';
 
@@ -8,6 +11,19 @@
   let deletingJobId = $state<string | null>(null);
   let deletedJobIds = $state<string[]>([]);
   let deleteError = $state<string | null>(null);
+  let nowMs = $state(Date.now());
+  let livePreviewByJobId = $state<Record<string, BriefingPreview>>({});
+
+  const RING_RADIUS = 18;
+  const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
+
+  function clampPercent(value: number) {
+    return Math.max(0, Math.min(100, Math.round(value)));
+  }
+
+  function ringOffset(percent: number) {
+    return RING_CIRCUMFERENCE - (clampPercent(percent) / 100) * RING_CIRCUMFERENCE;
+  }
 
   function isDeleting(jobId: string) {
     return deletingJobId === jobId;
@@ -124,19 +140,59 @@
   }
 
   function isFailed(item: (typeof data.briefings.items)[number]) {
+    const live = livePreviewByJobId[item.reference.jobId];
+    if (live?.state === 'failed') {
+      return true;
+    }
+
     return item.state === 'failed';
   }
 
   function isProcessing(item: (typeof data.briefings.items)[number]) {
+    const live = livePreviewByJobId[item.reference.jobId];
+    if (live?.state === 'processing') {
+      return true;
+    }
+
+    if (live?.state === 'ready' || live?.state === 'failed') {
+      return false;
+    }
+
     return item.state === 'processing';
   }
 
+  function pendingProgressPercent(item: (typeof data.briefings.items)[number]) {
+    if (!isProcessing(item)) {
+      return null;
+    }
+
+    const live = livePreviewByJobId[item.reference.jobId];
+    if (live?.state === 'processing') {
+      return estimateBriefingRenderProgress(
+        {
+          createdAt: live.createdAt,
+          renderProgress: live.renderProgress
+        },
+        nowMs
+      ).percent;
+    }
+
+    const fallbackCreatedAt = item.createdAt ?? item.reference.generatedAt ?? new Date().toISOString();
+    return estimateBriefingRenderProgress(
+      {
+        createdAt: fallbackCreatedAt,
+        renderProgress: null
+      },
+      nowMs
+    ).percent;
+  }
+
   function primaryActionLabel(item: (typeof data.briefings.items)[number]) {
-    if (item.state === 'failed') {
+    if (isFailed(item)) {
       return 'View failure';
     }
 
-    if (item.state === 'processing') {
+    if (isProcessing(item)) {
       return 'View status';
     }
 
@@ -144,12 +200,145 @@
   }
 
   function primaryActionClass(item: (typeof data.briefings.items)[number]) {
-    if (item.state === 'processing') {
+    if (isProcessing(item)) {
       return 'inline-flex items-center justify-center rounded-full border border-amber-300/70 bg-amber-200/70 px-5 py-2 text-sm font-medium text-amber-950 transition-colors hover:bg-amber-200';
     }
 
     return 'primary-button';
   }
+
+  $effect(() => {
+    if (!browser) {
+      return;
+    }
+
+    const hasPending = data.briefings.items.some((item) => isProcessing(item));
+    if (!hasPending) {
+      return;
+    }
+
+    nowMs = Date.now();
+    const timer = window.setInterval(() => {
+      nowMs = Date.now();
+    }, 1_000);
+
+    return () => {
+      window.clearInterval(timer);
+    };
+  });
+
+  $effect(() => {
+    if (!browser || typeof EventSource === 'undefined') {
+      return;
+    }
+
+    const pendingByConversation = new Map<string, string[]>();
+    for (const item of data.briefings.items) {
+      if (!isProcessing(item) || !item.conversationId) {
+        continue;
+      }
+
+      const current = pendingByConversation.get(item.conversationId);
+      if (current) {
+        if (!current.includes(item.reference.jobId)) {
+          current.push(item.reference.jobId);
+        }
+      } else {
+        pendingByConversation.set(item.conversationId, [item.reference.jobId]);
+      }
+    }
+
+    if (pendingByConversation.size === 0) {
+      return;
+    }
+
+    let disposed = false;
+    const timers = new Map<string, ReturnType<typeof window.setTimeout>>();
+    const streams: Array<{ conversationId: string; stream: EventSource; handler: () => void }> = [];
+
+    const refreshConversationPendingBriefings = async (conversationId: string) => {
+      const jobIds = pendingByConversation.get(conversationId) ?? [];
+      if (jobIds.length === 0) {
+        return;
+      }
+
+      const previews = await Promise.all(
+        jobIds.map(async (jobId) => {
+          try {
+            const preview = await fetchBriefingPreview(jobId);
+            return { jobId, preview };
+          } catch {
+            return null;
+          }
+        })
+      );
+
+      if (disposed) {
+        return;
+      }
+
+      let next = livePreviewByJobId;
+      let changed = false;
+      for (const entry of previews) {
+        if (!entry) {
+          continue;
+        }
+
+        if (!changed) {
+          next = { ...livePreviewByJobId };
+          changed = true;
+        }
+        next[entry.jobId] = entry.preview;
+      }
+
+      if (changed) {
+        livePreviewByJobId = next;
+      }
+    };
+
+    const scheduleRefresh = (conversationId: string) => {
+      if (timers.has(conversationId)) {
+        return;
+      }
+
+      const timer = window.setTimeout(() => {
+        timers.delete(conversationId);
+        void refreshConversationPendingBriefings(conversationId);
+      }, 220);
+      timers.set(conversationId, timer);
+    };
+
+    for (const [conversationId] of pendingByConversation) {
+      const stream = new EventSource(
+        `/api/conversations/${encodeURIComponent(conversationId)}/messages/stream`
+      );
+      const handler = () => {
+        scheduleRefresh(conversationId);
+      };
+
+      stream.addEventListener('status', handler);
+      stream.addEventListener('message', handler);
+      stream.addEventListener('done', handler);
+      streams.push({ conversationId, stream, handler });
+
+      void refreshConversationPendingBriefings(conversationId);
+    }
+
+    return () => {
+      disposed = true;
+      for (const timer of timers.values()) {
+        window.clearTimeout(timer);
+      }
+      timers.clear();
+
+      for (const { stream, handler } of streams) {
+        stream.removeEventListener('status', handler);
+        stream.removeEventListener('message', handler);
+        stream.removeEventListener('done', handler);
+        stream.close();
+      }
+    };
+  });
 </script>
 
 <svelte:head>
@@ -262,7 +451,7 @@
                   {/if}
                 </div>
 
-                <div class="flex gap-2 lg:mt-auto lg:self-end">
+                <div class={`flex gap-2 lg:mt-auto lg:self-end ${isProcessing(item) ? 'lg:pr-16' : ''}`}>
                   <form
                     method="POST"
                     action="?/delete"
@@ -290,6 +479,42 @@
                 </div>
               </div>
             </div>
+
+            {#if isProcessing(item)}
+              <div
+                class="pointer-events-none absolute bottom-4 right-4 grid h-12 w-12 place-items-center rounded-full border border-amber-300/60 bg-background/90 text-[0.65rem] font-semibold text-amber-950 shadow-sm"
+                role="status"
+                aria-label={`Briefing generation progress ${pendingProgressPercent(item) ?? 0} percent`}
+              >
+                <svg
+                  class="absolute inset-0 h-full w-full -rotate-90"
+                  viewBox="0 0 44 44"
+                  aria-hidden="true"
+                >
+                  <circle
+                    cx="22"
+                    cy="22"
+                    r={RING_RADIUS}
+                    fill="none"
+                    stroke="rgba(253, 224, 71, 0.45)"
+                    stroke-width="4"
+                  />
+                  <circle
+                    cx="22"
+                    cy="22"
+                    r={RING_RADIUS}
+                    fill="none"
+                    stroke="rgba(217, 119, 6, 0.96)"
+                    stroke-width="4"
+                    stroke-linecap="round"
+                    stroke-dasharray={RING_CIRCUMFERENCE}
+                    stroke-dashoffset={ringOffset(pendingProgressPercent(item) ?? 0)}
+                    class="transition-all duration-500 ease-out"
+                  />
+                </svg>
+                <span class="relative z-10">{pendingProgressPercent(item) ?? 0}%</span>
+              </div>
+            {/if}
           </article>
           {/if}
         {/each}
