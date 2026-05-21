@@ -5,6 +5,7 @@
     ArrowDown,
     ArrowUp,
     ChevronsLeft,
+    ExternalLink,
     File as FileIcon,
     FileText,
     Image,
@@ -2774,14 +2775,12 @@
         <a
           class="llama-nav-item"
           href="/briefings"
-          onclick={() => {
-            if (isMobileViewport) {
-              setSidebarCollapsed(true);
-            }
-          }}
+          target="_blank"
+          rel="noopener noreferrer"
         >
           <span class="llama-nav-icon"><FileText class="h-4 w-4" /></span>
           <span>Briefings</span>
+          <ExternalLink class="ml-auto h-3 w-3 shrink-0 opacity-50" />
         </a>
 
         <label class="llama-search-input">
