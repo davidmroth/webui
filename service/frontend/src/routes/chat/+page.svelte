@@ -1800,7 +1800,13 @@
     }
 
     const headers: HeadersInit = {};
-    const messagesEtag = messagesEtagByConversation[conversationId];
+    // Only send the ETag when we already have messages for this conversation displayed.
+    // If loadedMessagesConversationId !== conversationId (e.g. after a conversation switch
+    // cleared the message list), we must fetch a full response — a 304 would leave messages empty.
+    const messagesEtag =
+      loadedMessagesConversationId === conversationId
+        ? messagesEtagByConversation[conversationId]
+        : null;
     if (messagesEtag) {
       headers['if-none-match'] = messagesEtag;
     }
