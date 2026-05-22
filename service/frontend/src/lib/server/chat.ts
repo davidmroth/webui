@@ -1212,7 +1212,8 @@ export async function markStaleHermesRuns(options: { userId?: string; conversati
   await execute(
     `UPDATE hermes_events
      INNER JOIN conversations ON conversations.id = hermes_events.conversation_id
-     SET hermes_events.run_status = 'stale',
+     SET hermes_events.status = 'acked',
+         hermes_events.run_status = 'stale',
          hermes_events.run_completed_at = UTC_TIMESTAMP(),
          hermes_events.run_error_code = 'HERMES_EVENT_LEASE_EXPIRED',
          hermes_events.run_error_message = 'Hermes stopped reporting progress before the event lease expired.'
