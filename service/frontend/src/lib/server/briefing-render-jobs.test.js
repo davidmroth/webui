@@ -141,6 +141,69 @@ test('enqueueBriefingRerender cancels older queued or processing jobs for the sa
 	assert.equal(executeCalls[0].params.job_id, 'job-restart');
 });
 
+test('enqueueBriefingRerender imports a legacy published briefing when no canonical version exists', async () => {
+	const executeCalls = [];
+	const createVersionCalls = [];
+	const queued = await enqueueBriefingRerender('job-legacy', 'user-1', {
+		randomIdFn: () => 'render-job-legacy',
+		getBriefingRecordFn: async () => ({
+			jobId: 'job-legacy',
+			ownerUserId: 'user-1',
+			conversationId: 'conv-1',
+			sourceMessageId: 'msg-1',
+			briefingId: 'briefing-legacy',
+			title: 'Legacy title',
+			summary: 'Legacy summary',
+			state: 'processing',
+			stage: 'completed',
+			manifestStorageKey: 'briefings/job-legacy/briefing.json',
+			statusStorageKey: 'briefings/job-legacy/status.json',
+			errorMessage: null,
+			validationValid: true,
+			validationWarningCount: 0,
+			validationErrorCount: 0,
+			createdAt: '2026-05-22T00:00:00Z',
+			updatedAt: '2026-05-22T00:00:00Z',
+			startedAt: '2026-05-22T00:00:00Z',
+			completedAt: null,
+			failedAt: null
+		}),
+		getLatestBriefingVersionFn: async () => null,
+		loadPublishedCanonicalArtifactFn: async () => ({
+			schemaVersion: 'briefing-document/v1',
+			jobId: 'job-legacy',
+			briefingId: 'briefing-legacy',
+			title: 'Legacy title',
+			topic: 'Legacy topic',
+			summary: 'Legacy summary',
+			generatedAt: '2026-05-22T00:00:05Z',
+			locale: 'en-US',
+			generatedBy: 'hermes',
+			validation: { valid: true, warnings: [], errors: [] },
+			assets: [],
+			audioAsset: null,
+			sections: [],
+			sources: [],
+			timelineCues: []
+		}),
+		createBriefingVersionFn: async (input) => {
+			createVersionCalls.push(input);
+			return { jobId: input.jobId, versionNumber: input.versionNumber };
+		},
+		executeFn: async (sql, params) => {
+			executeCalls.push({ sql, params });
+			return { affectedRows: 1 };
+		}
+	});
+
+	assert.deepEqual(queued, { renderJobId: 'render-job-legacy', jobId: 'job-legacy', versionNumber: 1 });
+	assert.equal(createVersionCalls.length, 1);
+	assert.equal(createVersionCalls[0].creationReason, 'legacy_import');
+	assert.equal(createVersionCalls[0].versionNumber, 1);
+	assert.equal(executeCalls.length, 3);
+	assert.equal(executeCalls[1].params.briefing_version_number, 1);
+});
+
 test('markBriefingRenderJobProgress ignores cancelled render jobs', async () => {
 	const progress = await markBriefingRenderJobProgress('render-job-cancelled', 'encoding_audio', {
 		percent: 58

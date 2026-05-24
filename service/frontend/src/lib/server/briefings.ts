@@ -6,6 +6,7 @@ import {
 	type BriefingVersion
 } from '$server/briefing-records';
 import type {
+	CanonicalBriefingArtifact,
 	BriefingAssetLink,
 	BriefingCitationRef,
 	BriefingMetricCard,
@@ -454,8 +455,20 @@ function toAssetLink(jobId: string, briefingId: string, asset: RendererHostedAss
 	};
 }
 
-function normalizeReadyPreview(jobId: string, result: RendererBriefingResult): BriefingPreviewReady {
-	const assets = result.assets.map((asset) => toAssetLink(jobId, result.briefing_id, asset));
+function canonicalAssetFromPublishedAsset(asset: RendererHostedAsset): BriefingAssetLink {
+	return {
+		role: asset.role,
+		path: asset.path,
+		url: '',
+		contentType: asset.content_type,
+		sizeBytes: asset.size_bytes,
+		sha256: asset.sha256,
+		cacheControl: asset.cache_control
+	};
+}
+
+export function canonicalArtifactFromPublishedResult(result: RendererBriefingResult): CanonicalBriefingArtifact {
+	const assets = result.assets.map((asset) => canonicalAssetFromPublishedAsset(asset));
 	const timelineCues: BriefingTimelineCue[] = result.timeline_cues.map((cue) => ({
 		cueId: cue.cue_id,
 		elementId: cue.element_id,
@@ -524,9 +537,8 @@ function normalizeReadyPreview(jobId: string, result: RendererBriefingResult): B
 	});
 
 	return {
-		state: 'ready',
-		status: 'completed',
-		jobId,
+		schemaVersion: 'briefing-document/v1',
+		jobId: result.job_id,
 		briefingId: result.briefing_id,
 		title: result.title,
 		topic: result.topic,
@@ -535,15 +547,45 @@ function normalizeReadyPreview(jobId: string, result: RendererBriefingResult): B
 		locale: result.locale,
 		generatedBy: result.generated_by,
 		validation: normalizeValidation(result.validation),
+		assets,
+		audioAsset: assetByPath.get(result.audio_path) ?? assets.find((asset) => asset.role === 'audio') ?? null,
+		sections,
+		sources,
+		timelineCues
+	};
+}
+
+export async function loadPublishedCanonicalArtifact(jobId: string, options: BriefingClientOptions = {}) {
+	const result = await loadPublishedBriefingResult(jobId, options);
+	return result ? canonicalArtifactFromPublishedResult(result) : null;
+}
+
+function normalizeReadyPreview(jobId: string, result: RendererBriefingResult): BriefingPreviewReady {
+	const artifact = canonicalArtifactFromPublishedResult(result);
+	const assets = result.assets.map((asset) => toAssetLink(jobId, result.briefing_id, asset));
+	const assetByPath = new Map<string, BriefingAssetLink>(assets.map((asset) => [asset.path, asset]));
+
+	return {
+		state: 'ready',
+		status: 'completed',
+		jobId,
+		briefingId: artifact.briefingId ?? jobId,
+		title: artifact.title,
+		topic: artifact.topic,
+		summary: artifact.summary,
+		generatedAt: artifact.generatedAt,
+		locale: artifact.locale,
+		generatedBy: artifact.generatedBy,
+		validation: artifact.validation,
 		audioAsset: assetByPath.get(result.audio_path) ?? assets.find((asset) => asset.role === 'audio') ?? null,
 		exportHtmlAsset:
 			assetByPath.get(result.standalone_html_path) ??
 			assets.find((asset) => asset.role === 'standalone_html') ??
 			null,
 		assets,
-		sections,
-		sources,
-		timelineCues
+		sections: artifact.sections,
+		sources: artifact.sources,
+		timelineCues: artifact.timelineCues
 	};
 }
 

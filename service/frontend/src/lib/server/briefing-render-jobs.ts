@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { execute, query } from './db';
 import { buildPublishedStorageKey } from './briefing-catalog';
 import {
+	createBriefingVersion,
 	getBriefingRecord,
 	getBriefingVersion,
 	getLatestBriefingVersion,
@@ -10,6 +11,7 @@ import {
 	type BriefingVersion,
 	type BriefingAssetInput
 } from './briefing-records';
+import { loadPublishedCanonicalArtifact } from './briefings';
 import type {
 	CanonicalBriefingArtifact,
 	BriefingGenerationProvenance
@@ -69,6 +71,8 @@ interface BriefingRenderJobDeps {
 	getLatestBriefingVersionFn?: typeof getLatestBriefingVersion;
 	getBriefingVersionFn?: typeof getBriefingVersion;
 	updateBriefingVersionArtifactFn?: typeof updateBriefingVersionArtifact;
+	createBriefingVersionFn?: typeof createBriefingVersion;
+	loadPublishedCanonicalArtifactFn?: typeof loadPublishedCanonicalArtifact;
 	randomIdFn?: () => string;
 	buildPublishedStorageKeyFn?: typeof buildPublishedStorageKey;
 }
@@ -263,6 +267,8 @@ export async function enqueueBriefingRerender(jobId: string, userId: string, dep
 	const executeFn = deps.executeFn ?? execute;
 	const getBriefingRecordFn = deps.getBriefingRecordFn ?? getBriefingRecord;
 	const getLatestBriefingVersionFn = deps.getLatestBriefingVersionFn ?? getLatestBriefingVersion;
+	const createBriefingVersionFn = deps.createBriefingVersionFn ?? createBriefingVersion;
+	const loadPublishedCanonicalArtifactFn = deps.loadPublishedCanonicalArtifactFn ?? loadPublishedCanonicalArtifact;
 	const [record, latestVersion] = await Promise.all([
 		getBriefingRecordFn(normalizedJobId),
 		getLatestBriefingVersionFn(normalizedJobId)
@@ -272,8 +278,36 @@ export async function enqueueBriefingRerender(jobId: string, userId: string, dep
 		return null;
 	}
 
-	if (!latestVersion) {
-		return null;
+	let effectiveLatestVersion = latestVersion;
+	if (!effectiveLatestVersion) {
+		const importedArtifact = await loadPublishedCanonicalArtifactFn(normalizedJobId);
+		if (!importedArtifact) {
+			return null;
+		}
+
+		await createBriefingVersionFn({
+			jobId: normalizedJobId,
+			versionNumber: 1,
+			artifactSchemaVersion: importedArtifact.schemaVersion,
+			artifact: importedArtifact,
+			provenance: null,
+			creationReason: 'legacy_import',
+			createdByProvider: null,
+			createdByModel: null
+		});
+
+		effectiveLatestVersion = {
+			id: 0,
+			jobId: normalizedJobId,
+			versionNumber: 1,
+			artifactSchemaVersion: importedArtifact.schemaVersion,
+			artifact: importedArtifact,
+			provenance: null,
+			creationReason: 'legacy_import',
+			createdByProvider: null,
+			createdByModel: null,
+			createdAt: new Date().toISOString()
+		};
 	}
 
 	await executeFn(
@@ -305,7 +339,7 @@ export async function enqueueBriefingRerender(jobId: string, userId: string, dep
 		{
 			id,
 			job_id: normalizedJobId,
-			briefing_version_number: latestVersion.versionNumber,
+			briefing_version_number: effectiveLatestVersion.versionNumber,
 			requested_by_user_id: normalizedUserId
 		}
 	);
@@ -325,7 +359,7 @@ export async function enqueueBriefingRerender(jobId: string, userId: string, dep
 		{ job_id: normalizedJobId }
 	);
 
-	return { renderJobId: id, jobId: normalizedJobId, versionNumber: latestVersion.versionNumber };
+	return { renderJobId: id, jobId: normalizedJobId, versionNumber: effectiveLatestVersion.versionNumber };
 }
 
 export async function claimNextBriefingRenderJob(deps: BriefingRenderJobDeps = {}): Promise<ClaimedBriefingRenderJob | null> {
