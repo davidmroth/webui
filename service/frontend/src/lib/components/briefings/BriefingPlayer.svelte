@@ -389,7 +389,7 @@
 						<p class="briefing-share-notice">{shareNotice}</p>
 					{/if}
 					{#if shareState.isPublic}
-						<a class="briefing-share-link" href={shareState.standalonePath}>
+						<a class="briefing-share-link" href={shareState.standalonePath} data-sveltekit-reload>
 							{shareUrl(shareState.standalonePath)}
 						</a>
 					{/if}
@@ -397,7 +397,7 @@
 			{/if}
 
 			{#if briefing.exportHtmlAsset}
-				<a class="secondary-button" href={briefing.exportHtmlAsset.url}>
+				<a class="secondary-button" href={briefing.exportHtmlAsset.url} data-sveltekit-reload>
 					Open standalone HTML
 				</a>
 			{/if}

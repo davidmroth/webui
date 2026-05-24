@@ -1,5 +1,10 @@
 import { getConfig } from '$server/env';
 import { getBriefingObjectBuffer } from '$server/storage';
+import {
+	getBriefingRecordByIdentifier,
+	getLatestBriefingVersion,
+	type BriefingVersion
+} from '$server/briefing-records';
 import type {
 	BriefingAssetLink,
 	BriefingCitationRef,
@@ -10,13 +15,13 @@ import type {
 	BriefingPreviewMissing,
 	BriefingPreviewProcessing,
 	BriefingPreviewReady,
+	BriefingRenderProgress,
 	BriefingSection,
 	BriefingSentenceSpan,
 	BriefingSourceRef,
 	BriefingTimelineCue,
 	BriefingValidationResult
 } from '$lib/types/briefing';
-type RendererJobState = 'processing' | 'completed' | 'failed';
 type RendererJobStage =
 	| 'queued'
 	| 'rendering_narration'
@@ -129,25 +134,12 @@ interface RendererBriefingResult {
 	validation: RendererValidationResult;
 }
 
-interface RendererJobStatus {
-	job_id: string;
-	briefing_id?: string | null;
-	status: RendererJobState;
-	stage?: RendererJobStage | null;
-	progress_percent?: number | null;
-	progress_detail?: string | null;
-	sentence_total?: number | null;
-	sentence_completed?: number | null;
-	created_at: string;
-	completed_at?: string | null;
-	error?: string | null;
-	validation?: RendererValidationResult | null;
-	asset_count?: number;
-}
 interface BriefingClientOptions {
 	readObjectBuffer?: (storageKey: string) => Promise<Buffer>;
 	now?: number;
 	requestHeaders?: Headers;
+	getBriefingRecordByIdentifierFn?: typeof getBriefingRecordByIdentifier;
+	getLatestBriefingVersionFn?: typeof getLatestBriefingVersion;
 }
 
 interface PublicBriefingIssue {
@@ -157,7 +149,6 @@ interface PublicBriefingIssue {
 }
 
 const DEFAULT_BRIEFING_MANIFEST_PATH = 'briefing.json';
-const DEFAULT_BRIEFING_STATUS_PATH = 'status.json';
 const PUBLISH_PENDING_TIMEOUT_MS = 5 * 60_000;
 
 function normalizeAssetPath(assetPath: string) {
@@ -347,20 +338,6 @@ async function loadPublishedBriefingResult(jobId: string, options: BriefingClien
 	}
 }
 
-async function loadPublishedBriefingStatus(jobId: string, options: BriefingClientOptions = {}) {
-	const readObjectBuffer = options.readObjectBuffer ?? getBriefingObjectBuffer;
-	try {
-		const buffer = await readObjectBuffer(buildPublishedStorageKey(jobId, DEFAULT_BRIEFING_STATUS_PATH));
-		const payload = parseJsonResponse(buffer.toString('utf-8'));
-		return isRendererJobStatus(payload) ? payload : null;
-	} catch (error) {
-		if (isMissingStorageObject(error)) {
-			return null;
-		}
-		throw error;
-	}
-}
-
 async function loadPublishedBriefingAsset(
 	jobId: string,
 	assetPath: string,
@@ -369,7 +346,20 @@ async function loadPublishedBriefingAsset(
 	const readObjectBuffer = options.readObjectBuffer ?? getBriefingObjectBuffer;
 	const manifest = await loadPublishedBriefingResult(jobId, options);
 	if (manifest === null) {
-		return null;
+		try {
+			const buffer = await readObjectBuffer(buildPublishedStorageKey(jobId, assetPath));
+			return {
+				buffer,
+				contentType: inferAssetContentType(assetPath),
+				cacheControl: inferAssetCacheControl(assetPath),
+				etag: null
+			};
+		} catch (error) {
+			if (isMissingStorageObject(error)) {
+				return null;
+			}
+			throw error;
+		}
 	}
 
 	const buffer = await readObjectBuffer(buildPublishedStorageKey(jobId, assetPath));
@@ -412,48 +402,6 @@ function normalizeValidation(value: RendererValidationResult | null | undefined)
 		errors: normalizeStringArray(value?.errors)
 	};
 }
-
-function publishValidationWarnings(status: RendererJobStatus) {
-	return normalizeStringArray(status.validation?.warnings);
-}
-
-function publishFailedWarning(status: RendererJobStatus) {
-	return publishValidationWarnings(status).find((warning) =>
-		/object-storage publishing (timed out|failed)|publishing (timed out|failed)/i.test(warning)
-	);
-}
-
-function normalizeRendererProgress(status: RendererJobStatus) {
-	const stage = typeof status.stage === 'string' ? status.stage : null;
-	const percent =
-		typeof status.progress_percent === 'number' && Number.isFinite(status.progress_percent)
-			? Math.min(100, Math.max(0, Math.round(status.progress_percent)))
-			: null;
-	const detail =
-		typeof status.progress_detail === 'string' && status.progress_detail.trim().length > 0
-			? status.progress_detail
-			: null;
-	const sentenceTotal =
-		typeof status.sentence_total === 'number' && Number.isFinite(status.sentence_total)
-			? Math.max(0, Math.round(status.sentence_total))
-			: null;
-	const sentenceCompleted =
-		typeof status.sentence_completed === 'number' && Number.isFinite(status.sentence_completed)
-			? Math.max(0, Math.round(status.sentence_completed))
-			: null;
-
-	if (stage === null) {
-		return null;
-	}
-
-	return {
-		stage,
-		percent,
-		detail,
-		sentenceTotal,
-		sentenceCompleted
-	};
-}
 function toErrorState(jobId: string, issue: PublicBriefingIssue): BriefingPreviewError {
 	return {
 		state: 'error',
@@ -474,137 +422,8 @@ function toMissingState(jobId: string, message: string): BriefingPreviewMissing 
 	};
 }
 
-function toStatusState(jobId: string, status: RendererJobStatus): BriefingPreviewProcessing | BriefingPreviewFailed {
-	const failedIssue =
-		status.status === 'failed'
-			? buildPublicBriefingIssue(status.error, 'The renderer could not finish this briefing.', {
-					retryable: true,
-					detail: 'Retry loading the briefing. If it still fails, regenerate the briefing from chat.',
-					timeoutMessage: 'The renderer timed out while verifying the briefing assets.',
-					timeoutDetail: 'Retry loading the briefing. The export may already be available.'
-				})
-			: null;
-
-	const common = {
-		jobId,
-		briefingId: typeof status.briefing_id === 'string' ? status.briefing_id : null,
-		createdAt: status.created_at,
-		completedAt: typeof status.completed_at === 'string' ? status.completed_at : null,
-		error: failedIssue?.message ?? null,
-		detail: failedIssue?.detail ?? null,
-		validation: status.validation ? normalizeValidation(status.validation) : null,
-		assetCount: typeof status.asset_count === 'number' ? status.asset_count : 0,
-		renderProgress: normalizeRendererProgress(status)
-	};
-
-	if (status.status === 'failed') {
-		return {
-			state: 'failed',
-			status: 'failed',
-			canRetry: failedIssue?.canRetry ?? false,
-			...common
-		};
-	}
-
-	return {
-		state: 'processing',
-		status: 'processing',
-		...common
-	};
-}
-
-function toPublishPendingState(status: RendererJobStatus): BriefingPreviewProcessing {
-	return {
-		state: 'processing',
-		status: 'processing',
-		jobId: status.job_id,
-		briefingId: typeof status.briefing_id === 'string' ? status.briefing_id : null,
-		createdAt: status.created_at,
-		completedAt: typeof status.completed_at === 'string' ? status.completed_at : null,
-		error: null,
-		validation: status.validation ? normalizeValidation(status.validation) : null,
-		assetCount: typeof status.asset_count === 'number' ? status.asset_count : 0,
-		renderProgress: {
-			stage: 'publishing_bundle',
-			percent: 100,
-			detail:
-				typeof status.progress_detail === 'string' && status.progress_detail.trim().length > 0
-					? status.progress_detail
-					: 'Rendering finished, and the WebUI is waiting for the published bundle to arrive in object storage.',
-			sentenceTotal:
-				typeof status.sentence_total === 'number' && Number.isFinite(status.sentence_total)
-					? Math.max(0, Math.round(status.sentence_total))
-					: null,
-			sentenceCompleted:
-				typeof status.sentence_completed === 'number' && Number.isFinite(status.sentence_completed)
-					? Math.max(0, Math.round(status.sentence_completed))
-					: null
-		}
-	};
-}
-
-function publishTimedOut(status: RendererJobStatus, now = Date.now()) {
-	if (publishFailedWarning(status)) {
-		return true;
-	}
-
-	const completedAtMs = Date.parse(status.completed_at ?? '');
-	if (!Number.isFinite(completedAtMs)) {
-		return false;
-	}
-
-	return now - completedAtMs >= PUBLISH_PENDING_TIMEOUT_MS;
-}
-
-function toPublishTimedOutState(status: RendererJobStatus): BriefingPreviewFailed {
-	const warnings = publishValidationWarnings(status);
-	const rendererHostedAssetsAvailable = warnings.some((warning) =>
-		/renderer-hosted briefing assets remain available/i.test(warning)
-	);
-	const publishFailed = warnings.some((warning) =>
-		/object-storage publishing failed|publishing failed/i.test(warning)
-	);
-	const detail = rendererHostedAssetsAvailable
-		? 'Rendering finished, but the published bundle never arrived in object storage. Renderer-hosted briefing assets remain available, but this WebUI only opens published bundles from object storage. Align the publisher and WebUI storage settings, then retry or regenerate the briefing.'
-		: 'Rendering finished, but the published bundle never arrived in object storage. Verify the publisher is writing to the same bucket and prefix the WebUI is reading, then retry or regenerate the briefing.';
-
-	return {
-		state: 'failed',
-		status: 'failed',
-		jobId: status.job_id,
-		briefingId: typeof status.briefing_id === 'string' ? status.briefing_id : null,
-		createdAt: status.created_at,
-		completedAt: typeof status.completed_at === 'string' ? status.completed_at : null,
-		error: publishFailed ? 'Publishing the briefing bundle failed.' : 'Publishing the briefing bundle timed out.',
-		detail,
-		validation: status.validation ? normalizeValidation(status.validation) : null,
-		assetCount: typeof status.asset_count === 'number' ? status.asset_count : 0,
-		renderProgress: {
-			stage: 'publishing_bundle',
-			percent: 100,
-			detail:
-				typeof status.progress_detail === 'string' && status.progress_detail.trim().length > 0
-					? status.progress_detail
-					: 'Rendering finished, and the WebUI is waiting for the published bundle to arrive in object storage.',
-			sentenceTotal:
-				typeof status.sentence_total === 'number' && Number.isFinite(status.sentence_total)
-					? Math.max(0, Math.round(status.sentence_total))
-					: null,
-			sentenceCompleted:
-				typeof status.sentence_completed === 'number' && Number.isFinite(status.sentence_completed)
-					? Math.max(0, Math.round(status.sentence_completed))
-					: null
-		},
-		canRetry: true
-	};
-}
-
 function isObjectRecord(value: unknown): value is Record<string, unknown> {
 	return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
-}
-
-function isRendererJobStatus(value: unknown): value is RendererJobStatus {
-	return isObjectRecord(value) && typeof value.job_id === 'string' && typeof value.status === 'string';
 }
 
 function isRendererBriefingResult(value: unknown): value is RendererBriefingResult {
@@ -728,6 +547,180 @@ function normalizeReadyPreview(jobId: string, result: RendererBriefingResult): B
 	};
 }
 
+function normalizeCanonicalAsset(jobId: string, asset: BriefingAssetLink): BriefingAssetLink {
+	return {
+		...asset,
+		url:
+			asset.role === 'standalone_html'
+				? buildStandaloneBriefingPath(jobId)
+				: asset.role === 'audio'
+					? buildProxyAssetUrl(jobId, asset.path)
+					: asset.url || buildProxyAssetUrl(jobId, asset.path)
+	};
+}
+
+function normalizeReadyPreviewFromCanonical(jobId: string, artifact: BriefingVersion['artifact']): BriefingPreviewReady {
+	const assets = artifact.assets.map((asset) => normalizeCanonicalAsset(jobId, asset));
+	const audioAsset = artifact.audioAsset ? normalizeCanonicalAsset(jobId, artifact.audioAsset) : assets.find((asset) => asset.role === 'audio') ?? null;
+	const exportHtmlAsset = {
+		role: 'standalone_html' as const,
+		path: 'standalone',
+		url: buildStandaloneBriefingPath(jobId),
+		contentType: 'text/html; charset=utf-8',
+		sizeBytes: 0,
+		sha256: '',
+		cacheControl: 'private, max-age=0, must-revalidate'
+	};
+
+	return {
+		state: 'ready',
+		status: 'completed',
+		jobId,
+		briefingId: artifact.briefingId ?? jobId,
+		title: artifact.title,
+		topic: artifact.topic,
+		summary: artifact.summary,
+		generatedAt: artifact.generatedAt,
+		locale: artifact.locale,
+		generatedBy: artifact.generatedBy,
+		validation: artifact.validation,
+		audioAsset,
+		exportHtmlAsset,
+		assets,
+		sections: artifact.sections,
+		sources: artifact.sources,
+		timelineCues: artifact.timelineCues
+	};
+}
+
+function normalizeCanonicalRenderProgress(
+	record: Awaited<ReturnType<typeof getBriefingRecordByIdentifier>>
+): BriefingRenderProgress | null {
+	const normalizedStage = typeof record?.stage === 'string' ? record.stage.trim() : '';
+	if (!normalizedStage) {
+		return null;
+	}
+
+	const percentByStage: Record<RendererJobStage, number> = {
+		queued: 1,
+		rendering_narration: 32,
+		encoding_audio: 58,
+		assembling_briefing: 76,
+		packaging_assets: 88,
+		publishing_bundle: 95,
+		completed: 100,
+		failed: 100
+	};
+	const detailByStage: Partial<Record<RendererJobStage, string>> = {
+		queued: 'Waiting for a renderer slot to become available.',
+		rendering_narration: 'The renderer is narrating the saved canonical briefing.',
+		encoding_audio: 'The renderer is encoding the refreshed audio track.',
+		assembling_briefing: 'The renderer is validating and assembling the rerendered briefing outputs.',
+		packaging_assets: 'The renderer is finalizing the rerendered briefing assets.',
+		publishing_bundle: 'The renderer is publishing the rerendered audio asset.',
+		completed: 'The rerendered briefing is ready.',
+		failed: 'The renderer reported a failure while rebuilding the briefing audio.'
+	};
+	if (!(normalizedStage in percentByStage)) {
+		return null;
+	}
+
+	const explicitPercent =
+		typeof record?.progressPercent === 'number' && Number.isFinite(record.progressPercent)
+			? Math.min(100, Math.max(0, Math.round(record.progressPercent)))
+			: null;
+	const explicitDetail =
+		typeof record?.progressDetail === 'string' && record.progressDetail.trim().length > 0
+			? record.progressDetail
+			: null;
+	const explicitSentenceTotal =
+		typeof record?.sentenceTotal === 'number' && Number.isFinite(record.sentenceTotal)
+			? Math.max(0, Math.round(record.sentenceTotal))
+			: null;
+	const explicitSentenceCompleted =
+		typeof record?.sentenceCompleted === 'number' && Number.isFinite(record.sentenceCompleted)
+			? Math.max(0, Math.round(record.sentenceCompleted))
+			: null;
+
+	return {
+		stage: normalizedStage as RendererJobStage,
+		percent: explicitPercent ?? percentByStage[normalizedStage as RendererJobStage],
+		detail: explicitDetail ?? detailByStage[normalizedStage as RendererJobStage] ?? null,
+		sentenceTotal: explicitSentenceTotal,
+		sentenceCompleted: explicitSentenceCompleted
+	};
+}
+
+function publishTimedOutFromRecord(
+	record: Awaited<ReturnType<typeof getBriefingRecordByIdentifier>>,
+	now = Date.now()
+) {
+	const publishStartedAtMs = Date.parse(record?.updatedAt ?? record?.completedAt ?? '');
+	if (!Number.isFinite(publishStartedAtMs)) {
+		return false;
+	}
+
+	return now - publishStartedAtMs >= PUBLISH_PENDING_TIMEOUT_MS;
+}
+
+function toCanonicalPublishTimedOutState(
+	record: Awaited<ReturnType<typeof getBriefingRecordByIdentifier>>,
+	artifact: BriefingVersion['artifact'] | null
+): BriefingPreviewFailed {
+	return {
+		state: 'failed',
+		status: 'failed',
+		jobId: record?.jobId ?? '',
+		briefingId: record?.briefingId ?? null,
+		createdAt: record?.startedAt ?? record?.createdAt ?? new Date(0).toISOString(),
+		completedAt: record?.updatedAt ?? null,
+		error: 'Publishing the briefing bundle timed out.',
+		detail:
+			'Rendering finished, but the published bundle never arrived in object storage. Verify the publisher is writing to the same bucket and prefix the WebUI is reading, then retry or regenerate the briefing.',
+		validation: null,
+		assetCount: artifact?.assets.length ?? 0,
+		renderProgress: normalizeCanonicalRenderProgress(record),
+		canRetry: true
+	};
+}
+
+function normalizeCanonicalProcessingPreview(
+	record: Awaited<ReturnType<typeof getBriefingRecordByIdentifier>>,
+	artifact: BriefingVersion['artifact'] | null
+): BriefingPreviewProcessing | BriefingPreviewFailed {
+	const renderProgress = normalizeCanonicalRenderProgress(record);
+	const assetCount = artifact?.assets.length ?? 0;
+	if (record?.state === 'failed') {
+		return {
+			state: 'failed',
+			status: 'failed',
+			jobId: record.jobId,
+			briefingId: record.briefingId,
+			createdAt: record.startedAt ?? record.createdAt,
+			completedAt: record.failedAt ?? record.completedAt,
+			error: record.errorMessage,
+			detail: record.errorMessage,
+			validation: null,
+			assetCount,
+			renderProgress,
+			canRetry: true
+		};
+	}
+
+	return {
+		state: 'processing',
+		status: 'processing',
+		jobId: record?.jobId ?? '',
+		briefingId: record?.briefingId ?? null,
+		createdAt: record?.startedAt ?? record?.createdAt ?? new Date(0).toISOString(),
+		completedAt: null,
+		error: null,
+		validation: null,
+		assetCount,
+		renderProgress
+	};
+}
+
 async function loadBriefingPreviewInternal(
 	identifier: string,
 	options: BriefingClientOptions = {},
@@ -751,19 +744,36 @@ async function loadBriefingPreviewInternal(
 
 	const nextSeenJobIds = new Set(seenJobIds);
 	nextSeenJobIds.add(normalizedIdentifier);
+	const getBriefingRecordByIdentifierFn = options.getBriefingRecordByIdentifierFn ?? getBriefingRecordByIdentifier;
+	const getLatestBriefingVersionFn = options.getLatestBriefingVersionFn ?? getLatestBriefingVersion;
+	const canonicalRecord = await getBriefingRecordByIdentifierFn(normalizedIdentifier).catch(() => null);
+	const resolvedJobId = canonicalRecord?.jobId ?? normalizedIdentifier;
+	if (canonicalRecord) {
+		const latestVersion = await getLatestBriefingVersionFn(canonicalRecord.jobId).catch(() => null);
+		if (canonicalRecord.state === 'ready' && latestVersion) {
+			return normalizeReadyPreviewFromCanonical(canonicalRecord.jobId, latestVersion.artifact);
+		}
+		if (canonicalRecord.state !== 'ready') {
+			if (canonicalRecord.stage === 'publishing_bundle' && publishTimedOutFromRecord(canonicalRecord, options.now)) {
+				return toCanonicalPublishTimedOutState(canonicalRecord, latestVersion?.artifact ?? null);
+			}
+
+			return normalizeCanonicalProcessingPreview(canonicalRecord, latestVersion?.artifact ?? null);
+		}
+	}
 
 	try {
-		const publishedResult = await loadPublishedBriefingResult(normalizedIdentifier, options);
+		const publishedResult = await loadPublishedBriefingResult(resolvedJobId, options);
 		if (publishedResult !== null) {
 			return normalizeReadyPreview(publishedResult.job_id, publishedResult);
 		}
 	} catch (error) {
 		console.error('Failed to load published briefing manifest from object storage', {
-			jobId: normalizedIdentifier,
+			jobId: resolvedJobId,
 			error
 		});
 		return toErrorState(
-			normalizedIdentifier,
+			resolvedJobId,
 			buildPublicBriefingIssue(
 				null,
 				'Briefing preview is temporarily unavailable.',
@@ -775,38 +785,7 @@ async function loadBriefingPreviewInternal(
 		);
 	}
 
-	let publishedStatus: RendererJobStatus | null;
-	try {
-		publishedStatus = await loadPublishedBriefingStatus(normalizedIdentifier, options);
-	} catch (error) {
-		console.error('Failed to load published briefing status from object storage', {
-			jobId: normalizedIdentifier,
-			error
-		});
-		return toErrorState(
-			normalizedIdentifier,
-			buildPublicBriefingIssue(
-				null,
-				'Briefing preview is temporarily unavailable.',
-				{
-					retryable: true,
-					detail: 'The WebUI could not read the published briefing status from object storage. Retry in a moment.'
-				}
-			)
-		);
-	}
-
-	if (publishedStatus !== null) {
-		if (publishedStatus.status === 'completed') {
-			return publishTimedOut(publishedStatus, options.now)
-				? toPublishTimedOutState(publishedStatus)
-				: toPublishPendingState(publishedStatus);
-		}
-
-		return toStatusState(publishedStatus.job_id, publishedStatus);
-	}
-
-	return toErrorState(normalizedIdentifier, {
+	return toErrorState(resolvedJobId, {
 		message: 'Briefing export is not available yet.',
 		detail:
 			'The WebUI is waiting for the published briefing bundle in object storage. Retry in a moment.',

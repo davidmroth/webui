@@ -3100,6 +3100,11 @@ html.app-init *::after {
   transition: opacity 180ms ease;
 }
 
+.app-loading-overlay-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
 :root.dark .app-loading-overlay {
   background: var(--background, #0f1013);
 }

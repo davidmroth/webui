@@ -29,6 +29,14 @@ interface BriefingPreviewPollingOptions extends FetchBriefingPreviewOptions {
 	onError?: (message: string | null) => void;
 }
 
+interface BriefingPreviewStreamOptions {
+	jobId: string;
+	basePath?: string;
+	onUpdate: (preview: BriefingPreview) => void;
+	onError?: (message: string | null) => void;
+	EventSourceImpl?: typeof EventSource;
+}
+
 const BRIEFING_PREVIEW_STATES = new Set(['ready', 'processing', 'failed', 'missing', 'error']);
 const RENDERER_STAGE_COPY: Record<
 	BriefingRenderStage,
@@ -131,6 +139,10 @@ function interpolateProgress(elapsedMs: number) {
 
 export function buildBriefingPreviewApiPath(jobId: string, basePath = '') {
 	return `${normalizeBasePath(basePath)}/api/briefings/${encodeURIComponent(jobId.trim())}`;
+}
+
+export function buildBriefingPreviewStreamApiPath(jobId: string, basePath = '') {
+	return `${buildBriefingPreviewApiPath(jobId, basePath)}/stream`;
 }
 
 export async function fetchBriefingPreview(
@@ -282,5 +294,48 @@ export function startBriefingPreviewPolling(options: BriefingPreviewPollingOptio
 	return () => {
 		cancelled = true;
 		clearTimer();
+	};
+}
+
+export function startBriefingPreviewStream(options: BriefingPreviewStreamOptions) {
+	if (typeof window === 'undefined') {
+		return () => {};
+	}
+
+	const EventSourceCtor = options.EventSourceImpl ?? EventSource;
+	const source = new EventSourceCtor(buildBriefingPreviewStreamApiPath(options.jobId, options.basePath), {
+		withCredentials: true
+	});
+
+	const handlePreview = (event: MessageEvent<string>) => {
+		try {
+			const payload = JSON.parse(event.data) as unknown;
+			if (!isBriefingPreview(payload)) {
+				throw new Error('Unable to decode the live briefing status update.');
+			}
+
+			options.onUpdate(payload);
+			options.onError?.(null);
+			if (payload.state !== 'processing') {
+				source.close();
+			}
+		} catch (error) {
+			options.onError?.(
+				error instanceof Error ? error.message : 'Unable to decode the live briefing status update.'
+			);
+		}
+	};
+
+	const handleError = () => {
+		options.onError?.('Live briefing updates paused briefly. Reconnecting...');
+	};
+
+	source.addEventListener('preview', handlePreview as EventListener);
+	source.addEventListener('error', handleError as EventListener);
+
+	return () => {
+		source.removeEventListener('preview', handlePreview as EventListener);
+		source.removeEventListener('error', handleError as EventListener);
+		source.close();
 	};
 }

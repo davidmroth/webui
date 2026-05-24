@@ -8,11 +8,18 @@
 	interface Props {
 		preview: PendingBriefingPreview;
 		refreshHref: string;
-		retryBriefingAction?: string | null;
+		rerenderBriefingAction?: string | null;
+		regenerateBriefingAction?: string | null;
 		pollError?: string | null;
 	}
 
-	let { preview, refreshHref, retryBriefingAction = null, pollError = null }: Props = $props();
+	let {
+		preview,
+		refreshHref,
+		rerenderBriefingAction = null,
+		regenerateBriefingAction = null,
+		pollError = null
+	}: Props = $props();
 	let nowMs = $state(Date.now());
 
 	$effect(() => {
@@ -157,9 +164,16 @@
 	{/if}
 
 	<div class="briefing-status-actions">
-		{#if preview.state === 'failed' && preview.canRetry && retryBriefingAction}
-			<form method="POST" action={retryBriefingAction}>
-				<button class="secondary-button" type="submit">Rebuild briefing</button>
+		{#if ((preview.state === 'processing') || (preview.state === 'failed' && preview.canRetry)) && rerenderBriefingAction}
+			<form method="POST" action={rerenderBriefingAction}>
+				<input type="hidden" name="intent" value="rerender" />
+				<button class="secondary-button" type="submit">{preview.state === 'processing' ? 'Restart job' : 'Rerender briefing'}</button>
+			</form>
+		{/if}
+		{#if preview.state === 'failed' && regenerateBriefingAction}
+			<form method="POST" action={regenerateBriefingAction}>
+				<input type="hidden" name="intent" value="regenerate" />
+				<button class="secondary-button" type="submit">Regenerate briefing</button>
 			</form>
 		{/if}
 		<a class="secondary-button" href={refreshHref}>Reload page</a>

@@ -3,10 +3,6 @@ import assert from 'node:assert/strict';
 
 import { fetchBriefingAsset, loadBriefingPreview } from './briefings.ts';
 
-function storageJson(payload) {
-	return Buffer.from(JSON.stringify(payload), 'utf-8');
-}
-
 test('loadBriefingPreview reads a published briefing manifest from storage without calling the renderer', async () => {
 	const manifest = {
 		schema_version: 'briefing-renderer/v1',
@@ -44,28 +40,226 @@ test('loadBriefingPreview reads a published briefing manifest from storage witho
 	assert.equal(preview.audioAsset?.url, '/api/briefings/job-storage-123/assets/audio.mp3');
 });
 
-test('loadBriefingPreview returns published processing status when the bundle is missing', async () => {
-	const preview = await loadBriefingPreview('job-processing-123', {
+test('loadBriefingPreview prefers the DB-canonical artifact when a version is available', async () => {
+	const preview = await loadBriefingPreview('briefing-db-123', {
+		getBriefingRecordByIdentifierFn: async () => ({
+			jobId: 'job-db-123',
+			ownerUserId: 'user-1',
+			conversationId: 'conv-1',
+			sourceMessageId: 'msg-1',
+			briefingId: 'briefing-db-123',
+			title: 'Stored Briefing',
+			summary: 'Stored summary',
+			state: 'ready',
+			stage: 'completed',
+			manifestStorageKey: null,
+			statusStorageKey: null,
+			errorMessage: null,
+			validationValid: true,
+			validationWarningCount: 0,
+			validationErrorCount: 0,
+			createdAt: '2026-05-22T08:00:00Z',
+			updatedAt: '2026-05-22T08:00:00Z',
+			startedAt: '2026-05-22T08:00:00Z',
+			completedAt: '2026-05-22T08:00:05Z',
+			failedAt: null
+		}),
+		getLatestBriefingVersionFn: async () => ({
+			id: 1,
+			jobId: 'job-db-123',
+			versionNumber: 1,
+			artifactSchemaVersion: 'briefing-document/v1',
+			artifact: {
+				schemaVersion: 'briefing-document/v1',
+				jobId: 'job-db-123',
+				briefingId: 'briefing-db-123',
+				title: 'DB Briefing',
+				topic: 'DB-backed preview',
+				summary: 'Loaded from the database.',
+				generatedAt: '2026-05-22T08:00:00Z',
+				locale: 'en-US',
+				generatedBy: 'hermes',
+				validation: { valid: true, warnings: [], errors: [] },
+				assets: [{ role: 'audio', path: 'audio.mp3', url: '', contentType: 'audio/mpeg', sizeBytes: 12, sha256: 'a', cacheControl: 'private, max-age=300' }],
+				audioAsset: { role: 'audio', path: 'audio.mp3', url: '', contentType: 'audio/mpeg', sizeBytes: 12, sha256: 'a', cacheControl: 'private, max-age=300' },
+				sections: [],
+				sources: [],
+				timelineCues: []
+			},
+			provenance: null,
+			creationReason: 'initial_generation',
+			createdByProvider: 'openai',
+			createdByModel: 'gpt-test',
+			createdAt: '2026-05-22T08:00:05Z'
+		}),
+		readObjectBuffer: async () => {
+			throw new Error('DB canonical artifacts should bypass object storage manifest reads.');
+		}
+	});
+
+	assert.equal(preview.state, 'ready');
+	assert.equal(preview.jobId, 'job-db-123');
+	assert.equal(preview.title, 'DB Briefing');
+	assert.equal(preview.audioAsset?.url, '/api/briefings/job-db-123/assets/audio.mp3');
+	assert.equal(preview.exportHtmlAsset?.url, '/briefings/job-db-123');
+});
+
+test('loadBriefingPreview respects canonical processing state even when a version already exists', async () => {
+	const preview = await loadBriefingPreview('job-db-processing', {
+		getBriefingRecordByIdentifierFn: async () => ({
+			jobId: 'job-db-processing',
+			ownerUserId: 'user-1',
+			conversationId: 'conv-1',
+			sourceMessageId: 'msg-1',
+			briefingId: 'briefing-db-processing',
+			title: 'DB Briefing',
+			summary: 'Still rendering',
+			state: 'processing',
+			stage: 'encoding_audio',
+			progressPercent: 58,
+			progressDetail: 'Encoding the refreshed audio track.',
+			sentenceTotal: 59,
+			sentenceCompleted: 12,
+			manifestStorageKey: null,
+			statusStorageKey: null,
+			errorMessage: null,
+			validationValid: true,
+			validationWarningCount: 0,
+			validationErrorCount: 0,
+			createdAt: '2026-05-22T08:00:00Z',
+			updatedAt: '2026-05-22T08:00:00Z',
+			startedAt: '2026-05-22T08:00:00Z',
+			completedAt: null,
+			failedAt: null
+		}),
+		getLatestBriefingVersionFn: async () => ({
+			id: 1,
+			jobId: 'job-db-processing',
+			versionNumber: 3,
+			artifactSchemaVersion: 'briefing-document/v1',
+			artifact: {
+				schemaVersion: 'briefing-document/v1',
+				jobId: 'job-db-processing',
+				briefingId: 'briefing-db-processing',
+				title: 'DB Briefing',
+				topic: 'Topic',
+				summary: 'Still rendering',
+				generatedAt: '2026-05-22T08:00:00Z',
+				locale: 'en-US',
+				generatedBy: 'hermes',
+				validation: { valid: true, warnings: [], errors: [] },
+				assets: [],
+				audioAsset: null,
+				sections: [],
+				sources: [],
+				timelineCues: []
+			},
+			provenance: null,
+			creationReason: 'initial_generation',
+			createdByProvider: 'openai',
+			createdByModel: 'gpt-test',
+			createdAt: '2026-05-22T08:00:05Z'
+		}),
+		readObjectBuffer: async () => {
+			throw new Error('Processing canonical briefings should not fall back to object storage.');
+		}
+	});
+
+	assert.equal(preview.state, 'processing');
+	assert.equal(preview.renderProgress?.stage, 'encoding_audio');
+	assert.equal(preview.renderProgress?.percent, 58);
+	assert.equal(preview.renderProgress?.sentenceTotal, 59);
+	assert.equal(preview.renderProgress?.sentenceCompleted, 12);
+	assert.match(preview.renderProgress?.detail ?? '', /encoding the refreshed audio/i);
+});
+
+test('loadBriefingPreview uses DB-authoritative processing metadata without reading status.json', async () => {
+	const preview = await loadBriefingPreview('job-legacy-processing', {
+		getBriefingRecordByIdentifierFn: async () => ({
+			jobId: 'job-legacy-processing',
+			ownerUserId: 'user-1',
+			conversationId: 'conv-1',
+			sourceMessageId: 'msg-1',
+			briefingId: 'briefing-legacy-processing',
+			title: 'Legacy Briefing',
+			summary: 'Still rendering',
+			state: 'processing',
+			stage: 'rendering_narration',
+			progressPercent: 32,
+			progressDetail: 'The renderer is narrating the saved canonical briefing.',
+			sentenceTotal: null,
+			sentenceCompleted: null,
+			manifestStorageKey: null,
+			statusStorageKey: null,
+			errorMessage: null,
+			validationValid: true,
+			validationWarningCount: 0,
+			validationErrorCount: 0,
+			createdAt: '2026-05-22T08:00:00Z',
+			updatedAt: '2026-05-22T08:00:00Z',
+			startedAt: '2026-05-22T08:00:00Z',
+			completedAt: null,
+			failedAt: null
+		}),
+		getLatestBriefingVersionFn: async () => null,
+		readObjectBuffer: async () => {
+			throw new Error('DB-authoritative briefing status should not read status.json.');
+		}
+	});
+
+	assert.equal(preview.state, 'processing');
+	assert.equal(preview.renderProgress?.stage, 'rendering_narration');
+	assert.equal(preview.renderProgress?.percent, 32);
+	assert.match(preview.renderProgress?.detail ?? '', /saved canonical briefing/i);
+});
+
+test('fetchBriefingAsset can read audio directly from object storage without a stored manifest', async () => {
+	const response = await fetchBriefingAsset('job-audio-only', 'audio.mp3', {
 		readObjectBuffer: async (storageKey) => {
-			if (storageKey === 'webui/briefings/job-processing-123/briefing.json') {
+			if (storageKey === 'webui/briefings/job-audio-only/briefing.json') {
 				throw Object.assign(new Error('NoSuchKey'), { code: 'NoSuchKey' });
 			}
-			assert.equal(storageKey, 'webui/briefings/job-processing-123/status.json');
-			return storageJson({
-				job_id: 'job-processing-123',
-				briefing_id: 'briefing-processing-123',
-				status: 'processing',
-				stage: 'packaging_assets',
-				progress_percent: 97,
-				progress_detail: 'Writing packaged briefing assets.',
-				sentence_total: 59,
-				sentence_completed: 59,
-				created_at: '2026-05-13T17:03:53.185024+00:00',
-				completed_at: null,
-				error: null,
-				validation: null,
-				asset_count: 0
-			});
+			assert.equal(storageKey, 'webui/briefings/job-audio-only/audio.mp3');
+			return Buffer.from('ABCDEFGHIJ', 'utf-8');
+		}
+	});
+
+	assert.equal(response.status, 200);
+	assert.equal(response.headers.get('content-type'), 'audio/mpeg');
+	assert.equal(await response.text(), 'ABCDEFGHIJ');
+});
+
+test('loadBriefingPreview returns DB processing status when the bundle is missing', async () => {
+	const preview = await loadBriefingPreview('job-processing-123', {
+		getBriefingRecordByIdentifierFn: async () => ({
+			jobId: 'job-processing-123',
+			ownerUserId: 'user-1',
+			conversationId: 'conv-1',
+			sourceMessageId: 'msg-1',
+			briefingId: 'briefing-processing-123',
+			title: 'Stored Briefing',
+			summary: 'Packaging',
+			state: 'processing',
+			stage: 'packaging_assets',
+			progressPercent: 97,
+			progressDetail: 'Writing packaged briefing assets.',
+			sentenceTotal: 59,
+			sentenceCompleted: 59,
+			manifestStorageKey: null,
+			statusStorageKey: null,
+			errorMessage: null,
+			validationValid: true,
+			validationWarningCount: 0,
+			validationErrorCount: 0,
+			createdAt: '2026-05-13T17:03:53.185024+00:00',
+			updatedAt: '2026-05-13T17:04:30.000000+00:00',
+			startedAt: '2026-05-13T17:03:53.185024+00:00',
+			completedAt: null,
+			failedAt: null
+		}),
+		getLatestBriefingVersionFn: async () => null,
+		readObjectBuffer: async () => {
+			throw new Error('DB-authoritative briefing status should not read status.json.');
 		}
 	});
 
@@ -80,25 +274,40 @@ test('loadBriefingPreview returns published processing status when the bundle is
 	assert.equal(preview.renderProgress?.sentenceCompleted, 59);
 });
 
-test('loadBriefingPreview reports publish-pending progress when status is completed but the manifest is still missing', async () => {
+test('loadBriefingPreview reports publish-pending progress from DB when the manifest is still missing', async () => {
 	const preview = await loadBriefingPreview('job-prod-fail', {
+		getBriefingRecordByIdentifierFn: async () => ({
+			jobId: 'job-prod-fail',
+			ownerUserId: 'user-1',
+			conversationId: 'conv-1',
+			sourceMessageId: 'msg-1',
+			briefingId: 'briefing-prod-fail',
+			title: 'Stored Briefing',
+			summary: 'Publishing',
+			state: 'processing',
+			stage: 'publishing_bundle',
+			progressPercent: 100,
+			progressDetail: 'Briefing ready.',
+			sentenceTotal: null,
+			sentenceCompleted: null,
+			manifestStorageKey: null,
+			statusStorageKey: null,
+			errorMessage: null,
+			validationValid: true,
+			validationWarningCount: 0,
+			validationErrorCount: 0,
+			createdAt: '2026-05-13T17:03:53.185024+00:00',
+			updatedAt: '2026-05-13T17:05:53.185024+00:00',
+			startedAt: '2026-05-13T17:03:53.185024+00:00',
+			completedAt: null,
+			failedAt: null
+		}),
+		getLatestBriefingVersionFn: async () => null,
 		readObjectBuffer: async (storageKey) => {
 			if (storageKey === 'webui/briefings/job-prod-fail/briefing.json') {
 				throw Object.assign(new Error('NoSuchKey'), { code: 'NoSuchKey' });
 			}
-			assert.equal(storageKey, 'webui/briefings/job-prod-fail/status.json');
-			return storageJson({
-				job_id: 'job-prod-fail',
-				briefing_id: 'briefing-prod-fail',
-				status: 'completed',
-				stage: 'completed',
-				progress_percent: 100,
-				progress_detail: 'Briefing ready.',
-				created_at: '2026-05-13T17:03:53.185024+00:00',
-				completed_at: '2026-05-13T17:05:53.185024+00:00',
-				validation: null,
-				asset_count: 0
-			});
+			throw new Error(`Unexpected storage read: ${storageKey}`);
 		},
 		now: Date.parse('2026-05-13T17:09:00.000Z')
 	});
@@ -111,25 +320,40 @@ test('loadBriefingPreview reports publish-pending progress when status is comple
 	assert.doesNotMatch(preview.renderProgress?.detail ?? '', /BRIEFING_RENDERER_/);
 });
 
-test('loadBriefingPreview fails closed when publishing stays incomplete after the timeout window', async () => {
+test('loadBriefingPreview fails closed when publishing stays incomplete after the timeout window in DB state', async () => {
 	const preview = await loadBriefingPreview('job-publish-timeout', {
+		getBriefingRecordByIdentifierFn: async () => ({
+			jobId: 'job-publish-timeout',
+			ownerUserId: 'user-1',
+			conversationId: 'conv-1',
+			sourceMessageId: 'msg-1',
+			briefingId: 'briefing-publish-timeout',
+			title: 'Stored Briefing',
+			summary: 'Publishing',
+			state: 'processing',
+			stage: 'publishing_bundle',
+			progressPercent: 100,
+			progressDetail: 'Briefing ready.',
+			sentenceTotal: null,
+			sentenceCompleted: null,
+			manifestStorageKey: null,
+			statusStorageKey: null,
+			errorMessage: null,
+			validationValid: true,
+			validationWarningCount: 0,
+			validationErrorCount: 0,
+			createdAt: '2026-05-13T17:03:53.185024+00:00',
+			updatedAt: '2026-05-13T17:05:53.185024+00:00',
+			startedAt: '2026-05-13T17:03:53.185024+00:00',
+			completedAt: null,
+			failedAt: null
+		}),
+		getLatestBriefingVersionFn: async () => null,
 		readObjectBuffer: async (storageKey) => {
 			if (storageKey === 'webui/briefings/job-publish-timeout/briefing.json') {
 				throw Object.assign(new Error('NoSuchKey'), { code: 'NoSuchKey' });
 			}
-			assert.equal(storageKey, 'webui/briefings/job-publish-timeout/status.json');
-			return storageJson({
-				job_id: 'job-publish-timeout',
-				briefing_id: 'briefing-publish-timeout',
-				status: 'completed',
-				stage: 'completed',
-				progress_percent: 100,
-				progress_detail: 'Briefing ready.',
-				created_at: '2026-05-13T17:03:53.185024+00:00',
-				completed_at: '2026-05-13T17:05:53.185024+00:00',
-				validation: null,
-				asset_count: 0
-			});
+			throw new Error(`Unexpected storage read: ${storageKey}`);
 		},
 		now: Date.parse('2026-05-13T17:12:00.000Z')
 	});
@@ -139,70 +363,6 @@ test('loadBriefingPreview fails closed when publishing stays incomplete after th
 	assert.match(preview.detail ?? '', /same bucket and prefix/i);
 	assert.equal(preview.renderProgress?.stage, 'publishing_bundle');
 	assert.equal(preview.renderProgress?.percent, 100);
-	assert.equal(preview.canRetry, true);
-});
-
-test('loadBriefingPreview fails closed immediately when the published status reports object-storage publishing timed out', async () => {
-	const preview = await loadBriefingPreview('job-publish-warning', {
-		readObjectBuffer: async (storageKey) => {
-			if (storageKey === 'webui/briefings/job-publish-warning/briefing.json') {
-				throw Object.assign(new Error('NoSuchKey'), { code: 'NoSuchKey' });
-			}
-			assert.equal(storageKey, 'webui/briefings/job-publish-warning/status.json');
-			return storageJson({
-				job_id: 'job-publish-warning',
-				briefing_id: 'briefing-publish-warning',
-				status: 'completed',
-				stage: 'completed',
-				progress_percent: 100,
-				progress_detail: 'Briefing ready.',
-				created_at: '2026-05-13T17:03:53.185024+00:00',
-				completed_at: '2026-05-13T17:05:53.185024+00:00',
-				validation: {
-					valid: true,
-					warnings: ['External object-storage publishing timed out. Renderer-hosted briefing assets remain available.'],
-					errors: []
-				},
-				asset_count: 0
-			});
-		}
-	});
-
-	assert.equal(preview.state, 'failed');
-	assert.equal(preview.error, 'Publishing the briefing bundle timed out.');
-	assert.match(preview.detail ?? '', /renderer-hosted briefing assets remain available/i);
-	assert.equal(preview.canRetry, true);
-});
-
-test('loadBriefingPreview fails closed immediately when the published status reports object-storage publishing failed', async () => {
-	const preview = await loadBriefingPreview('job-publish-failed-warning', {
-		readObjectBuffer: async (storageKey) => {
-			if (storageKey === 'webui/briefings/job-publish-failed-warning/briefing.json') {
-				throw Object.assign(new Error('NoSuchKey'), { code: 'NoSuchKey' });
-			}
-			assert.equal(storageKey, 'webui/briefings/job-publish-failed-warning/status.json');
-			return storageJson({
-				job_id: 'job-publish-failed-warning',
-				briefing_id: 'briefing-publish-failed-warning',
-				status: 'completed',
-				stage: 'completed',
-				progress_percent: 100,
-				progress_detail: 'Briefing ready.',
-				created_at: '2026-05-13T17:03:53.185024+00:00',
-				completed_at: '2026-05-13T17:05:53.185024+00:00',
-				validation: {
-					valid: true,
-					warnings: ['External object-storage publishing failed. Renderer-hosted briefing assets remain available.'],
-					errors: []
-				},
-				asset_count: 0
-			});
-		}
-	});
-
-	assert.equal(preview.state, 'failed');
-	assert.equal(preview.error, 'Publishing the briefing bundle failed.');
-	assert.match(preview.detail ?? '', /renderer-hosted briefing assets remain available/i);
 	assert.equal(preview.canRetry, true);
 });
 

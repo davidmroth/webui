@@ -11,7 +11,7 @@
     "migrate": "tsx scripts/migrate.ts",
     "post-assistant-message": "tsx scripts/post-assistant-message.ts",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
-    "test": "sh -lc 'files=$(find src -name \"*.test.js\" | sort); ./node_modules/.bin/tsx --test $files'"
+    "test": "sh -lc 'files=$(find src -name \"*.test.js\" | sort); node --import tsx --test --test-force-exit $files'"
   },
   "dependencies": {
     "clsx": "^2.1.1",

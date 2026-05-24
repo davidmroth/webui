@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { buildEtag, requestHasMatchingEtag } from './+server.ts';
+import { buildEtag, requestHasMatchingEtag } from './cache.ts';
 
 test('buildEtag is stable for identical payloads', () => {
   const payload = { conversations: [{ id: 'a', title: 'Alpha' }] };

@@ -1,11 +1,16 @@
 <script lang="ts">
   import '../app.css';
+  import { navigating } from '$app/state';
   import { onMount } from 'svelte';
   import { ModeWatcher } from 'mode-watcher';
   import { Toaster, toast } from 'svelte-sonner';
   import * as Tooltip from '$lib/components/ui/tooltip';
 
   let { children } = $props();
+
+  const isBriefingsPageLoading = $derived(
+    navigating.to?.url.pathname === '/briefings'
+  );
 
   const LINK_WINDOW_FEATURES = 'noopener,noreferrer';
   const MOBILE_VIEWPORT_MEDIA_QUERY = '(max-width: 768px)';
@@ -332,7 +337,11 @@
   {@render children()}
 </Tooltip.Provider>
 
-<div class="app-loading-overlay" aria-hidden="true">
+<div
+  class="app-loading-overlay"
+  class:app-loading-overlay-visible={isBriefingsPageLoading}
+  aria-hidden={!isBriefingsPageLoading}
+>
   <div class="app-loading-spinner"></div>
 </div>
 

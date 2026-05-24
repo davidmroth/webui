@@ -1,28 +1,7 @@
 import { json } from '@sveltejs/kit';
-import { createHash } from 'node:crypto';
 import { createConversation, listConversations } from '$server/chat';
 import { requireSession } from '$server/auth';
-
-function buildEtag(value: unknown): string {
-  const digest = createHash('sha1').update(JSON.stringify(value)).digest('hex');
-  return `"${digest}"`;
-}
-
-function requestHasMatchingEtag(request: Request, etag: string): boolean {
-  const header = request.headers.get('if-none-match');
-  if (!header) {
-    return false;
-  }
-
-  if (header.trim() === '*') {
-    return true;
-  }
-
-  return header
-    .split(',')
-    .map((candidate) => candidate.trim())
-    .includes(etag);
-}
+import { buildEtag, requestHasMatchingEtag } from './cache';
 
 export async function GET(event) {
   const session = await requireSession(event);

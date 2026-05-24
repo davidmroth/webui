@@ -3,7 +3,8 @@ import { buildBriefingPageHtml } from '$lib/server/briefing-standalone-html';
 import { getBriefingViewerAccess } from '$server/briefing-sharing';
 import { loadBriefingPreview } from '$server/briefings';
 import { requireSession } from '$server/auth';
-import { retryBriefingJob } from '$server/chat';
+import { enqueueBriefingRerender } from '$server/briefing-render-jobs';
+import { queueBriefingRegenerationRequest } from '$server/briefing-regenerate';
 import {
 	renderBriefingUnauthorizedPage,
 	renderBriefingStatusPage,
@@ -75,9 +76,10 @@ export async function GET(event) {
 	}
 
 	if (preview.state !== 'ready') {
-			return new Response(renderBriefingStatusPage(preview, {
+		return new Response(renderBriefingStatusPage(preview, {
 				retryHref: buildRetryHref(event.url.pathname),
-				retryBriefingAction: access.canManage ? buildRetryBriefingAction(event.url.pathname) : null
+				rerenderBriefingAction: access.canManage ? buildRetryBriefingAction(event.url.pathname) : null,
+				regenerateBriefingAction: access.canManage ? buildRetryBriefingAction(event.url.pathname) : null
 			}), {
 				status: statusCodeForBriefingPreviewState(preview.state),
 				headers: {
@@ -98,6 +100,8 @@ export async function GET(event) {
 
 export async function POST(event) {
 	const session = await requireSession(event);
+	const formData = await event.request.formData();
+	const intent = String(formData.get('intent') || 'rerender').trim();
 	const access = await getBriefingViewerAccess(event.params.jobId, session.userId);
 	if (!access.canManage) {
 		return new Response(renderBriefingUnauthorizedPage(event.params.jobId), {
@@ -111,58 +115,33 @@ export async function POST(event) {
 	}
 
 	const preview = await loadBriefingPreview(event.params.jobId);
-	if (preview.state !== 'failed' || !preview.canRetry) {
-		return new Response(
-			renderBriefingStatusPage(preview.state === 'ready'
-				? {
-					state: 'error',
-					status: 'error',
-					jobId: event.params.jobId,
-					message: 'This briefing is not eligible for retry.',
-					detail: 'Only failed briefing jobs can be retried from this page.',
-					canRetry: false
-				}
-				: preview,
-			{
-				retryHref: buildRetryHref(event.url.pathname),
-				retryBriefingAction: access.canManage ? buildRetryBriefingAction(event.url.pathname) : null
-			}
-		),
-			{
-				status: 409,
-				headers: {
-					'cache-control': 'private, max-age=0, must-revalidate',
-					'content-type': 'text/html; charset=utf-8',
-					'x-content-type-options': 'nosniff'
-				}
-			}
-		);
+	const canRerenderFromPage =
+		preview.state === 'processing' || (preview.state === 'failed' && preview.canRetry);
+	if (!canRerenderFromPage) {
+		throw redirect(303, event.url.pathname);
 	}
 
-	const retried = await retryBriefingJob(session.userId, preview.jobId);
-	if (!retried) {
-		return new Response(
-			renderBriefingStatusPage(
-				{
-					...preview,
-					detail:
-						'WebUI could not queue a retry for this briefing. Open the originating conversation and retry from chat instead.'
-				},
-				{
-					retryHref: buildRetryHref(event.url.pathname),
-					retryBriefingAction: buildRetryBriefingAction(event.url.pathname)
-				}
-			),
-			{
-				status: 409,
-				headers: {
-					'cache-control': 'private, max-age=0, must-revalidate',
-					'content-type': 'text/html; charset=utf-8',
-					'x-content-type-options': 'nosniff'
-				}
-			}
-		);
+	if (intent === 'regenerate') {
+		if (preview.state !== 'failed') {
+			throw redirect(303, event.url.pathname);
+		}
+
+		const requestedChanges = formData
+			.getAll('requestedChanges')
+			.map((value) => String(value).trim())
+			.filter(Boolean);
+		const queued = await queueBriefingRegenerationRequest(session.userId, preview.jobId, requestedChanges);
+		if (!queued) {
+			throw redirect(303, event.url.pathname);
+		}
+
+		throw redirect(303, `/chat?conversation=${encodeURIComponent(queued.conversationId)}`);
 	}
 
-	throw redirect(303, `/chat?conversation=${encodeURIComponent(retried.conversationId)}`);
+	const queuedRender = await enqueueBriefingRerender(preview.jobId, session.userId);
+	if (!queuedRender) {
+		throw redirect(303, event.url.pathname);
+	}
+
+	throw redirect(303, event.url.pathname);
 }

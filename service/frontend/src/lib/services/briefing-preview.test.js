@@ -3,12 +3,17 @@ import assert from 'node:assert/strict';
 
 import {
 	buildBriefingPreviewApiPath,
+	buildBriefingPreviewStreamApiPath,
 	estimateBriefingRenderProgress,
 	fetchBriefingPreview
 } from './briefing-preview.ts';
 
 test('buildBriefingPreviewApiPath normalizes the base path', () => {
 	assert.equal(buildBriefingPreviewApiPath('job-42', '/console/'), '/console/api/briefings/job-42');
+});
+
+test('buildBriefingPreviewStreamApiPath normalizes the base path', () => {
+	assert.equal(buildBriefingPreviewStreamApiPath('job-42', '/console/'), '/console/api/briefings/job-42/stream');
 });
 
 test('estimateBriefingRenderProgress returns an estimated percentage and eta for active jobs', () => {

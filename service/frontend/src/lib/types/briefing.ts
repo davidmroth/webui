@@ -170,6 +170,7 @@ export interface BriefingShareSettings {
 	canManage: boolean;
 	playerPath: string;
 	standalonePath: string;
+	returnToChatHref: string;
 }
 
 export type BriefingPreview =

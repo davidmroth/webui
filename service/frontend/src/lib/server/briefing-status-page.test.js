@@ -32,13 +32,18 @@ test('renderBriefingStatusPage builds an auto-refreshing processing page', () =>
 			sentenceTotal: 54,
 			sentenceCompleted: 10
 		}
+	}, {
+		rerenderBriefingAction: '/briefings/job-202'
 	});
 
-	assert.match(html, /<meta http-equiv="refresh" content="3"/);
+	assert.match(html, /const streamPath = "\/api\/briefings\/job-202\/stream";/);
+	assert.match(html, /new EventSource\(streamPath, \{ withCredentials: true \}\)/);
+	assert.match(html, /<noscript><meta http-equiv="refresh" content="3" \/><\/noscript>/);
 	assert.match(html, /briefing-202/);
 	assert.match(html, /Rendered narration chunk 3 of 19\./);
 	assert.match(html, /58%/);
-	assert.match(html, /Return to chat/);
+	assert.match(html, /Restart job/);
+	assert.match(html, /Return to briefings/);
 	assert.doesNotMatch(html, /Open raw status JSON/);
 });
 
@@ -57,7 +62,8 @@ test('renderBriefingStatusPage surfaces failure details without auto-refresh', (
 		renderProgress: null,
 		canRetry: true
 	}, {
-		retryBriefingAction: '/briefings/briefing-fail',
+		rerenderBriefingAction: '/briefings/briefing-fail',
+		regenerateBriefingAction: '/briefings/briefing-fail',
 		retryHref: '/briefings/briefing-fail?retry=1'
 	});
 
@@ -65,10 +71,12 @@ test('renderBriefingStatusPage surfaces failure details without auto-refresh', (
 	assert.match(html, /Briefing render failed/);
 	assert.match(html, /The renderer timed out while verifying the briefing assets\./);
 	assert.match(html, /Retry loading the briefing\. The export may already be available\./);
-	assert.match(html, /<form method="POST" action="\/briefings\/briefing-fail">/);
-	assert.match(html, /Rebuild briefing/);
+	assert.match(html, /<input type="hidden" name="intent" value="rerender" \/>/);
+	assert.match(html, /Rerender briefing/);
+	assert.match(html, /<input type="hidden" name="intent" value="regenerate" \/>/);
+	assert.match(html, /Regenerate briefing/);
 	assert.doesNotMatch(html, /Retry loading briefing/);
-	assert.match(html, /Return to chat/);
+	assert.match(html, /Return to briefings/);
 });
 
 test('renderBriefingStatusPage labels publish-pending previews as publishing instead of unavailable', () => {
@@ -119,7 +127,7 @@ test('renderBriefingStatusPage omits retry-loading links from the status page ac
 	assert.doesNotMatch(html, /Retry loading briefing/);
 	assert.doesNotMatch(html, /retry=1&amp;from=status/);
 	assert.doesNotMatch(html, /https:\/\//);
-	assert.match(html, /Return to chat/);
+	assert.match(html, /Return to briefings/);
 });
 
 test('renderBriefingUnauthorizedPage shows a private standalone message without login prompts', () => {
@@ -129,4 +137,22 @@ test('renderBriefingUnauthorizedPage shows a private standalone message without 
 	assert.match(html, /The owner has not enabled public access for this standalone export\./);
 	assert.doesNotMatch(html, /\/login/);
 	assert.doesNotMatch(html, /Sign in/i);
+});
+
+test('renderBriefingStatusPage links Return to briefings', () => {
+	const html = renderBriefingStatusPage({
+		state: 'processing',
+		status: 'processing',
+		jobId: 'job-303',
+		briefingId: 'briefing-303',
+		createdAt: '2026-05-07T07:00:00.000Z',
+		completedAt: null,
+		error: null,
+		validation: null,
+		assetCount: 0,
+		renderProgress: null
+	});
+
+	assert.match(html, /href="\/briefings"/);
+	assert.match(html, /Return to briefings/);
 });

@@ -166,6 +166,14 @@ function formatPublishReachedAt(preview: PendingBriefingPreview) {
 	return `Reached 100% at ${formatTimestamp(preview.completedAt)}`;
 }
 
+function buildBriefingPreviewStreamPath(jobId: string) {
+	return `/api/briefings/${encodeURIComponent(jobId)}/stream`;
+}
+
+function escapeInlineJson(value: unknown) {
+	return JSON.stringify(value).replaceAll('<', '\\u003c');
+}
+
 function pageTitle(preview: PendingBriefingPreview) {
 	switch (preview.state) {
 		case 'processing':
@@ -234,7 +242,11 @@ export function renderBriefingUnauthorizedPage(jobId: string) {
 
 export function renderBriefingStatusPage(
 	preview: PendingBriefingPreview,
-	options: { retryHref?: string | null; retryBriefingAction?: string | null } = {}
+	options: {
+		retryHref?: string | null;
+		rerenderBriefingAction?: string | null;
+		regenerateBriefingAction?: string | null;
+	} = {}
 ) {
 	const title = pageTitle(preview);
 	const badgeLabel = stateLabel(preview);
@@ -248,8 +260,8 @@ export function renderBriefingStatusPage(
 	const subtitle =
 		preview.state === 'processing'
 			? preview.renderProgress?.stage === 'publishing_bundle'
-				? 'This page refreshes automatically while the published briefing bundle becomes available.'
-				: 'This page refreshes automatically until the narrated briefing is ready.'
+				? 'This page updates automatically while the published briefing bundle becomes available.'
+				: 'This page updates automatically until the narrated briefing is ready.'
 			: preview.state === 'failed'
 				? 'The export pipeline accepted this job but could not finish it.'
 				: preview.state === 'missing'
@@ -317,11 +329,60 @@ export function renderBriefingStatusPage(
 					</div>`
 					: '';
 
-	const retryBriefingMarkup =
-		options.retryBriefingAction && preview.state === 'failed' && preview.canRetry
-			? `<form method="POST" action="${escapeHtml(options.retryBriefingAction)}">
-				<button type="submit">Rebuild briefing</button>
+	const rerenderBriefingMarkup =
+		options.rerenderBriefingAction && (preview.state === 'processing' || (preview.state === 'failed' && preview.canRetry))
+			? `<form method="POST" action="${escapeHtml(options.rerenderBriefingAction)}">
+				<input type="hidden" name="intent" value="rerender" />
+				<button type="submit" data-page-action>
+					<span class="action-button-label">${preview.state === 'processing' ? 'Restart job' : 'Rerender briefing'}</span>
+					<span class="action-button-spinner" aria-hidden="true"></span>
+				</button>
 			</form>`
+			: '';
+
+	const regenerateBriefingMarkup =
+		options.regenerateBriefingAction && preview.state === 'failed'
+			? `<form method="POST" action="${escapeHtml(options.regenerateBriefingAction)}">
+				<input type="hidden" name="intent" value="regenerate" />
+				<button type="submit" data-page-action>
+					<span class="action-button-label">Regenerate briefing</span>
+					<span class="action-button-spinner" aria-hidden="true"></span>
+				</button>
+			</form>`
+			: '';
+
+	const streamScript =
+		preview.state === 'processing'
+			? `<script>
+				(() => {
+					const streamPath = ${escapeInlineJson(buildBriefingPreviewStreamPath(preview.jobId))};
+					const initialSnapshot = ${escapeInlineJson(preview)};
+					const initialKey = JSON.stringify(initialSnapshot);
+					let seenInitial = false;
+					const source = new EventSource(streamPath, { withCredentials: true });
+					const maybeReload = (nextPreview) => {
+						const nextKey = JSON.stringify(nextPreview);
+						if (nextKey !== initialKey) {
+							window.location.reload();
+							return;
+						}
+						if (nextPreview.state !== 'processing') {
+							source.close();
+						}
+					};
+					source.addEventListener('preview', (event) => {
+						try {
+							const nextPreview = JSON.parse(event.data);
+							if (!seenInitial) {
+								seenInitial = true;
+							}
+							maybeReload(nextPreview);
+						} catch {}
+					});
+					window.addEventListener('beforeunload', () => source.close(), { once: true });
+				})();
+			</script>
+			<noscript><meta http-equiv="refresh" content="3" /></noscript>`
 			: '';
 
 	return `<!doctype html>
@@ -330,7 +391,7 @@ export function renderBriefingStatusPage(
 	<meta charset="utf-8" />
 	<meta name="viewport" content="width=device-width, initial-scale=1" />
 	<title>${escapeHtml(title)}</title>
-	${preview.state === 'processing' ? '<meta http-equiv="refresh" content="3" />' : ''}
+	${streamScript}
 	<style>
 		:root {
 			color-scheme: light;
@@ -555,6 +616,10 @@ export function renderBriefingStatusPage(
 
 		.actions a,
 		.actions button {
+			display: inline-flex;
+			align-items: center;
+			justify-content: center;
+			gap: 10px;
 			text-decoration: none;
 			padding: 11px 16px;
 			border-radius: 999px;
@@ -574,6 +639,43 @@ export function renderBriefingStatusPage(
 
 		.actions form {
 			margin: 0;
+		}
+
+		.action-button-spinner {
+			display: none;
+			width: 16px;
+			height: 16px;
+			border-radius: 999px;
+			border: 2px solid currentColor;
+			border-right-color: transparent;
+			flex: 0 0 auto;
+		}
+
+		.is-submitting .action-button-spinner {
+			display: inline-flex;
+			animation: refresh-spin 650ms linear infinite;
+		}
+
+		.is-submitting .action-button-label {
+			opacity: 0.86;
+		}
+
+		body.is-page-busy .shell {
+			pointer-events: none;
+		}
+
+		body.is-page-busy .actions [data-page-action],
+		body.is-page-busy .actions a.primary,
+		body.is-page-busy .refresh-control {
+			opacity: 0.72;
+		}
+
+		body.is-page-busy .shell::after {
+			content: '';
+			position: absolute;
+			inset: 0;
+			border-radius: inherit;
+			background: rgba(255, 251, 245, 0.52);
 		}
 
 		@media (max-width: 640px) {
@@ -616,19 +718,77 @@ export function renderBriefingStatusPage(
 			${detailsMarkup}
 			${calloutMarkup}
 			<div class="actions">
-				${retryBriefingMarkup}
-				<a class="primary" href="/chat">Return to chat</a>
+				${rerenderBriefingMarkup}
+				${regenerateBriefingMarkup}
+				<a class="primary" href="/briefings" data-page-action>
+					<span class="action-button-label">Return to briefings</span>
+					<span class="action-button-spinner" aria-hidden="true"></span>
+				</a>
 			</div>
 		</section>
 	</main>
 	<script>
 		const refreshControl = document.querySelector('[data-refresh-control]');
+		const pageActionControls = Array.from(document.querySelectorAll('[data-page-action]'));
+		let pageBusy = false;
+
+		const setPageBusy = (activeControl) => {
+			if (pageBusy) {
+				return;
+			}
+
+			pageBusy = true;
+			document.body.classList.add('is-page-busy');
+			if (refreshControl) {
+				refreshControl.setAttribute('aria-disabled', 'true');
+			}
+
+			for (const control of pageActionControls) {
+				control.classList.toggle('is-submitting', control === activeControl);
+				control.setAttribute('aria-disabled', 'true');
+				if ('disabled' in control) {
+					control.disabled = true;
+				}
+			}
+		};
+
 		if (refreshControl) {
 			refreshControl.addEventListener('click', () => {
+				if (pageBusy) {
+					return;
+				}
 				refreshControl.classList.add('is-refreshing');
 				refreshControl.setAttribute('aria-busy', 'true');
 			});
 		}
+
+		for (const control of pageActionControls) {
+			if (control.tagName === 'BUTTON') {
+				const form = control.closest('form');
+				if (form) {
+					form.addEventListener('submit', () => {
+						setPageBusy(control);
+					});
+				}
+				continue;
+			}
+
+			control.addEventListener('click', (event) => {
+				if (
+					pageBusy ||
+					event.defaultPrevented ||
+					event.button !== 0 ||
+					event.metaKey ||
+					event.ctrlKey ||
+					event.shiftKey ||
+					event.altKey
+				) {
+					return;
+				}
+
+				setPageBusy(control);
+			});
+			}
 	</script>
 </body>
 </html>`;

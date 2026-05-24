@@ -2813,6 +2813,30 @@ export async function retryBriefingJob(
   };
 }
 
+export async function lookupBriefingConversationId(
+  userId: string,
+  jobId: string,
+  deps: { queryFn?: typeof query } = {}
+): Promise<string | null> {
+  const normalizedUserId = userId.trim();
+  const normalizedJobId = jobId.trim();
+  if (!normalizedUserId || !normalizedJobId) {
+    return null;
+  }
+
+  const queryFn = deps.queryFn ?? query;
+  const rows = await queryFn<{ conversation_id: string }>(
+    `SELECT briefings.conversation_id
+     FROM briefings
+     INNER JOIN conversations ON conversations.id = briefings.conversation_id
+     WHERE briefings.job_id = :job_id
+       AND conversations.user_id = :user_id
+     LIMIT 1`,
+    { user_id: normalizedUserId, job_id: normalizedJobId }
+  );
+  return rows[0]?.conversation_id ?? null;
+}
+
 export async function editUserMessage(
   userId: string,
   conversationId: string,

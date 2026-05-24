@@ -293,6 +293,19 @@ function mergeRecordInput(
 		summary: normalizeOptionalString(manifest?.summary) ?? existing?.summary,
 		state: effectiveState,
 		stage: normalizeOptionalString(status?.stage) ?? (manifest ? 'completed' : existing?.stage),
+		progressPercent:
+			typeof status?.progress_percent === 'number' && Number.isFinite(status.progress_percent)
+				? Math.max(0, Math.min(100, Math.round(status.progress_percent)))
+				: existing?.progressPercent ?? null,
+		progressDetail: normalizeOptionalString(status?.progress_detail) ?? existing?.progressDetail,
+		sentenceTotal:
+			typeof status?.sentence_total === 'number' && Number.isFinite(status.sentence_total)
+				? Math.max(0, Math.round(status.sentence_total))
+				: existing?.sentenceTotal ?? null,
+		sentenceCompleted:
+			typeof status?.sentence_completed === 'number' && Number.isFinite(status.sentence_completed)
+				? Math.max(0, Math.round(status.sentence_completed))
+				: existing?.sentenceCompleted ?? null,
 		manifestStorageKey: manifest ? buildPublishedStorageKey(jobId, 'briefing.json') : existing?.manifestStorageKey,
 		statusStorageKey: status ? buildPublishedStorageKey(jobId, 'status.json') : existing?.statusStorageKey,
 		errorMessage: normalizeOptionalString(status?.error) ?? (effectiveState === 'failed' ? existing?.errorMessage : null),

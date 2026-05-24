@@ -2,10 +2,12 @@
   import { browser } from '$app/environment';
   import { enhance } from '$app/forms';
   import { invalidateAll } from '$app/navigation';
+  import { base } from '$app/paths';
   import { estimateBriefingRenderProgress, fetchBriefingPreview } from '$lib/services/briefing-preview';
   import type { BriefingPreview } from '$lib/types/briefing';
-  import { Trash2 } from '@lucide/svelte';
+  import { ArrowLeft, Trash2 } from '@lucide/svelte';
   import { scale } from 'svelte/transition';
+  import { onMount } from 'svelte';
 
   let { data, form } = $props();
   let deletingJobId = $state<string | null>(null);
@@ -13,9 +15,16 @@
   let deleteError = $state<string | null>(null);
   let nowMs = $state(Date.now());
   let livePreviewByJobId = $state<Record<string, BriefingPreview>>({});
+  let showInitialLoadingOverlay = $state(true);
 
   const RING_RADIUS = 18;
   const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
+
+  onMount(() => {
+    requestAnimationFrame(() => {
+      showInitialLoadingOverlay = false;
+    });
+  });
 
   function clampPercent(value: number) {
     return Math.max(0, Math.min(100, Math.round(value)));
@@ -253,7 +262,7 @@
     }
 
     let disposed = false;
-    const timers = new Map<string, ReturnType<typeof window.setTimeout>>();
+    const timers = new Map<string, number>();
     const streams: Array<{ conversationId: string; stream: EventSource; handler: () => void }> = [];
 
     const refreshConversationPendingBriefings = async (conversationId: string) => {
@@ -345,9 +354,24 @@
   <title>Briefings</title>
 </svelte:head>
 
+{#if showInitialLoadingOverlay}
+  <div class="app-loading-overlay app-loading-overlay-visible" aria-hidden="true">
+    <div class="app-loading-spinner"></div>
+  </div>
+{/if}
+
 <div class="min-h-screen bg-background">
   <div class="mx-auto flex w-full max-w-5xl flex-col gap-6 px-4 py-8 sm:px-6 lg:px-8">
     <header class="flex flex-col gap-2">
+      <div>
+        <a
+          class="primary-button px-4 py-2 text-sm shadow-sm transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          href={`${base}/chat`}
+        >
+          <ArrowLeft class="h-4 w-4" />
+          <span>Back to chat</span>
+        </a>
+      </div>
       <p class="text-sm font-medium uppercase tracking-[0.24em] text-muted-foreground">Archive</p>
       <div class="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
         <div>
@@ -438,6 +462,7 @@
                   <a
                     class={primaryActionClass(item)}
                     href={item.reference.standaloneHtmlUrl}
+                    data-sveltekit-reload
                   >
       						{primaryActionLabel(item)}
                   </a>

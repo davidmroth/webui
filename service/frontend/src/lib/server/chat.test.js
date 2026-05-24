@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  lookupBriefingConversationId,
   resolveVisibleConversationRows,
   resolveAssistantParentMessageId,
   retryBriefingJob,
@@ -700,4 +701,27 @@ test('retryBriefingJob falls back to assistant message briefingReference metadat
     eventId: 'event-12',
     userMessageId: 'user-msg-12'
   });
+});
+
+test('lookupBriefingConversationId returns the owning conversation id for a briefing job', async () => {
+  const queryCalls = [];
+  const conversationId = await lookupBriefingConversationId('user-1', 'job-42', {
+    queryFn: async (sql, params = {}) => {
+      queryCalls.push({ sql, params });
+      return [{ conversation_id: 'conv-42' }];
+    }
+  });
+
+  assert.equal(queryCalls.length, 1);
+  assert.match(queryCalls[0].sql, /SELECT briefings\.conversation_id/);
+  assert.deepEqual(queryCalls[0].params, { user_id: 'user-1', job_id: 'job-42' });
+  assert.equal(conversationId, 'conv-42');
+});
+
+test('lookupBriefingConversationId returns null when no briefing row matches the user and job', async () => {
+  const conversationId = await lookupBriefingConversationId('user-1', 'job-missing', {
+    queryFn: async () => []
+  });
+
+  assert.equal(conversationId, null);
 });

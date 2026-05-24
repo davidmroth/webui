@@ -16,6 +16,9 @@ import { migration as slashCommandCacheMigration } from './migrations/013_slash_
 import { migration as briefingSharesMigration } from './migrations/014_briefing_shares';
 import { migration as briefingsCatalogMigration } from './migrations/015_briefings_catalog';
 import { migration as backfillBriefingsFromMessagesMigration } from './migrations/016_backfill_briefings_from_messages';
+import { migration as briefingVersionsMigration } from './migrations/017_briefing_versions';
+import { migration as briefingRenderJobsMigration } from './migrations/018_briefing_render_jobs';
+import { migration as briefingStatusMetadataMigration } from './migrations/019_briefing_status_metadata';
 
 interface SchemaMigrationRow {
   id: string;
@@ -60,7 +63,10 @@ const migrations: Migration[] = [
   slashCommandCacheMigration,
   briefingSharesMigration,
   briefingsCatalogMigration,
-  backfillBriefingsFromMessagesMigration
+  backfillBriefingsFromMessagesMigration,
+  briefingVersionsMigration,
+  briefingRenderJobsMigration,
+  briefingStatusMetadataMigration
 ];
 
 function toIsoString(value: Date | string | null | undefined): string | null {
