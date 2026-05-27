@@ -6,7 +6,7 @@ import {
   type DiagnosticEventTypeValue,
   type DiagnosticHopValue
 } from '$server/diagnostics';
-import { requireDiagnosticsToken } from '$server/diagnostics-auth';
+import { requireDiagnosticsAccess } from '$server/diagnostics-auth';
 import { query } from '$server/db';
 import { getHermesQueueStats } from '$server/chat';
 import { getHermesWorkerHeartbeat } from '$server/hermes-heartbeat';
@@ -40,13 +40,13 @@ async function probeWorker() {
   return getHermesWorkerHeartbeat();
 }
 
-export async function POST({ params, request }) {
-  const denied = requireDiagnosticsToken(request);
+export async function POST(event) {
+  const denied = requireDiagnosticsAccess(event);
   if (denied) {
     return denied;
   }
 
-  const target = String(params.target ?? '').trim();
+  const target = String(event.params.target ?? '').trim();
   const startedAt = Date.now();
   try {
     let data: unknown = null;

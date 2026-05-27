@@ -1,16 +1,16 @@
 import { json } from '@sveltejs/kit';
 import { getDiagnosticEntity } from '$server/diagnostics';
-import { requireDiagnosticsToken } from '$server/diagnostics-auth';
+import { requireDiagnosticsAccess } from '$server/diagnostics-auth';
 
-export async function GET({ params, request }) {
-  const denied = requireDiagnosticsToken(request);
+export async function GET(event) {
+  const denied = requireDiagnosticsAccess(event);
   if (denied) {
     return denied;
   }
 
   return json({
     success: true,
-    entityId: params.entityId,
-    ...getDiagnosticEntity(params.entityId)
+    entityId: event.params.entityId,
+    ...getDiagnosticEntity(event.params.entityId)
   });
 }

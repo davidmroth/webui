@@ -142,6 +142,19 @@ interface StaleHermesRunCandidateRow {
   message_id: string;
 }
 
+interface HermesEventHistoryRow {
+  id: string;
+  message_id: string;
+  status: 'queued' | 'processing' | 'acked' | 'cancelled';
+  run_status: HermesRunStatus;
+  created_at: Date | string;
+  claimed_at: Date | string | null;
+  acked_at: Date | string | null;
+  run_completed_at: Date | string | null;
+  run_error_code: string | null;
+  run_error_message: string | null;
+}
+
 type ServerQueryFn = <T>(sql: string, params?: Record<string, unknown>) => Promise<T[]>;
 
 interface ResolveAssistantParentMessageIdDeps {
@@ -1226,6 +1239,19 @@ export async function markStaleHermesRuns(options: { userId?: string; conversati
 
   await Promise.all(
     candidates.map(async (candidate) => {
+      emitDiagnosticEvent(
+        DiagnosticEventType.HermesRunMarkedStale,
+        DiagnosticHop.HermesQueue,
+        {
+          conversationId: candidate.conversation_id,
+          messageId: candidate.message_id,
+          eventId: candidate.id,
+          errorCode: 'HERMES_EVENT_LEASE_EXPIRED',
+          errorMessage: 'Hermes stopped reporting progress before the event lease expired.'
+        },
+        candidate.conversation_id
+      );
+
       publishHermesRunStatus({
         conversationId: candidate.conversation_id,
         messageId: candidate.message_id,
@@ -2389,6 +2415,70 @@ export async function recordHermesDeliveryTrace(input: RecordHermesDeliveryTrace
   );
 
   return traceId;
+}
+
+export async function listHermesEventsForConversation(conversationId: string, limit = 20) {
+  const safeLimit = Math.max(1, Math.min(Math.floor(limit), 50));
+  const rows = await query<HermesEventHistoryRow>(
+    `SELECT id,
+            message_id,
+            status,
+            run_status,
+            created_at,
+            claimed_at,
+            acked_at,
+            run_completed_at,
+            run_error_code,
+            run_error_message
+     FROM hermes_events
+     WHERE conversation_id = :conversation_id
+     ORDER BY created_at DESC
+     LIMIT ${safeLimit}`,
+    { conversation_id: conversationId }
+  );
+
+  return rows.map((row) => ({
+    id: row.id,
+    messageId: row.message_id,
+    status: row.status,
+    runStatus: row.run_status,
+    createdAt: toIsoString(row.created_at),
+    claimedAt: toNullableIsoString(row.claimed_at),
+    ackedAt: toNullableIsoString(row.acked_at),
+    runCompletedAt: toNullableIsoString(row.run_completed_at),
+    errorCode: row.run_error_code,
+    errorMessage: row.run_error_message
+  }));
+}
+
+export async function listHermesDeliveryTracesForConversation(conversationId: string, limit = 20) {
+  const safeLimit = Math.max(1, Math.min(Math.floor(limit), 50));
+  const rows = await query<HermesDeliveryTraceRow>(
+    `SELECT
+       id,
+       sender_trace_id,
+       conversation_id,
+       receiver_message_id,
+       route,
+       sender_base_url,
+       sender_target_url,
+       sender_hostname,
+       sender_session_platform,
+       sender_session_chat_id,
+       attachment_count,
+       attachment_names,
+       content_length,
+       receiver_status,
+       error_text,
+       created_at
+     FROM hermes_delivery_traces
+     WHERE conversation_id = :conversation_id
+     ORDER BY created_at DESC
+     LIMIT ${safeLimit}`,
+    { conversation_id: conversationId }
+  );
+
+  return rows.map(mapHermesDeliveryTrace);
 }
 
 export async function listRecentHermesDeliveryTraces(limit = 10): Promise<HermesDeliveryTrace[]> {

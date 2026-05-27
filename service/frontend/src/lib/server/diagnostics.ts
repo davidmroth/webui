@@ -20,6 +20,7 @@ export const DiagnosticEventType = {
   HermesAuthFailed: 'HERMES_AUTH_FAILED',
   HermesEventDequeued: 'HERMES_EVENT_DEQUEUED',
   HermesEventAcked: 'HERMES_EVENT_ACKED',
+  HermesRunMarkedStale: 'HERMES_RUN_MARKED_STALE',
   HermesAssistantPostReceived: 'HERMES_ASSISTANT_POST_RECEIVED',
   HermesAssistantPostAccepted: 'HERMES_ASSISTANT_POST_ACCEPTED',
   HermesAssistantPostRejected: 'HERMES_ASSISTANT_POST_REJECTED',
@@ -316,7 +317,10 @@ function updatePendingEvents(event: DiagnosticEvent) {
     });
   }
 
-  if (event.eventType === DiagnosticEventType.HermesEventAcked) {
+  if (
+    event.eventType === DiagnosticEventType.HermesEventAcked ||
+    event.eventType === DiagnosticEventType.HermesRunMarkedStale
+  ) {
     pendingEvents.delete(eventId);
   }
 }

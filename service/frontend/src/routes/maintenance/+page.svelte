@@ -21,6 +21,10 @@
 
   let notificationLog = $state<NotificationDiagnostic[]>([]);
   let isFiringNotification = $state(false);
+  let conversationForensicsInput = $state('');
+  let conversationForensics = $state<Record<string, unknown> | null>(null);
+  let conversationForensicsError = $state<string | null>(null);
+  let isLoadingConversationForensics = $state(false);
 
   function logNotificationDiagnostic(label: string, value: unknown) {
     const entry: NotificationDiagnostic = {
@@ -301,13 +305,73 @@
   }
 
   function verdictClasses(code: string) {
-    if (code === 'receiver-ready') {
+    if (code === 'receiver-ready' || code === 'no_obvious_fault') {
       return 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300';
     }
-    if (code === 'upstream-likely' || code === 'sender-no-attachments' || code === 'worker-heartbeat-stale') {
+    if (
+      code === 'upstream-likely' ||
+      code === 'sender-no-attachments' ||
+      code === 'worker-heartbeat-stale' ||
+      code === 'likely_premature_complete' ||
+      code === 'assistant_tail_incomplete' ||
+      code === 'awaiting_assistant_after_tool' ||
+      code === 'awaiting_assistant' ||
+      code === 'run_stale'
+    ) {
       return 'bg-amber-500/15 text-amber-700 dark:text-amber-300';
     }
     return 'bg-destructive/15 text-destructive';
+  }
+
+  function extractConversationId(raw: string) {
+    const value = raw.trim();
+    if (!value) {
+      return null;
+    }
+
+    try {
+      const url = new URL(value);
+      const fromQuery = url.searchParams.get('conversation')?.trim();
+      if (fromQuery) {
+        return fromQuery;
+      }
+    } catch {
+      // Fall through to raw UUID handling.
+    }
+
+    return /^[0-9a-f-]{36}$/i.test(value) ? value : null;
+  }
+
+  async function loadConversationForensics() {
+    const conversationId = extractConversationId(conversationForensicsInput);
+    if (!conversationId) {
+      conversationForensicsError = 'Enter a conversation UUID or a /chat?conversation=… URL.';
+      conversationForensics = null;
+      return;
+    }
+
+    isLoadingConversationForensics = true;
+    conversationForensicsError = null;
+    try {
+      const response = await fetch(`/maintenance/conversations/${encodeURIComponent(conversationId)}/forensics`, {
+        credentials: 'same-origin'
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(
+          payload && typeof payload === 'object' && 'error_message' in payload && typeof payload.error_message === 'string'
+            ? payload.error_message
+            : `Forensics request failed (${response.status}).`
+        );
+      }
+      conversationForensics = payload as Record<string, unknown>;
+    } catch (error) {
+      conversationForensics = null;
+      conversationForensicsError =
+        error instanceof Error ? error.message : 'Unable to load conversation forensics.';
+    } finally {
+      isLoadingConversationForensics = false;
+    }
   }
 </script>
 
@@ -936,6 +1000,63 @@
             <div><span class="font-medium">Maintenance token configured:</span> {snapshot.config.maintenanceTokenConfigured ? 'yes' : 'no'}</div>
           </dl>
         </div>
+      </section>
+
+      <section class="rounded-xl border border-border bg-card p-5 shadow-sm">
+        <h2 class="text-lg font-semibold">Conversation forensics</h2>
+        <p class="mt-2 text-sm text-muted-foreground">
+          Side-door investigation for a single chat: inbox event history, delivery traces, in-memory diagnostics,
+          message tail, and a likely fault layer verdict. Paste a conversation UUID or full chat URL.
+        </p>
+
+        <div class="mt-4 flex flex-col gap-3 sm:flex-row">
+          <input
+            class="min-w-0 flex-1 rounded-md border border-input bg-background px-3 py-2 font-mono text-sm"
+            type="text"
+            placeholder="c0fef13b-50bd-43de-ad15-780acc560cb3 or https://…/chat?conversation=…"
+            bind:value={conversationForensicsInput}
+          />
+          <button
+            type="button"
+            class="inline-flex items-center justify-center rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
+            disabled={isLoadingConversationForensics}
+            onclick={loadConversationForensics}
+          >
+            {isLoadingConversationForensics ? 'Loading…' : 'Investigate conversation'}
+          </button>
+        </div>
+
+        {#if conversationForensicsError}
+          <div class="mt-4 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            {conversationForensicsError}
+          </div>
+        {/if}
+
+        {#if conversationForensics?.verdict}
+          {@const verdict = conversationForensics.verdict as { code?: string; summary?: string; likelyLayer?: string; hints?: string[] }}
+          <div class="mt-4 rounded-lg border border-border bg-muted/40 p-4 text-sm">
+            <div class="flex flex-wrap items-center gap-2">
+              <span class={`rounded-full px-2 py-1 text-xs font-medium uppercase tracking-wide ${verdictClasses(String(verdict.code ?? ''))}`}>
+                {verdict.code}
+              </span>
+              {#if verdict.likelyLayer}
+                <span class="text-xs uppercase tracking-wide text-muted-foreground">Layer: {verdict.likelyLayer}</span>
+              {/if}
+            </div>
+            <p class="mt-3">{verdict.summary}</p>
+            {#if verdict.hints?.length}
+              <ul class="mt-3 list-disc space-y-1 pl-5 text-muted-foreground">
+                {#each verdict.hints as hint}
+                  <li>{hint}</li>
+                {/each}
+              </ul>
+            {/if}
+          </div>
+        {/if}
+
+        {#if conversationForensics}
+          <pre class="mt-4 max-h-[60vh] max-w-full overflow-auto whitespace-pre-wrap rounded-lg bg-muted p-4 text-[11px] leading-5 [overflow-wrap:anywhere] sm:text-xs">{pretty(conversationForensics)}</pre>
+        {/if}
       </section>
 
       <section class="rounded-xl border border-border bg-card p-5 shadow-sm">

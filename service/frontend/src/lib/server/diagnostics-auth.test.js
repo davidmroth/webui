@@ -29,3 +29,19 @@ test('diagnostics auth accepts valid token', () => {
   );
   assert.equal(response, null);
 });
+
+test('diagnostics access accepts maintenance bearer token when configured', async () => {
+  process.env.DIAGNOSTICS_TOKEN = 'expected-token';
+  process.env.MAINTENANCE_TOKEN = 'maintenance-token';
+  const { requireDiagnosticsAccess } = await import('./diagnostics-auth.ts');
+  const response = requireDiagnosticsAccess({
+    request: new Request('http://localhost/api/internal/diagnostics/snapshot', {
+      headers: { authorization: 'Bearer maintenance-token' }
+    }),
+    url: new URL('http://localhost/api/internal/diagnostics/snapshot'),
+    cookies: {
+      get: () => undefined
+    }
+  });
+  assert.equal(response, null);
+});

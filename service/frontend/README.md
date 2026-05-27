@@ -45,26 +45,31 @@ Optional llama-style display badges can be configured with `PUBLIC_MODEL_DISPLAY
 
 ### Runtime diagnostics API
 
-Set `DIAGNOSTICS_TOKEN` in `.env` to enable the token-gated runtime diagnostics API. If the token is blank, diagnostics fail closed with `503 DIAGNOSTICS_NOT_CONFIGURED`.
+Set `DIAGNOSTICS_TOKEN` in `.env` to enable the token-gated runtime diagnostics API. If the token is blank, diagnostics fail closed with `503 DIAGNOSTICS_NOT_CONFIGURED` unless you authenticate with the maintenance token (maintenance cookie, `Authorization: Bearer <MAINTENANCE_TOKEN>`, or `X-Maintenance-Token`).
 
 Diagnostics are in-memory and per-process. They are meant for recent production troubleshooting, not durable audit logs. The ring buffer defaults to 1000 events and can be changed with `DIAGNOSTICS_RING_BUFFER_SIZE`.
 
-Use the `X-Diagnostics-Token` header:
+Use the `X-Diagnostics-Token` header, or the maintenance token from an unlocked `/maintenance` session:
 
 ```bash
 curl -H "X-Diagnostics-Token: $DIAGNOSTICS_TOKEN" \
 	http://localhost:3000/api/internal/diagnostics/snapshot
 
+curl -H "Authorization: Bearer $MAINTENANCE_TOKEN" \
+	http://localhost:3000/api/internal/diagnostics/conversations/<conversation-id>
+
 curl -H "X-Diagnostics-Token: $DIAGNOSTICS_TOKEN" \
 	"http://localhost:3000/api/internal/diagnostics/events?conversation_id=123&limit=50"
 
-curl -X POST -H "X-Diagnostics-Token: $DIAGNOSTICS_TOKEN" \
-	http://localhost:3000/api/internal/diagnostics/probe/database
+curl -H "Authorization: Bearer $MAINTENANCE_TOKEN" \
+	http://localhost:3000/maintenance/conversations/<conversation-id>/forensics
 ```
 
 The diagnostics stream is scoped to webui operational boundaries: Hermes worker heartbeats, queue dequeue/ack lifecycle, assistant post/edit/stream receiver outcomes, SSE stream lifecycle, attachment storage operations, and dependency probes. It intentionally excludes message content, auth tokens, cookies, raw prompts, and attachment bytes.
 
 When Hermes receives only a generic `500` while posting to `/api/internal/hermes/conversations/:id/assistant`, query diagnostics by `conversation_id`, `message_id`, `request_id`, or `sender_trace_id` to see the receiver-side failure branch and sanitized exception details.
+
+For “Hermes stopped mid-reply” investigations, start with `GET /maintenance/conversations/:id/forensics` (maintenance token) or `GET /api/internal/diagnostics/conversations/:id`. The response correlates durable inbox events, delivery traces, the visible message tail, in-memory diagnostics, and a verdict such as `likely_premature_complete` when WebUI accepted partial assistant posts but the sender ended the turn early.
 
 The app runs versioned database migrations and records them in `schema_migrations`. Existing MySQL volumes are upgraded automatically on startup, and you can also run them explicitly during deploys with `docker compose exec webui yarn migrate`. If you run the CLI from the host shell instead, override `DATABASE_HOST` and `DATABASE_PORT` to point at the host-exposed MySQL port, which defaults to `MYSQL_HOST_PORT`.
 

@@ -1,11 +1,11 @@
 import { json } from '@sveltejs/kit';
 import { getDiagnosticsSnapshot } from '$server/diagnostics';
-import { requireDiagnosticsToken } from '$server/diagnostics-auth';
+import { requireDiagnosticsAccess } from '$server/diagnostics-auth';
 import { getHermesQueueStats } from '$server/chat';
 import { getHermesWorkerHeartbeat } from '$server/hermes-heartbeat';
 
-export async function GET({ request }) {
-  const denied = requireDiagnosticsToken(request);
+export async function GET(event) {
+  const denied = requireDiagnosticsAccess(event);
   if (denied) {
     return denied;
   }

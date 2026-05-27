@@ -1,18 +1,19 @@
 import { json } from '@sveltejs/kit';
 import { getDiagnosticEvents } from '$server/diagnostics';
-import { requireDiagnosticsToken } from '$server/diagnostics-auth';
+import { requireDiagnosticsAccess } from '$server/diagnostics-auth';
 
 function optionalParam(url: URL, name: string) {
   const value = url.searchParams.get(name)?.trim();
   return value || null;
 }
 
-export async function GET({ request, url }) {
-  const denied = requireDiagnosticsToken(request);
+export async function GET(event) {
+  const denied = requireDiagnosticsAccess(event);
   if (denied) {
     return denied;
   }
 
+  const { url } = event;
   const limit = Number(url.searchParams.get('limit') ?? 50);
   return json({
     success: true,

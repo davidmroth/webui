@@ -13,7 +13,7 @@ import {
   normalizeChatProbeOptions,
   waitForProbeResponses
 } from '$server/diagnostics-chat-probe';
-import { requireDiagnosticsToken } from '$server/diagnostics-auth';
+import { requireDiagnosticsAccess } from '$server/diagnostics-auth';
 import {
   DiagnosticEventType,
   DiagnosticHop,
@@ -49,13 +49,15 @@ async function loadProbeConversation(conversationId: string) {
   return { ownerId, messages, runState, queue, worker };
 }
 
-export async function GET({ request, url }) {
-  const denied = requireDiagnosticsToken(request);
+export async function GET(event) {
+  const denied = requireDiagnosticsAccess(event);
   if (denied) {
     return denied;
   }
 
-  const conversationId = url.searchParams.get('conversation_id')?.trim() || url.searchParams.get('conversationId')?.trim();
+  const conversationId =
+    event.url.searchParams.get('conversation_id')?.trim() ||
+    event.url.searchParams.get('conversationId')?.trim();
   if (!conversationId) {
     return json(
       {
@@ -83,22 +85,22 @@ export async function GET({ request, url }) {
     success: true,
     conversationId,
     messages: loaded.messages,
-    diagnostics: getDiagnosticEvents({ conversationId, limit: parseLimit(url) }),
+    diagnostics: getDiagnosticEvents({ conversationId, limit: parseLimit(event.url) }),
     queue: loaded.queue,
     worker: loaded.worker
   });
 }
 
-export async function POST({ request }) {
-  const denied = requireDiagnosticsToken(request);
+export async function POST(event) {
+  const denied = requireDiagnosticsAccess(event);
   if (denied) {
     return denied;
   }
 
-  const requestId = getRequestId(request);
+  const requestId = getRequestId(event.request);
   let options;
   try {
-    options = normalizeChatProbeOptions(await request.json().catch(() => ({})));
+    options = normalizeChatProbeOptions(await event.request.json().catch(() => ({})));
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Invalid probe request.';
     return json(
