@@ -1133,6 +1133,14 @@ export function shouldReclaimStaleHermesProcessingEvent(
   return !workerHeartbeat.isOnline;
 }
 
+export function buildStaleHermesRunPredicates(_leaseSeconds: number) {
+  return [
+    "hermes_events.status = 'processing'",
+    'hermes_events.claimed_at IS NOT NULL',
+    'hermes_events.claimed_at < UTC_TIMESTAMP() - INTERVAL :lease_seconds SECOND'
+  ];
+}
+
 function buildConversationRunStateFromRow(row: HermesRunStateRow | null): ConversationRunState {
   if (!row) {
     return {
@@ -1176,12 +1184,7 @@ function resolveEffectiveHermesRunStatus(row: HermesRunStateRow): HermesRunStatu
 export async function markStaleHermesRuns(options: { userId?: string; conversationId?: string } = {}) {
   const leaseSeconds = Math.max(30, getConfig().hermesEventLeaseSeconds);
   const params: Record<string, unknown> = { lease_seconds: leaseSeconds };
-  const predicates = [
-    "hermes_events.status = 'processing'",
-    "hermes_events.run_status = 'processing'",
-    'hermes_events.claimed_at IS NOT NULL',
-    'hermes_events.claimed_at < UTC_TIMESTAMP() - INTERVAL :lease_seconds SECOND'
-  ];
+  const predicates = buildStaleHermesRunPredicates(leaseSeconds);
 
   if (options.userId) {
     predicates.push('conversations.user_id = :user_id');
@@ -1645,6 +1648,8 @@ function parseTimings(raw: string | object | null | undefined) {
 }
 
 export async function isConversationBusy(userId: string, conversationId: string): Promise<boolean> {
+  await markStaleHermesRuns({ userId, conversationId });
+
   const rows = await query<{ queued: number | string; processing: number | string }>(
     `SELECT
        COALESCE(SUM(CASE WHEN hermes_events.status = 'queued' THEN 1 ELSE 0 END), 0) AS queued,
@@ -2139,6 +2144,8 @@ export async function enqueueUserMessage(
 }
 
 export async function dequeueHermesEvent(options: { publicBaseUrl?: string | null } = {}) {
+  await markStaleHermesRuns();
+
   const leaseSeconds = Math.max(30, getConfig().hermesEventLeaseSeconds);
   const reclaimStaleProcessing = shouldReclaimStaleHermesProcessingEvent();
   const connection = (await pool.getConnection()) as any;

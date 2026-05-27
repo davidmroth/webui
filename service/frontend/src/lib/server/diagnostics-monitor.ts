@@ -1,3 +1,4 @@
+import { markStaleHermesRuns } from './chat';
 import { DiagnosticEventType, DiagnosticHop, emitDiagnosticEvent } from './diagnostics';
 import { getConfig } from './env';
 import { getHermesWorkerHeartbeat } from './hermes-heartbeat';
@@ -43,6 +44,10 @@ export function startDiagnosticsMonitor() {
     } catch (error) {
       console.warn('Diagnostics monitor check failed', error);
     }
+
+    void markStaleHermesRuns().catch((error) => {
+      console.warn('Hermes stale queue cleanup failed', error);
+    });
   }, intervalMs);
   (timer as unknown as { unref?: () => void }).unref?.();
 }

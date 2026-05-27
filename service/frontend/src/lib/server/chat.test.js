@@ -62,6 +62,20 @@ test('shouldReclaimStaleHermesProcessingEvent only when worker heartbeat is offl
   assert.equal(shouldReclaimStaleHermesProcessingEvent({ isOnline: false }), true);
 });
 
+test('buildStaleHermesRunPredicates matches lease-expired processing rows only', async () => {
+  const { buildStaleHermesRunPredicates } = await import('./chat.ts');
+  const predicates = buildStaleHermesRunPredicates(120);
+  assert.deepEqual(predicates, [
+    "hermes_events.status = 'processing'",
+    'hermes_events.claimed_at IS NOT NULL',
+    'hermes_events.claimed_at < UTC_TIMESTAMP() - INTERVAL :lease_seconds SECOND'
+  ]);
+  assert.equal(
+    predicates.some((predicate) => predicate.includes('run_status')),
+    false
+  );
+});
+
 test('resolveVisibleConversationRows includes same-turn Hermes tool activity', () => {
   const rows = [
     {

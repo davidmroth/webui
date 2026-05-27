@@ -21,7 +21,7 @@ Initial implementation of a browser-first Hermes channel using SvelteKit, MySQL,
 
 1. Copy `.env.example` to `.env` and change at minimum `HERMES_WEBCHAT_SERVICE_TOKEN` and `BOOTSTRAP_USER_KEY`.
 2. `BOOTSTRAP_USER_KEY` is the browser login key for the bootstrap owner account. `HERMES_WEBCHAT_SERVICE_TOKEN` is only for internal service-to-service authentication.
-3. `HERMES_EVENT_LEASE_SECONDS` controls how long an in-flight Hermes event can stay in `processing` before the web UI makes it eligible for retry. This prevents transient Hermes failures from blackholing messages indefinitely.
+3. `HERMES_EVENT_LEASE_SECONDS` controls how long an in-flight Hermes event can stay in `processing` before the web UI marks it stale. Stale cleanup runs automatically on every Hermes inbox poll, on the diagnostics monitor interval (`DIAGNOSTICS_STALE_CHECK_INTERVAL_SECONDS`, default 15s), and whenever queue or conversation status is queried. When the Hermes worker heartbeat is offline, dequeue may still reclaim stale work for retry; once the lease expires with no progress, the event is marked `stale` instead of staying in `processing` indefinitely.
 4. `HERMES_WORKER_HEARTBEAT_STALE_SECONDS` controls when webui considers the Hermes webchat worker offline. When queued work exists past this heartbeat threshold, conversations are marked as stalled instead of indefinitely showing working.
 5. The bootstrap owner record is kept in sync with `BOOTSTRAP_USER_NAME` and `BOOTSTRAP_USER_KEY`, so changing those values updates the bootstrap login instead of only applying on first database initialization.
 6. `BODY_SIZE_LIMIT` controls the max HTTP request payload accepted by the SvelteKit Node server (defaults to `10M` in this repo). Increase it if users upload larger files.
