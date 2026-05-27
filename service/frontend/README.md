@@ -45,20 +45,18 @@ Optional llama-style display badges can be configured with `PUBLIC_MODEL_DISPLAY
 
 ### Runtime diagnostics API
 
-Set `DIAGNOSTICS_TOKEN` in `.env` to enable the token-gated runtime diagnostics API. If the token is blank, diagnostics fail closed with `503 DIAGNOSTICS_NOT_CONFIGURED` unless you authenticate with the maintenance token (maintenance cookie, `Authorization: Bearer <MAINTENANCE_TOKEN>`, or `X-Maintenance-Token`).
+Diagnostics endpoints use the same maintenance authentication as `/maintenance`: an unlocked maintenance cookie, `Authorization: Bearer <MAINTENANCE_TOKEN>`, or `X-Maintenance-Token`. If `MAINTENANCE_TOKEN` is unset, diagnostics fail closed with `503 DIAGNOSTICS_NOT_CONFIGURED`.
 
 Diagnostics are in-memory and per-process. They are meant for recent production troubleshooting, not durable audit logs. The ring buffer defaults to 1000 events and can be changed with `DIAGNOSTICS_RING_BUFFER_SIZE`.
 
-Use the `X-Diagnostics-Token` header, or the maintenance token from an unlocked `/maintenance` session:
-
 ```bash
-curl -H "X-Diagnostics-Token: $DIAGNOSTICS_TOKEN" \
+curl -H "Authorization: Bearer $MAINTENANCE_TOKEN" \
 	http://localhost:3000/api/internal/diagnostics/snapshot
 
 curl -H "Authorization: Bearer $MAINTENANCE_TOKEN" \
 	http://localhost:3000/api/internal/diagnostics/conversations/<conversation-id>
 
-curl -H "X-Diagnostics-Token: $DIAGNOSTICS_TOKEN" \
+curl -H "Authorization: Bearer $MAINTENANCE_TOKEN" \
 	"http://localhost:3000/api/internal/diagnostics/events?conversation_id=123&limit=50"
 
 curl -H "Authorization: Bearer $MAINTENANCE_TOKEN" \

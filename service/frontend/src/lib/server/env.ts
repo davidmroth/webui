@@ -43,7 +43,6 @@ export function getConfig() {
     hermesServiceToken: getEnv('HERMES_WEBCHAT_SERVICE_TOKEN', 'change-me'),
     hermesEventLeaseSeconds: getNumber('HERMES_EVENT_LEASE_SECONDS', 120),
     hermesWorkerHeartbeatStaleSeconds: getNumber('HERMES_WORKER_HEARTBEAT_STALE_SECONDS', 45),
-    diagnosticsToken: getEnv('DIAGNOSTICS_TOKEN', ''),
     diagnosticsRingBufferSize: clampNumber(getNumber('DIAGNOSTICS_RING_BUFFER_SIZE', 1000), 100, 5000),
     diagnosticsStaleCheckIntervalSeconds: clampNumber(
       getNumber('DIAGNOSTICS_STALE_CHECK_INTERVAL_SECONDS', 15),
