@@ -8,6 +8,7 @@ import {
   retryBriefingJob,
   shouldReclaimStaleHermesProcessingEvent,
   shouldAdvanceAssistantTail,
+  filterChatVisibleRows,
   updateAssistantMessage
 } from './chat.ts';
 
@@ -54,6 +55,109 @@ test('shouldAdvanceAssistantTail ignores Hermes status messages', () => {
       content: 'search_web: Iran military history'
     }),
     false
+  );
+});
+
+test('shouldAdvanceAssistantTail ignores tool-call-only Hermes transcript rows', () => {
+  assert.equal(
+    shouldAdvanceAssistantTail({
+      role: 'assistant',
+      content: '',
+      toolCalls: [{ id: 'call-1', type: 'function', function: { name: 'browser_navigate', arguments: '{}' } }]
+    }),
+    false
+  );
+});
+
+test('filterChatVisibleRows hides Hermes tool transcript rows from chat UI', () => {
+  const rows = [
+    {
+      id: 'user-1',
+      parent_id: 'root-1',
+      role: 'user',
+      content: 'Check GitHub',
+      source: 'browser',
+      type: 'text',
+      status: 'complete',
+      created_at: '2026-04-27T00:00:00.000Z',
+      updated_at: '2026-04-27T00:00:00.000Z',
+      msg_timestamp: 1
+    },
+    {
+      id: 'assistant-1',
+      parent_id: 'user-1',
+      role: 'assistant',
+      content: 'Let me take a look.',
+      source: 'hermes',
+      type: 'text',
+      status: 'complete',
+      created_at: '2026-04-27T00:00:01.000Z',
+      updated_at: '2026-04-27T00:00:01.000Z',
+      msg_timestamp: 2
+    },
+    {
+      id: 'tool-1',
+      parent_id: 'assistant-1',
+      role: 'tool',
+      content: '{"output":"<p>README</p>"}',
+      source: 'hermes',
+      type: 'text',
+      status: 'complete',
+      created_at: '2026-04-27T00:00:02.000Z',
+      updated_at: '2026-04-27T00:00:02.000Z',
+      msg_timestamp: 3
+    },
+    {
+      id: 'assistant-2',
+      parent_id: 'user-1',
+      role: 'assistant',
+      content: 'OpenAlice is an AI trading agent.',
+      source: 'hermes',
+      type: 'text',
+      status: 'complete',
+      created_at: '2026-04-27T00:00:03.000Z',
+      updated_at: '2026-04-27T00:00:03.000Z',
+      msg_timestamp: 4
+    }
+  ];
+
+  assert.deepEqual(
+    filterChatVisibleRows(rows).map((row) => row.id),
+    ['user-1', 'assistant-1', 'assistant-2']
+  );
+});
+
+test('filterChatVisibleRows collapses duplicate Hermes assistant prose rows', () => {
+  const rows = [
+    {
+      id: 'assistant-1',
+      parent_id: 'user-1',
+      role: 'assistant',
+      content: 'Now let me check the repo.',
+      source: 'hermes',
+      type: 'text',
+      status: 'complete',
+      created_at: '2026-04-27T00:00:01.000Z',
+      updated_at: '2026-04-27T00:00:01.000Z',
+      msg_timestamp: 1
+    },
+    {
+      id: 'assistant-2',
+      parent_id: 'user-1',
+      role: 'assistant',
+      content: 'Now let me check the repo.',
+      source: 'hermes',
+      type: 'text',
+      status: 'complete',
+      created_at: '2026-04-27T00:00:02.000Z',
+      updated_at: '2026-04-27T00:00:02.000Z',
+      msg_timestamp: 2
+    }
+  ];
+
+  assert.deepEqual(
+    filterChatVisibleRows(rows).map((row) => row.id),
+    ['assistant-2']
   );
 });
 

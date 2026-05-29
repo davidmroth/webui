@@ -181,12 +181,57 @@ export function shouldAdvanceAssistantTail(input: {
   role?: 'assistant' | 'system';
   displayType?: MessageDisplayType;
   content?: string;
+  toolCalls?: unknown;
 }): boolean {
   if (input.role === 'system' || input.displayType === 'tool_progress') {
     return false;
   }
 
-  return !isHermesSystemStatusContent(input.content ?? '');
+  const trimmedContent = String(input.content ?? '').trim();
+  if (!trimmedContent && input.toolCalls) {
+    return false;
+  }
+
+  return !isHermesSystemStatusContent(trimmedContent);
+}
+
+/**
+ * Strip Hermes transcript rows that exist for gateway export but should not
+ * appear in the browser chat UI.
+ */
+export function filterChatVisibleRows(rows: MessageRow[]): MessageRow[] {
+  const filtered: MessageRow[] = [];
+
+  for (const row of rows) {
+    if (row.role === 'tool') {
+      continue;
+    }
+
+    if (
+      row.role === 'assistant' &&
+      row.source === 'hermes' &&
+      !String(row.content ?? '').trim()
+    ) {
+      continue;
+    }
+
+    const previous = filtered.at(-1);
+    if (
+      previous &&
+      previous.role === 'assistant' &&
+      row.role === 'assistant' &&
+      previous.parent_id === row.parent_id &&
+      previous.content === row.content &&
+      String(previous.content ?? '').trim()
+    ) {
+      filtered[filtered.length - 1] = row;
+      continue;
+    }
+
+    filtered.push(row);
+  }
+
+  return filtered;
 }
 
 interface HermesDeliveryTraceRow {
@@ -1615,7 +1660,9 @@ export async function listMessages(userId: string, conversationId: string): Prom
   );
 
   const messageTree = buildMessageTree(rows);
-  const activeRows = resolveVisibleConversationRows(messageTree, conversation.curr_node);
+  const activeRows = filterChatVisibleRows(
+    resolveVisibleConversationRows(messageTree, conversation.curr_node)
+  );
   const attachmentsByMessageId = await listAttachmentsByMessageIds(activeRows.map((row) => row.id));
 
   return activeRows.map((row) => {
@@ -2589,7 +2636,8 @@ export async function storeAssistantMessage(
   const advancesTail = shouldAdvanceAssistantTail({
     role,
     displayType: options.displayType,
-    content
+    content,
+    toolCalls: options.toolCalls
   });
   await execute(
     `INSERT INTO messages (id, conversation_id, parent_id, role, content, source, status, extra, tool_calls, timings, type, msg_timestamp)

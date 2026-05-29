@@ -110,6 +110,10 @@
     return message.displayType === 'tool_progress';
   }
 
+  function isHiddenTranscriptMessage(message: ChatMessage) {
+    return (message as ChatMessage & { role?: string }).role === 'tool';
+  }
+
   function effectiveRole(message: ChatMessage): ChatMessage['role'] {
     if (isToolProgressMessage(message)) {
       return 'system';
@@ -244,6 +248,7 @@
     {/if}
 
     {#each messages as message, index}
+      {#if !isHiddenTranscriptMessage(message)}
       {@const displayRole = effectiveRole(message)}
       <div class={`llama-message-row ${displayRole}`}>
         <div class="llama-message-card">
@@ -503,6 +508,7 @@
           {/if}
         {/if}
       </div>
+      {/if}
     {/each}
 
     <div bind:this={bottomSentinel} aria-hidden="true" style="height: 1px;"></div>
