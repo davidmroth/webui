@@ -63,6 +63,7 @@ interface ExportMessageRow extends MessageRow {
   source: 'browser' | 'hermes';
   reasoning_content?: string | null;
   tool_calls?: string | object | null;
+  tool_call_id?: string | null;
   model?: string | null;
 }
 
@@ -247,7 +248,7 @@ interface ConversationExportMessage {
   id: string;
   parentId: string | null;
   childIds: string[];
-  role: 'user' | 'assistant' | 'system';
+  role: 'user' | 'assistant' | 'system' | 'tool';
   source: 'browser' | 'hermes';
   type: 'text' | 'root';
   content: string;
@@ -256,6 +257,7 @@ interface ConversationExportMessage {
   timestamp: number;
   reasoningContent: string | null;
   toolCalls: unknown;
+  toolCallId: string | null;
   extra: unknown;
   timings: ChatMessage['timings'];
   model: string | null;
@@ -1500,6 +1502,7 @@ export async function exportConversationForUser(
             messages.source,
             messages.reasoning_content,
             messages.tool_calls,
+            messages.tool_call_id,
             messages.model
      FROM messages
      INNER JOIN conversations ON conversations.id = messages.conversation_id
@@ -1547,6 +1550,7 @@ export async function exportConversationForUser(
       timestamp: normalizeMessageTimestamp(row),
       reasoningContent: row.reasoning_content ?? null,
       toolCalls: parseJsonColumn(row.tool_calls),
+      toolCallId: row.tool_call_id ?? null,
       extra: parseJsonColumn(row.extra),
       timings: parseTimings(row.timings),
       model: row.model ?? null,
@@ -1896,22 +1900,42 @@ export async function finalizeStreamingAssistantMessage(
   conversationId: string,
   messageId: string,
   finalContent: string,
-  options: { timings?: unknown } = {}
+  options: { timings?: unknown; toolCalls?: unknown } = {}
 ) {
   const timingsJson = serializeTimingsForStorage(options.timings);
-  if (timingsJson === null) {
+  const toolCallsJson = serializeToolCallsForStorage(options.toolCalls);
+  if (timingsJson === null && toolCallsJson === null) {
     await execute(
       `UPDATE messages
        SET content = :content, status = 'complete'
        WHERE id = :id`,
       { id: messageId, content: finalContent }
     );
-  } else {
+  } else if (toolCallsJson === null) {
     await execute(
       `UPDATE messages
        SET content = :content, status = 'complete', timings = :timings
        WHERE id = :id`,
       { id: messageId, content: finalContent, timings: timingsJson }
+    );
+  } else if (timingsJson === null) {
+    await execute(
+      `UPDATE messages
+       SET content = :content, status = 'complete', tool_calls = :tool_calls
+       WHERE id = :id`,
+      { id: messageId, content: finalContent, tool_calls: toolCallsJson }
+    );
+  } else {
+    await execute(
+      `UPDATE messages
+       SET content = :content, status = 'complete', timings = :timings, tool_calls = :tool_calls
+       WHERE id = :id`,
+      {
+        id: messageId,
+        content: finalContent,
+        timings: timingsJson,
+        tool_calls: toolCallsJson
+      }
     );
   }
   await execute(
@@ -2010,7 +2034,7 @@ export async function updateAssistantMessage(
   conversationId: string,
   messageId: string,
   content: string,
-  options: { timings?: unknown } = {},
+  options: { timings?: unknown; toolCalls?: unknown } = {},
   deps: UpdateAssistantMessageDeps = {}
 ) {
   const executeFn = deps.executeFn ?? execute;
@@ -2023,19 +2047,40 @@ export async function updateAssistantMessage(
   const target = await resolveUpdatableAssistantMessage(conversationId, messageId, deps);
 
   const timingsJson = serializeTimingsForStorage(options.timings);
-  if (timingsJson === null) {
+  const toolCallsJson = serializeToolCallsForStorage(options.toolCalls);
+  if (timingsJson === null && toolCallsJson === null) {
     await executeFn(
       `UPDATE messages
        SET content = :content, status = 'complete'
        WHERE id = :id AND conversation_id = :conversation_id AND source = 'hermes' AND role IN ('assistant', 'system')`,
       { id: messageId, conversation_id: conversationId, content }
     );
-  } else {
+  } else if (toolCallsJson === null) {
     await executeFn(
       `UPDATE messages
        SET content = :content, status = 'complete', timings = :timings
        WHERE id = :id AND conversation_id = :conversation_id AND source = 'hermes' AND role IN ('assistant', 'system')`,
       { id: messageId, conversation_id: conversationId, content, timings: timingsJson }
+    );
+  } else if (timingsJson === null) {
+    await executeFn(
+      `UPDATE messages
+       SET content = :content, status = 'complete', tool_calls = :tool_calls
+       WHERE id = :id AND conversation_id = :conversation_id AND source = 'hermes' AND role IN ('assistant', 'system')`,
+      { id: messageId, conversation_id: conversationId, content, tool_calls: toolCallsJson }
+    );
+  } else {
+    await executeFn(
+      `UPDATE messages
+       SET content = :content, status = 'complete', timings = :timings, tool_calls = :tool_calls
+       WHERE id = :id AND conversation_id = :conversation_id AND source = 'hermes' AND role IN ('assistant', 'system')`,
+      {
+        id: messageId,
+        conversation_id: conversationId,
+        content,
+        timings: timingsJson,
+        tool_calls: toolCallsJson
+      }
     );
   }
 
@@ -2514,10 +2559,12 @@ export async function storeAssistantMessage(
   content: string,
   options: {
     timings?: unknown;
+    toolCalls?: unknown;
     role?: 'assistant' | 'system';
     displayType?: MessageDisplayType;
     briefingReference?: BriefingReference | null;
     userMessageId?: string | null;
+    parentMessageId?: string | null;
     publishDoneEvent?: boolean;
     notifyPush?: boolean;
   } = {}
@@ -2528,13 +2575,16 @@ export async function storeAssistantMessage(
   }
 
   const messageId = randomUUID();
-  const parentMessageId = await resolveAssistantParentMessageId(
-    conversationId,
-    options.userMessageId
-  );
+  const parentMessageId = options.parentMessageId
+    ? options.parentMessageId
+    : await resolveAssistantParentMessageId(
+        conversationId,
+        options.userMessageId
+      );
   const assistantRevisionGroupId = await getProcessingEventRevisionGroupId(conversationId);
   const messageTimestamp = Date.now();
   const timingsJson = serializeTimingsForStorage(options.timings);
+  const toolCallsJson = serializeToolCallsForStorage(options.toolCalls);
   const role = options.role === 'system' ? 'system' : 'assistant';
   const advancesTail = shouldAdvanceAssistantTail({
     role,
@@ -2542,8 +2592,8 @@ export async function storeAssistantMessage(
     content
   });
   await execute(
-    `INSERT INTO messages (id, conversation_id, parent_id, role, content, source, status, extra, timings, type, msg_timestamp)
-     VALUES (:id, :conversation_id, :parent_id, :role, :content, 'hermes', 'complete', :extra, :timings, 'text', :msg_timestamp)`,
+    `INSERT INTO messages (id, conversation_id, parent_id, role, content, source, status, extra, tool_calls, timings, type, msg_timestamp)
+     VALUES (:id, :conversation_id, :parent_id, :role, :content, 'hermes', 'complete', :extra, :tool_calls, :timings, 'text', :msg_timestamp)`,
     {
       id: messageId,
       conversation_id: conversationId,
@@ -2555,6 +2605,7 @@ export async function storeAssistantMessage(
         displayType: options.displayType,
         briefingReference: options.briefingReference
       }),
+      tool_calls: toolCallsJson,
       timings: timingsJson,
       msg_timestamp: messageTimestamp
     }
@@ -2585,6 +2636,77 @@ export async function storeAssistantMessage(
   return messageId;
 }
 
+export async function storeHermesToolMessage(
+  conversationId: string,
+  content: string,
+  options: {
+    toolCallId: string;
+    parentMessageId?: string | null;
+    userMessageId?: string | null;
+  }
+) {
+  const ownerId = await getConversationOwnerId(conversationId);
+  if (!ownerId) {
+    throw new Error(`Conversation not found: ${conversationId}`);
+  }
+
+  const normalizedToolCallId = options.toolCallId.trim();
+  if (!normalizedToolCallId) {
+    throw new Error('toolCallId is required for tool messages.');
+  }
+
+  const messageId = randomUUID();
+  const parentMessageId = options.parentMessageId
+    ? options.parentMessageId
+    : await resolveAssistantParentMessageId(conversationId, options.userMessageId);
+  const messageTimestamp = Date.now();
+
+  await execute(
+    `INSERT INTO messages (
+       id,
+       conversation_id,
+       parent_id,
+       role,
+       content,
+       source,
+       status,
+       tool_call_id,
+       type,
+       msg_timestamp
+     ) VALUES (
+       :id,
+       :conversation_id,
+       :parent_id,
+       'tool',
+       :content,
+       'hermes',
+       'complete',
+       :tool_call_id,
+       'text',
+       :msg_timestamp
+     )`,
+    {
+      id: messageId,
+      conversation_id: conversationId,
+      parent_id: parentMessageId,
+      content,
+      tool_call_id: normalizedToolCallId,
+      msg_timestamp: messageTimestamp
+    }
+  );
+
+  await updateConversationState(conversationId);
+  publishConversationStreamEvent({ type: 'message', conversationId, messageId });
+  publishConversationStreamEvent({
+    type: 'done',
+    conversationId,
+    messageId,
+    status: 'complete'
+  });
+
+  return messageId;
+}
+
 /**
  * Coerce a timings payload into a JSON string suitable for the
  * ``messages.timings`` column. Returns ``null`` for empty / invalid input so
@@ -2605,6 +2727,18 @@ function serializeTimingsForStorage(timings: unknown): string | null {
   }
   try {
     return JSON.stringify(timings);
+  } catch {
+    return null;
+  }
+}
+
+function serializeToolCallsForStorage(toolCalls: unknown): string | null {
+  if (!Array.isArray(toolCalls) || toolCalls.length === 0) {
+    return null;
+  }
+
+  try {
+    return JSON.stringify(toolCalls);
   } catch {
     return null;
   }

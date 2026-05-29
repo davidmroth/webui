@@ -739,3 +739,63 @@ test('lookupBriefingConversationId returns null when no briefing row matches the
 
   assert.equal(conversationId, null);
 });
+
+test('updateAssistantMessage persists toolCalls JSON when provided', async () => {
+  const executeCalls = [];
+  await updateAssistantMessage(
+    'conv-1',
+    'assistant-1',
+    'Updated answer',
+    {
+      toolCalls: [
+        {
+          id: 'call-1',
+          type: 'function',
+          function: { name: 'search_files', arguments: '{}' }
+        }
+      ]
+    },
+    {
+      queryFn: async (sql) => {
+        if (sql.includes('FROM messages')) {
+          return [
+            {
+              id: 'assistant-1',
+              parent_id: 'user-1',
+              role: 'assistant',
+              content: 'Old answer',
+              created_at: '2026-04-27T00:00:01.000Z',
+              updated_at: '2026-04-27T00:00:01.000Z',
+              status: 'complete',
+              type: 'text',
+              source: 'hermes',
+              extra: null,
+              msg_timestamp: 1
+            }
+          ];
+        }
+        throw new Error(`Unexpected query: ${sql}`);
+      },
+      executeFn: async (sql, params) => {
+        executeCalls.push({ sql, params });
+      },
+      getConversationStateFn: async () => createConversationState('assistant-1'),
+      updateConversationStateFn: async () => {},
+      publishConversationStreamEventFn: () => {},
+      notifyAssistantReplyCompletionFn: async () => {}
+    }
+  );
+
+  assert.equal(executeCalls.length, 1);
+  assert.match(executeCalls[0].sql, /tool_calls = :tool_calls/);
+  assert.equal(
+    executeCalls[0].params.tool_calls,
+    JSON.stringify([
+      {
+        id: 'call-1',
+        type: 'function',
+        function: { name: 'search_files', arguments: '{}' }
+      }
+    ])
+  );
+});

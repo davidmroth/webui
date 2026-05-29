@@ -2,6 +2,7 @@ import { json } from '@sveltejs/kit';
 import {
   storeAssistantMessage,
   storeAssistantMessageWithAttachments,
+  storeHermesToolMessage,
   openStreamingAssistantMessage,
   appendAssistantChunk,
   finalizeStreamingAssistantMessage,
@@ -53,7 +54,7 @@ interface NormalizedSenderTrace {
   contentLength: number;
 }
 
-type HermesInboundRole = 'assistant' | 'system';
+type HermesInboundRole = 'assistant' | 'system' | 'tool';
 type HermesDisplayType = 'tool_progress';
 
 function isAuthorized(request: Request) {
@@ -103,11 +104,21 @@ function normalizeNonNegativeInteger(value: unknown, fallback: number): number {
 }
 
 function normalizeInboundRole(value: unknown, content = ''): HermesInboundRole {
-  if (value === 'system' || value === 'assistant') {
+  if (value === 'system' || value === 'assistant' || value === 'tool') {
     return value;
   }
 
   return isHermesSystemStatusContent(content) ? 'system' : 'assistant';
+}
+
+function normalizeToolCallsInput(raw: unknown): unknown[] | undefined {
+  if (raw == null) {
+    return undefined;
+  }
+  if (!Array.isArray(raw) || raw.length === 0) {
+    return undefined;
+  }
+  return raw;
 }
 
 function normalizeDisplayType(value: unknown): HermesDisplayType | undefined {
@@ -366,6 +377,9 @@ export async function POST({ params, request }: { params: { conversationId: stri
   const displayType = normalizeDisplayType(body.displayType);
   const role = displayType === 'tool_progress' ? 'system' : normalizeInboundRole(body.role, rawContent);
   const userMessageId = normalizeOptionalString(body.userMessageId);
+  const parentMessageId = normalizeOptionalString(body.parentMessageId);
+  const toolCallId = normalizeOptionalString(body.toolCallId);
+  const normalizedToolCalls = normalizeToolCallsInput(body.toolCalls);
   const senderTrace = normalizeSenderTraceInput(body.senderTrace, {
     attachmentCount: rawAttachmentNames.length,
     attachmentNames: rawAttachmentNames,
@@ -392,9 +406,62 @@ export async function POST({ params, request }: { params: { conversationId: stri
     attachmentCount: rawAttachmentNames.length,
     hasDelta: typeof body.delta === 'string',
     done: body.done === true,
-    hasTimings: Boolean(normalizedTimings)
+    hasTimings: Boolean(normalizedTimings),
+    hasToolCalls: Boolean(normalizedToolCalls),
+    role
   };
   emitAssistantDiagnostic(DiagnosticEventType.HermesAssistantPostReceived, diagnosticBase, params.conversationId);
+
+  if (role === 'tool') {
+    if (!toolCallId) {
+      await persistSenderTrace(params.conversationId, traceWithTimingSignal, {
+        receiverStatus: 'rejected',
+        errorText: 'toolCallId is required for tool messages.'
+      });
+      return json({ error: 'toolCallId is required for tool messages.' }, { status: 400 });
+    }
+    if (!rawContent) {
+      await persistSenderTrace(params.conversationId, traceWithTimingSignal, {
+        receiverStatus: 'rejected',
+        errorText: 'Tool message content is required.'
+      });
+      return json({ error: 'Tool message content is required.' }, { status: 400 });
+    }
+
+    try {
+      const toolMessageId = await storeHermesToolMessage(params.conversationId, rawContent, {
+        toolCallId,
+        parentMessageId,
+        userMessageId
+      });
+      await persistSenderTrace(params.conversationId, traceWithTimingSignal, {
+        receiverMessageId: toolMessageId,
+        receiverStatus: 'accepted'
+      });
+      emitAssistantDiagnostic(
+        DiagnosticEventType.HermesAssistantPostAccepted,
+        { ...diagnosticBase, messageId: toolMessageId, statusCode: 201, durationMs: Date.now() - startedAt },
+        params.conversationId
+      );
+      return json({ ok: true, messageId: toolMessageId }, { status: 201 });
+    } catch (error) {
+      const details = diagnosticErrorDetails(error);
+      await persistSenderTrace(params.conversationId, traceWithTimingSignal, {
+        receiverStatus: 'rejected',
+        errorText: details.errorMessage
+      });
+      return json(
+        {
+          success: false,
+          error: details.errorMessage,
+          error_code: 'HERMES_ASSISTANT_POST_FAILED',
+          error_message: details.errorMessage,
+          request_id: requestId
+        },
+        { status: 500 }
+      );
+    }
+  }
 
   // ----- Chunked streaming path -----------------------------------------
   // Hermes can post incremental token deltas instead of (or before) a final
@@ -423,14 +490,16 @@ export async function POST({ params, request }: { params: { conversationId: stri
       // assumes the caller passes the assembled content. Fall back to assembling.
       if (finalContent) {
         await finalizeStreamingAssistantMessage(params.conversationId, messageId, finalContent, {
-          timings: normalizedTimings
+          timings: normalizedTimings,
+          toolCalls: normalizedToolCalls
         });
       } else {
         const { listAssistantChunks } = await import('$server/chat');
         const chunks = await listAssistantChunks(messageId, -1);
         const assembled = chunks.map((row) => row.delta).join('');
         await finalizeStreamingAssistantMessage(params.conversationId, messageId, assembled, {
-          timings: normalizedTimings
+          timings: normalizedTimings,
+          toolCalls: normalizedToolCalls
         });
       }
     }
@@ -511,7 +580,8 @@ export async function POST({ params, request }: { params: { conversationId: stri
 
     try {
       await updateAssistantMessage(params.conversationId, messageId, content, {
-        timings: normalizedTimings
+        timings: normalizedTimings,
+        toolCalls: normalizedToolCalls
       });
 
       await persistSenderTrace(params.conversationId, traceWithTimingSignal, {
@@ -583,7 +653,7 @@ export async function POST({ params, request }: { params: { conversationId: stri
     );
   }
 
-  if (!content && attachments.length === 0) {
+  if (!content && attachments.length === 0 && !normalizedToolCalls) {
     await persistSenderTrace(params.conversationId, traceWithTimingSignal, {
       receiverStatus: 'rejected',
       errorText: 'Assistant content or attachment is required.'
@@ -612,7 +682,14 @@ export async function POST({ params, request }: { params: { conversationId: stri
       : await storeAssistantMessage(
           params.conversationId,
           content,
-          { timings: normalizedTimings, role, displayType, userMessageId }
+          {
+            timings: normalizedTimings,
+            toolCalls: normalizedToolCalls,
+            role,
+            displayType,
+            userMessageId,
+            parentMessageId
+          }
         );
 
     await persistSenderTrace(params.conversationId, traceWithTimingSignal, {
