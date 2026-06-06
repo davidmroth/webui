@@ -61,6 +61,7 @@
   } from '$lib/utils/input-history';
   import { readTimingSummary } from '$lib/utils/chat-timings';
   import { isCurrentConversationRequest } from '$lib/utils/current-conversation-request';
+  import { getAttachmentContentFlags } from '$lib/utils/attachment-content-type';
 
   type PendingAttachment = {
     id: string;
@@ -2177,16 +2178,24 @@
     isSending = true;
     errorMessage = null;
 
-    const optimisticAttachments = pendingFiles.map((pendingFile) => ({
-      id: pendingFile.id,
-      fileName: pendingFile.file.name,
-      contentType: pendingFile.file.type || 'application/octet-stream',
-      sizeBytes: pendingFile.file.size,
-      downloadUrl: pendingFile.previewUrl,
-      isImage: pendingFile.file.type.startsWith('image/'),
-      isHtml: (pendingFile.file.type || '').split(';', 1)[0]?.trim().toLowerCase() === 'text/html',
-      isAudio: pendingFile.file.type.startsWith('audio/')
-    }));
+    const optimisticAttachments = pendingFiles.map((pendingFile) => {
+      const contentType = pendingFile.file.type || 'application/octet-stream';
+      const { isAudio, isHtml, isImage, isMarkdown, isPreviewable } =
+        getAttachmentContentFlags(contentType);
+
+      return {
+        id: pendingFile.id,
+        fileName: pendingFile.file.name,
+        contentType,
+        sizeBytes: pendingFile.file.size,
+        downloadUrl: pendingFile.previewUrl,
+        previewUrl: isPreviewable ? pendingFile.previewUrl : undefined,
+        isImage,
+        isHtml,
+        isMarkdown,
+        isAudio
+      };
+    });
 
     const optimisticMessage: ChatMessage = {
       id: createClientId('pending-'),

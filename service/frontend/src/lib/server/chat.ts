@@ -8,7 +8,7 @@ import { sendPushReplyNotification } from './push-notifications';
 import { getObjectBuffer, uploadObject } from './storage';
 import { getHermesWorkerHeartbeat } from './hermes-heartbeat';
 import { isHermesSystemStatusContent } from '$lib/utils/hermes-system-status';
-import { getAttachmentContentFlags, isHtmlAttachmentContentType } from '$lib/utils/attachment-content-type';
+import { getAttachmentContentFlags } from '$lib/utils/attachment-content-type';
 import type {
   BriefingReference,
   ChatMessage,
@@ -1063,7 +1063,9 @@ function mapHermesDeliveryTrace(row: HermesDeliveryTraceRow): HermesDeliveryTrac
 }
 
 function mapAttachment(row: AttachmentRow): MessageAttachment {
-  const { isAudio, isHtml, isImage } = getAttachmentContentFlags(row.content_type);
+  const { isAudio, isHtml, isImage, isMarkdown, isPreviewable } = getAttachmentContentFlags(
+    row.content_type
+  );
 
   return {
     id: row.id,
@@ -1071,9 +1073,10 @@ function mapAttachment(row: AttachmentRow): MessageAttachment {
     contentType: row.content_type,
     sizeBytes: row.size_bytes,
     downloadUrl: `/api/attachments/${row.id}/download`,
-    previewUrl: isHtml ? `/api/attachments/${row.id}/preview` : undefined,
+    previewUrl: isPreviewable ? `/api/attachments/${row.id}/preview` : undefined,
     isImage,
     isHtml,
+    isMarkdown,
     isAudio
   };
 }
@@ -1382,7 +1385,9 @@ async function saveAttachmentsForMessage(
       buffer
     });
     const attachmentId = randomUUID();
-    const { isAudio, isHtml, isImage } = getAttachmentContentFlags(contentType);
+    const { isAudio, isHtml, isImage, isMarkdown, isPreviewable } = getAttachmentContentFlags(
+      contentType
+    );
     await execute(
       `INSERT INTO attachments (
          id, user_id, conversation_id, message_id, storage_bucket, storage_key, file_name, content_type, size_bytes
@@ -1407,9 +1412,10 @@ async function saveAttachmentsForMessage(
       contentType,
       sizeBytes: uploaded.sizeBytes,
       downloadUrl: `/api/attachments/${attachmentId}/download`,
-      previewUrl: isHtml ? `/api/attachments/${attachmentId}/preview` : undefined,
+      previewUrl: isPreviewable ? `/api/attachments/${attachmentId}/preview` : undefined,
       isImage,
       isHtml,
+      isMarkdown,
       isAudio
     });
   }

@@ -7,49 +7,59 @@
 	}
 
 	let { attachments }: Props = $props();
-	let selectedHtmlAttachment = $state<MessageAttachment | null>(null);
-	let isHtmlAttachmentFullscreen = $state(false);
+	let selectedPreviewAttachment = $state<MessageAttachment | null>(null);
+	let isPreviewAttachmentFullscreen = $state(false);
 
 	function formatAttachmentSize(sizeBytes: number) {
 		return `${Math.max(1, Math.round(sizeBytes / 1024))} KB`;
 	}
 
-	function openHtmlAttachment(attachment: MessageAttachment) {
-		selectedHtmlAttachment = attachment;
-		isHtmlAttachmentFullscreen = true;
+	function isPreviewableAttachment(attachment: MessageAttachment) {
+		return Boolean(attachment.previewUrl && (attachment.isHtml || attachment.isMarkdown));
 	}
 
-	function closeHtmlAttachment() {
-		selectedHtmlAttachment = null;
-		isHtmlAttachmentFullscreen = false;
+	function previewAttachmentLabel(attachment: MessageAttachment) {
+		return attachment.isMarkdown ? 'Markdown' : 'HTML';
 	}
 
-	function toggleHtmlAttachmentSize() {
-		isHtmlAttachmentFullscreen = !isHtmlAttachmentFullscreen;
+	function openPreviewAttachment(attachment: MessageAttachment) {
+		selectedPreviewAttachment = attachment;
+		isPreviewAttachmentFullscreen = true;
+	}
+
+	function closePreviewAttachment() {
+		selectedPreviewAttachment = null;
+		isPreviewAttachmentFullscreen = false;
+	}
+
+	function togglePreviewAttachmentSize() {
+		isPreviewAttachmentFullscreen = !isPreviewAttachmentFullscreen;
 	}
 </script>
 
 {#if attachments.length > 0}
 	<div class="attachment-stack">
 		{#each attachments as attachment}
-			{#if attachment.isHtml && attachment.previewUrl}
+			{#if isPreviewableAttachment(attachment)}
 				<button
 					class="attachment-card attachment-download attachment-preview-trigger"
 					type="button"
 					aria-haspopup="dialog"
-					aria-label={`Open HTML preview for ${attachment.fileName}`}
-					onclick={() => openHtmlAttachment(attachment)}
+					aria-label={`Open ${previewAttachmentLabel(attachment)} preview for ${attachment.fileName}`}
+					onclick={() => openPreviewAttachment(attachment)}
 				>
 					<div class="attachment-card-main">
-						<div class="attachment-html-chip" aria-hidden="true">HTML</div>
+						<div class:attachment-markdown-chip={attachment.isMarkdown} class="attachment-html-chip" aria-hidden="true">
+							{attachment.isMarkdown ? 'MD' : 'HTML'}
+						</div>
 						<div class="attachment-card-content">
 							<div>{attachment.fileName}</div>
 							<div class="message-meta">
-								Preview in modal · {attachment.contentType} · {formatAttachmentSize(attachment.sizeBytes)}
+								Preview in viewer · {attachment.contentType} · {formatAttachmentSize(attachment.sizeBytes)}
 							</div>
 						</div>
 					</div>
-					<span class="attachment-open-label">Open preview</span>
+					<span class="attachment-open-label">Open viewer</span>
 				</button>
 			{:else if attachment.isAudio && attachment.downloadUrl}
 				<div class="attachment-card attachment-card--audio">
@@ -104,30 +114,30 @@
 	</div>
 {/if}
 
-{#if selectedHtmlAttachment}
+{#if selectedPreviewAttachment}
 	<div
 		class="llama-attachment-modal-layer"
 		role="presentation"
 		onclick={(event: MouseEvent) => {
 			if (event.currentTarget === event.target) {
-				closeHtmlAttachment();
+				closePreviewAttachment();
 			}
 		}}
 	>
 		<div
-			class:fullscreen={isHtmlAttachmentFullscreen}
+			class:fullscreen={isPreviewAttachmentFullscreen}
 			class="llama-attachment-modal"
 			role="dialog"
 			aria-modal="true"
-			aria-label={`Preview ${selectedHtmlAttachment.fileName}`}
+			aria-label={`Preview ${selectedPreviewAttachment.fileName}`}
 		>
-			{#if isHtmlAttachmentFullscreen}
+			{#if isPreviewAttachmentFullscreen}
 				<div class="llama-attachment-modal-floating-actions">
 					<button
 						class="secondary-button llama-attachment-modal-icon-button"
 						type="button"
 						aria-label="Switch to default modal size"
-						onclick={toggleHtmlAttachmentSize}
+						onclick={togglePreviewAttachmentSize}
 					>
 						<Minimize2 class="h-4 w-4" aria-hidden="true" />
 						<span class="visually-hidden">Default size</span>
@@ -136,8 +146,8 @@
 					<button
 						class="secondary-button llama-attachment-modal-icon-button"
 						type="button"
-						aria-label="Close HTML preview"
-						onclick={closeHtmlAttachment}
+						aria-label="Close preview"
+						onclick={closePreviewAttachment}
 					>
 						<X class="h-4 w-4" aria-hidden="true" />
 						<span class="visually-hidden">Close preview</span>
@@ -147,9 +157,9 @@
 
 			<header class="llama-attachment-modal-header">
 				<div class="llama-attachment-modal-copy">
-					<h2>{selectedHtmlAttachment.fileName}</h2>
+					<h2>{selectedPreviewAttachment.fileName}</h2>
 					<div class="message-meta">
-						{selectedHtmlAttachment.contentType} · {formatAttachmentSize(selectedHtmlAttachment.sizeBytes)}
+						{selectedPreviewAttachment.contentType} · {formatAttachmentSize(selectedPreviewAttachment.sizeBytes)}
 					</div>
 				</div>
 
@@ -157,10 +167,10 @@
 					<button
 						class="secondary-button"
 						type="button"
-						aria-label={isHtmlAttachmentFullscreen ? 'Switch to default modal size' : 'Switch to fullscreen modal size'}
-						onclick={toggleHtmlAttachmentSize}
+						aria-label={isPreviewAttachmentFullscreen ? 'Switch to default modal size' : 'Switch to fullscreen modal size'}
+						onclick={togglePreviewAttachmentSize}
 					>
-						{#if isHtmlAttachmentFullscreen}
+						{#if isPreviewAttachmentFullscreen}
 							<Minimize2 class="h-3.5 w-3.5" aria-hidden="true" />
 							<span>Default size</span>
 						{:else}
@@ -169,16 +179,16 @@
 						{/if}
 					</button>
 
-					<button class="secondary-button" type="button" onclick={closeHtmlAttachment}>Close</button>
+					<button class="secondary-button" type="button" onclick={closePreviewAttachment}>Close</button>
 				</div>
 			</header>
 
 			<div class="llama-attachment-modal-body">
-				{#if selectedHtmlAttachment.previewUrl}
+				{#if selectedPreviewAttachment.previewUrl}
 					<iframe
 						class="llama-attachment-preview-frame"
-						src={selectedHtmlAttachment.previewUrl}
-						title={`HTML preview for ${selectedHtmlAttachment.fileName}`}
+						src={selectedPreviewAttachment.previewUrl}
+						title={`${previewAttachmentLabel(selectedPreviewAttachment)} preview for ${selectedPreviewAttachment.fileName}`}
 						sandbox=""
 						loading="lazy"
 					></iframe>
@@ -190,11 +200,11 @@
 			<footer class="llama-attachment-modal-footer">
 				<a
 					class="secondary-button llama-attachment-download-link"
-					href={selectedHtmlAttachment.downloadUrl}
-					download={selectedHtmlAttachment.fileName}
+					href={selectedPreviewAttachment.downloadUrl}
+					download={selectedPreviewAttachment.fileName}
 				>
 					<Download class="h-3.5 w-3.5" aria-hidden="true" />
-					<span>Download HTML</span>
+					<span>Download {previewAttachmentLabel(selectedPreviewAttachment)}</span>
 				</a>
 			</footer>
 		</div>

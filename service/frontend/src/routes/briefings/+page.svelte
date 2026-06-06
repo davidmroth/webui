@@ -7,7 +7,6 @@
   import type { BriefingPreview } from '$lib/types/briefing';
   import { ArrowLeft, Trash2 } from '@lucide/svelte';
   import { scale } from 'svelte/transition';
-  import { onMount } from 'svelte';
 
   let { data, form } = $props();
   let deletingJobId = $state<string | null>(null);
@@ -15,16 +14,6 @@
   let deleteError = $state<string | null>(null);
   let nowMs = $state(Date.now());
   let livePreviewByJobId = $state<Record<string, BriefingPreview>>({});
-  let showInitialLoadingOverlay = $state(true);
-
-  const RING_RADIUS = 18;
-  const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
-
-  onMount(() => {
-    requestAnimationFrame(() => {
-      showInitialLoadingOverlay = false;
-    });
-  });
 
   function clampPercent(value: number) {
     return Math.max(0, Math.min(100, Math.round(value)));
@@ -353,12 +342,6 @@
 <svelte:head>
   <title>Briefings</title>
 </svelte:head>
-
-{#if showInitialLoadingOverlay}
-  <div class="app-loading-overlay app-loading-overlay-visible" aria-hidden="true">
-    <div class="app-loading-spinner"></div>
-  </div>
-{/if}
 
 <div class="min-h-screen bg-background">
   <div class="mx-auto flex w-full max-w-5xl flex-col gap-6 px-4 py-8 sm:px-6 lg:px-8">

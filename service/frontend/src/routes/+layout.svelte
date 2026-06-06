@@ -8,8 +8,26 @@
 
   let { children } = $props();
 
+  let briefingsInitialPaintDone = $state(false);
+
+  $effect(() => {
+    if (briefingsInitialPaintDone) {
+      return;
+    }
+
+    if (typeof window === 'undefined' || window.location.pathname !== '/briefings') {
+      briefingsInitialPaintDone = true;
+      return;
+    }
+
+    requestAnimationFrame(() => {
+      briefingsInitialPaintDone = true;
+    });
+  });
+
   const isBriefingsPageLoading = $derived(
-    navigating.to?.url.pathname === '/briefings'
+    navigating.to?.url.pathname === '/briefings' ||
+    briefingsInitialPaintDone === false
   );
 
   const LINK_WINDOW_FEATURES = 'noopener,noreferrer';
