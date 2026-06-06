@@ -1067,6 +1067,58 @@
     return stalled && hasPendingWorkInConversation && !dismissed;
   });
   const isReconnectingWarning = $derived(hermesConnection?.state === 'reconnecting');
+  function formatStalledAge(seconds: number | null | undefined) {
+    if (seconds == null) {
+      return 'recently';
+    }
+    if (seconds < 60) {
+      return `${seconds}s ago`;
+    }
+
+    const minutes = Math.floor(seconds / 60);
+    const remainderSeconds = seconds % 60;
+    if (minutes < 60) {
+      return `${minutes}m ${remainderSeconds}s ago`;
+    }
+
+    const hours = Math.floor(minutes / 60);
+    const remainderMinutes = minutes % 60;
+    return `${hours}h ${remainderMinutes}m ago`;
+  }
+  const stalledWarningContent = $derived.by(() => {
+    const authFailure = hermesConnection?.workerHeartbeat.authFailure;
+    if (authFailure?.seen && typeof authFailure.ageSeconds === 'number' && authFailure.ageSeconds <= 600) {
+      return {
+        title: 'Hermes cannot authenticate to WebUI.',
+        body: 'The AI box is reaching WebUI, but WebUI is rejecting the connection. Check that the shared Hermes service token matches on both sides.',
+        actionLabel: 'Remove stuck turn'
+      };
+    }
+
+    if (hermesConnection?.state === 'reconnecting') {
+      return {
+        title: 'Hermes lost connection to WebUI.',
+        body: `Your message is still queued, but the AI box last checked in ${formatStalledAge(hermesConnection.workerHeartbeat.ageSeconds)}. It may be offline, restarting, or unable to reach this site from its network. Hermes should resume automatically when the connection returns.`,
+        actionLabel: 'Remove stuck turn'
+      };
+    }
+
+    if (hermesConnection?.state === 'degraded' || hermesConnection?.state === 'offline') {
+      return {
+        title: 'Hermes worker is not connected.',
+        body: hermesConnection.pendingEvent.exists
+          ? `This turn is queued, but no active worker connection is checking WebUI right now. The queued event has been waiting ${formatStalledAge(hermesConnection.pendingEvent.ageSeconds)}.`
+          : 'WebUI is waiting for the Hermes worker to reconnect before this turn can continue.',
+        actionLabel: 'Remove stuck turn'
+      };
+    }
+
+    return {
+      title: 'This turn is stuck waiting for Hermes.',
+      body: 'WebUI has not seen the Hermes worker finish this reply. You can wait a bit longer or remove the stuck turn and resend.',
+      actionLabel: 'Remove stuck turn'
+    };
+  });
   const runStateNotice = $derived.by(() => {
     if (!currentConversationId) {
       return null;
@@ -2888,14 +2940,10 @@
             role="status"
           >
             <strong class="llama-stalled-banner-title">
-              {isReconnectingWarning ? 'Still reconnecting to Hermes.' : 'Reply is delayed.'}
+              {stalledWarningContent.title}
             </strong>
             <p class="llama-stalled-banner-body">
-              {#if isReconnectingWarning}
-                Hermes is retrying the worker connection in the background. You can wait a bit longer or clear the queued turn.
-              {:else}
-                The worker may be temporarily unavailable, so this turn has not completed yet.
-              {/if}
+              {stalledWarningContent.body}
             </p>
             <div class="llama-stalled-banner-actions">
               <button
@@ -2904,7 +2952,7 @@
                 onclick={clearStalledAssistantTurn}
                 disabled={isClearingStalled}
               >
-                {isClearingStalled ? 'Clearing queued turn...' : 'Clear queued turn'}
+                {isClearingStalled ? 'Removing stuck turn...' : stalledWarningContent.actionLabel}
               </button>
               <button
                 class="llama-stalled-banner-dismiss"

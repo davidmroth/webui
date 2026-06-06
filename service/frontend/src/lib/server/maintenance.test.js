@@ -213,8 +213,8 @@ test('buildHermesConnectionStatus reports recent auth failures as degraded', () 
   });
 
   assert.equal(status.state, 'degraded');
-  assert.equal(status.label, 'Auth failing');
-  assert.match(status.summary, /do not match/);
+  assert.equal(status.label, 'Hermes auth failed');
+  assert.match(status.summary, /rejecting recent Hermes requests/i);
 });
 
 test('buildHermesConnectionStatus reports stale backlog as reconnecting after a prior heartbeat', () => {
@@ -268,8 +268,8 @@ test('buildHermesConnectionStatus reports stale backlog as reconnecting after a 
   });
 
   assert.equal(status.state, 'reconnecting');
-  assert.equal(status.label, 'Reconnecting');
-  assert.match(status.summary, /retrying the webchat poller connection with backoff/i);
+  assert.equal(status.label, 'Connection lost');
+  assert.match(status.summary, /AI box stopped checking in/i);
 });
 
 test('buildRecentAssistantTimingsTelemetry surfaces stored llama timings for the maintenance page', () => {

@@ -919,9 +919,9 @@ export function buildHermesConnectionStatus(params: {
     return {
       polledAt: new Date(nowMs).toISOString(),
       state: 'degraded',
-      label: 'Auth failing',
+      label: 'Hermes auth failed',
       summary:
-        'The receiver recently saw unauthorized Hermes requests and there is no fresh worker heartbeat. WEBCHAT_SERVICE_TOKEN and HERMES_WEBCHAT_SERVICE_TOKEN likely do not match.',
+        'WebUI is rejecting recent Hermes requests, and the worker has not checked in again. The shared service token is likely mismatched between the AI box and WebUI.',
       hermesServiceTokenConfigured,
       queue: queueStats,
       workerHeartbeat,
@@ -933,9 +933,9 @@ export function buildHermesConnectionStatus(params: {
     return {
       polledAt: new Date(nowMs).toISOString(),
       state: 'reconnecting',
-      label: 'Reconnecting',
+      label: 'Connection lost',
       summary:
-        'WebUI can see queued or in-flight Hermes work, and the last worker heartbeat has gone stale. Hermes is likely retrying the webchat poller connection with backoff right now.',
+        'WebUI still has queued Hermes work, but the AI box stopped checking in. Hermes may be offline, restarting, or unable to reach WebUI from its network connection.',
       hermesServiceTokenConfigured,
       queue: queueStats,
       workerHeartbeat,
@@ -947,9 +947,9 @@ export function buildHermesConnectionStatus(params: {
     return {
       polledAt: new Date(nowMs).toISOString(),
       state: 'degraded',
-      label: 'Waiting for worker',
+      label: 'Worker not connected',
       summary:
-        'WebUI can see queued or in-flight Hermes work, but no fresh worker heartbeat has arrived. The webchat poller likely needs to reconnect.',
+        'WebUI has queued Hermes work, but no worker connection has checked in yet. Verify that the AI box is online and that the webchat poller can reach WebUI.',
       hermesServiceTokenConfigured,
       queue: queueStats,
       workerHeartbeat,
