@@ -1534,6 +1534,13 @@ a {
 
 .llama-message-body.markdown-content {
   white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.llama-message-body.markdown-content a {
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 
