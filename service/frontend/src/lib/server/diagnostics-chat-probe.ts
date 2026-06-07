@@ -9,13 +9,20 @@ const DEFAULT_POLL_INTERVAL_MS = 1_000;
 const MIN_POLL_INTERVAL_MS = 250;
 const MAX_POLL_INTERVAL_MS = 5_000;
 
-const SUPPORTED_ANALYSIS_PROFILES = ['premature_complete'] as const;
+const SUPPORTED_ANALYSIS_PROFILES = ['premature_complete', 'execution_without_tool_progress'] as const;
 
 export type ChatProbeAnalysisProfile = (typeof SUPPORTED_ANALYSIS_PROFILES)[number];
+
+export interface ChatProbePromptSummary {
+  contentSnippet: string;
+  looksExecutionOriented: boolean;
+}
 
 export interface ChatProbeResponseSummary {
   assistantResponseCount: number;
   systemResponseCount: number;
+  toolProgressCount: number;
+  hasToolProgress: boolean;
   latestAssistantMessageId: string | null;
   latestAssistantSnippet: string;
   latestAssistantLooksIncomplete: boolean;
@@ -31,6 +38,7 @@ export interface ChatProbeAnalysisFinding {
 export interface ChatProbeReport {
   beforeVerdict: ForensicsVerdict | null;
   afterVerdict: ForensicsVerdict | null;
+  promptSummary: ChatProbePromptSummary;
   responseSummary: ChatProbeResponseSummary;
   findings: ChatProbeAnalysisFinding[];
 }
@@ -50,6 +58,36 @@ export interface ChatProbeWaitResult {
   messages: ChatMessage[];
   responseMessages: ChatMessage[];
   elapsedMs: number;
+}
+
+function looksExecutionOrientedPrompt(content: string): boolean {
+  const normalized = content.trim().toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+
+  const actionMarkers = [
+    'continue',
+    'research',
+    'investigate',
+    'look into',
+    'search for',
+    'find',
+    'check',
+    'inspect',
+    'analyze',
+    'debug',
+    'fix',
+    'use tools',
+    'concrete findings',
+    'specifics',
+    'do not answer until',
+    'do not stop',
+    'actual',
+    'facts'
+  ];
+
+  return actionMarkers.some((marker) => normalized.includes(marker));
 }
 
 function normalizeOptionalString(value: unknown): string | null {
@@ -147,15 +185,26 @@ export function findProbeResponseMessages(messages: ChatMessage[], userMessageId
     .filter((message) => message.role === 'assistant' || message.role === 'system');
 }
 
+function summarizeProbePrompt(content: string): ChatProbePromptSummary {
+  const trimmed = content.trim();
+  return {
+    contentSnippet: trimmed.slice(0, 240),
+    looksExecutionOriented: looksExecutionOrientedPrompt(trimmed)
+  };
+}
+
 function summarizeProbeResponses(responseMessages: ChatMessage[]): ChatProbeResponseSummary {
   const assistantResponses = responseMessages.filter((message) => message.role === 'assistant');
   const systemResponses = responseMessages.filter((message) => message.role === 'system');
+  const toolProgressResponses = systemResponses.filter((message) => message.displayType === 'tool_progress');
   const latestAssistant = assistantResponses.at(-1) ?? null;
   const latestAssistantContent = (latestAssistant?.content ?? '').trim();
 
   return {
     assistantResponseCount: assistantResponses.length,
     systemResponseCount: systemResponses.length,
+    toolProgressCount: toolProgressResponses.length,
+    hasToolProgress: toolProgressResponses.length > 0,
     latestAssistantMessageId: latestAssistant?.id ?? null,
     latestAssistantSnippet: latestAssistantContent.slice(0, 240),
     latestAssistantLooksIncomplete: latestAssistantContent
@@ -210,12 +259,63 @@ function buildPrematureCompleteFinding(input: {
   };
 }
 
+function buildExecutionWithoutToolProgressFinding(input: {
+  promptSummary: ChatProbePromptSummary;
+  afterVerdict: ForensicsVerdict | null;
+  responseSummary: ChatProbeResponseSummary;
+}): ChatProbeAnalysisFinding {
+  const { promptSummary, responseSummary } = input;
+
+  if (!promptSummary.looksExecutionOriented) {
+    return {
+      profile: 'execution_without_tool_progress',
+      status: 'inconclusive',
+      summary: 'The probe prompt does not clearly look execution-oriented, so this profile cannot judge whether tool use was expected.',
+      evidence: responseSummary
+    };
+  }
+
+  if (
+    !responseSummary.hasToolProgress
+    && responseSummary.assistantResponseCount > 0
+    && input.afterVerdict?.code === 'likely_premature_complete'
+  ) {
+    return {
+      profile: 'execution_without_tool_progress',
+      status: 'proved',
+      summary:
+        'This probe asked Hermes to perform execution-oriented work, but the run completed without any visible tool progress and ended in a sender-side premature-complete verdict.',
+      evidence: responseSummary
+    };
+  }
+
+  if (!responseSummary.hasToolProgress && responseSummary.assistantResponseCount > 0) {
+    return {
+      profile: 'execution_without_tool_progress',
+      status: 'inconclusive',
+      summary:
+        'The probe looks execution-oriented and produced an assistant reply without visible tool progress, but the broader conversation forensics did not conclusively classify it as sender-side premature completion.',
+      evidence: responseSummary
+    };
+  }
+
+  return {
+    profile: 'execution_without_tool_progress',
+    status: 'not_reproduced',
+    summary:
+      'This probe did not reproduce the execution-without-tool-progress pattern: either visible tool progress occurred or the probe did not end on a suspicious assistant-only completion.',
+    evidence: responseSummary
+  };
+}
+
 export function buildChatProbeReport(input: {
+  promptContent: string;
   responseMessages: ChatMessage[];
   beforeVerdict: ForensicsVerdict | null;
   afterVerdict: ForensicsVerdict | null;
   analysisProfiles: ChatProbeAnalysisProfile[];
 }): ChatProbeReport {
+  const promptSummary = summarizeProbePrompt(input.promptContent);
   const responseSummary = summarizeProbeResponses(input.responseMessages);
   const findings = input.analysisProfiles.map((profile) => {
     switch (profile) {
@@ -226,12 +326,19 @@ export function buildChatProbeReport(input: {
           afterVerdict: input.afterVerdict,
           responseSummary
         });
+      case 'execution_without_tool_progress':
+        return buildExecutionWithoutToolProgressFinding({
+          promptSummary,
+          afterVerdict: input.afterVerdict,
+          responseSummary
+        });
     }
   });
 
   return {
     beforeVerdict: input.beforeVerdict,
     afterVerdict: input.afterVerdict,
+    promptSummary,
     responseSummary,
     findings
   };

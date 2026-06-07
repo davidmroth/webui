@@ -61,10 +61,10 @@ test('normalizeChatProbeOptions accepts proof mode and requires waitForResponse'
 test('normalizeChatProbeOptions accepts analysis profile arrays', () => {
   const options = normalizeChatProbeOptions({
     content: 'repro this',
-    analysis_profiles: ['premature_complete', 'premature_complete']
+    analysis_profiles: ['premature_complete', 'execution_without_tool_progress', 'premature_complete']
   });
 
-  assert.deepEqual(options.analysisProfiles, ['premature_complete']);
+  assert.deepEqual(options.analysisProfiles, ['premature_complete', 'execution_without_tool_progress']);
 });
 
 test('normalizeChatProbeOptions rejects empty content', () => {
@@ -131,6 +131,7 @@ test('waitForProbeResponses times out without a response', async () => {
 
 test('buildChatProbeReport marks a likely premature complete as proved', () => {
   const report = buildChatProbeReport({
+    promptContent: 'Continue the investigation and do not answer until you have concrete findings.',
     responseMessages: [message('assistant-1', 'assistant', 'Let me get more detail on that:')],
     beforeVerdict: {
       code: 'no_obvious_fault',
@@ -148,12 +149,15 @@ test('buildChatProbeReport marks a likely premature complete as proved', () => {
   });
 
   assert.equal(report.findings[0].status, 'proved');
+  assert.equal(report.promptSummary.looksExecutionOriented, true);
   assert.equal(report.responseSummary.latestAssistantLooksIncomplete, true);
+  assert.equal(report.responseSummary.toolProgressCount, 0);
   assert.match(report.findings[0].summary, /reproduced/i);
 });
 
 test('buildChatProbeReport reports inconclusive when no assistant response arrives', () => {
   const report = buildChatProbeReport({
+    promptContent: 'Continue the investigation.',
     responseMessages: [message('system-1', 'system', 'tool progress')],
     beforeVerdict: null,
     afterVerdict: null,
@@ -162,4 +166,44 @@ test('buildChatProbeReport reports inconclusive when no assistant response arriv
 
   assert.equal(report.findings[0].status, 'inconclusive');
   assert.equal(report.responseSummary.latestAssistantMessageId, null);
+});
+
+test('buildChatProbeReport proves execution_without_tool_progress on execution-style probes', () => {
+  const report = buildChatProbeReport({
+    promptContent: 'Continue researching the issue, use tools if needed, and do not answer until you have actual findings.',
+    responseMessages: [message('assistant-1', 'assistant', 'Let me check the merger details:')],
+    beforeVerdict: null,
+    afterVerdict: {
+      code: 'likely_premature_complete',
+      summary: 'Hermes ended early.',
+      likelyLayer: 'hermes_sender',
+      hints: []
+    },
+    analysisProfiles: ['execution_without_tool_progress']
+  });
+
+  assert.equal(report.findings[0].profile, 'execution_without_tool_progress');
+  assert.equal(report.findings[0].status, 'proved');
+  assert.equal(report.responseSummary.hasToolProgress, false);
+});
+
+test('buildChatProbeReport does not flag execution_without_tool_progress when tool progress is visible', () => {
+  const report = buildChatProbeReport({
+    promptContent: 'Continue researching the issue and find the actual facts.',
+    responseMessages: [
+      { ...message('system-1', 'system', 'terminal: curl facts'), displayType: 'tool_progress' },
+      message('assistant-1', 'assistant', 'Here are the verified findings.')
+    ],
+    beforeVerdict: null,
+    afterVerdict: {
+      code: 'no_obvious_fault',
+      summary: 'Nothing suspicious.',
+      likelyLayer: 'unknown',
+      hints: []
+    },
+    analysisProfiles: ['execution_without_tool_progress']
+  });
+
+  assert.equal(report.findings[0].status, 'not_reproduced');
+  assert.equal(report.responseSummary.hasToolProgress, true);
 });

@@ -258,6 +258,7 @@ export async function POST(event) {
     const report =
       options.analysisProfiles.length > 0
         ? buildChatProbeReport({
+            promptContent: options.content,
             responseMessages: waitResult.responseMessages,
             beforeVerdict: beforeForensics?.verdict ?? null,
             afterVerdict: afterForensics?.verdict ?? null,
