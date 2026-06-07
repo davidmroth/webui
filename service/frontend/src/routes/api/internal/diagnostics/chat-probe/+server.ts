@@ -9,11 +9,13 @@ import {
   listMessages
 } from '$server/chat';
 import {
+  buildChatProbeReport,
   findProbeResponseMessages,
   normalizeChatProbeOptions,
   waitForProbeResponses
 } from '$server/diagnostics-chat-probe';
 import { requireDiagnosticsAccess } from '$server/diagnostics-auth';
+import { collectConversationForensics } from '$server/conversation-forensics';
 import {
   DiagnosticEventType,
   DiagnosticHop,
@@ -157,6 +159,7 @@ export async function POST(event) {
       conversationId: probeConversationId,
       requestId,
       contentLength: options.content.length,
+      analysisProfiles: options.analysisProfiles,
       waitForResponse: options.waitForResponse,
       timeoutMs: options.timeoutMs,
       pollIntervalMs: options.pollIntervalMs
@@ -165,6 +168,11 @@ export async function POST(event) {
   );
 
   try {
+    const beforeForensics =
+      options.analysisProfiles.length > 0
+        ? await collectConversationForensics(probeConversationId)
+        : null;
+
     const queued = await enqueueUserMessage(probeOwnerId, probeConversationId, options.content);
     emitDiagnosticEvent(
       DiagnosticEventType.DiagnosticChatProbeQueued,
@@ -243,6 +251,20 @@ export async function POST(event) {
       Promise.resolve(getHermesWorkerHeartbeat())
     ]);
 
+    const afterForensics =
+      options.analysisProfiles.length > 0
+        ? await collectConversationForensics(probeConversationId)
+        : null;
+    const report =
+      options.analysisProfiles.length > 0
+        ? buildChatProbeReport({
+            responseMessages: waitResult.responseMessages,
+            beforeVerdict: beforeForensics?.verdict ?? null,
+            afterVerdict: afterForensics?.verdict ?? null,
+            analysisProfiles: options.analysisProfiles
+          })
+        : null;
+
     return json(
       {
         success: waitResult.status === 'completed',
@@ -256,6 +278,9 @@ export async function POST(event) {
         diagnostics: getDiagnosticEvents({ conversationId: probeConversationId, limit: 100 }),
         queue,
         worker,
+        ...(beforeForensics ? { beforeForensics } : {}),
+        ...(afterForensics ? { afterForensics } : {}),
+        ...(report ? { report } : {}),
         ...(waitResult.status === 'timed_out'
           ? {
               error_code: 'DIAGNOSTIC_CHAT_PROBE_TIMEOUT',

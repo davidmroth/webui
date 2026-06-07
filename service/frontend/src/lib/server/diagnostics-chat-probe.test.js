@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  buildChatProbeReport,
   findProbeResponseMessages,
   normalizeChatProbeOptions,
   waitForProbeResponses
@@ -33,8 +34,37 @@ test('normalizeChatProbeOptions accepts camelCase and snake_case fields', () => 
     title: 'Diagnostics chat probe',
     waitForResponse: false,
     timeoutMs: 2500,
-    pollIntervalMs: 300
+    pollIntervalMs: 300,
+    analysisProfiles: []
   });
+});
+
+test('normalizeChatProbeOptions accepts proof mode and requires waitForResponse', () => {
+  const options = normalizeChatProbeOptions({
+    content: 'repro this',
+    proof_mode: 'premature_complete'
+  });
+
+  assert.deepEqual(options.analysisProfiles, ['premature_complete']);
+  assert.equal(options.waitForResponse, true);
+  assert.throws(
+    () =>
+      normalizeChatProbeOptions({
+        content: 'repro this',
+        analysisProfiles: ['premature_complete'],
+        waitForResponse: false
+      }),
+    /Analysis profiles require waitForResponse=true/i
+  );
+});
+
+test('normalizeChatProbeOptions accepts analysis profile arrays', () => {
+  const options = normalizeChatProbeOptions({
+    content: 'repro this',
+    analysis_profiles: ['premature_complete', 'premature_complete']
+  });
+
+  assert.deepEqual(options.analysisProfiles, ['premature_complete']);
 });
 
 test('normalizeChatProbeOptions rejects empty content', () => {
@@ -97,4 +127,39 @@ test('waitForProbeResponses times out without a response', async () => {
   assert.equal(result.status, 'timed_out');
   assert.equal(result.responseMessages.length, 0);
   assert.equal(result.elapsedMs, 500);
+});
+
+test('buildChatProbeReport marks a likely premature complete as proved', () => {
+  const report = buildChatProbeReport({
+    responseMessages: [message('assistant-1', 'assistant', 'Let me get more detail on that:')],
+    beforeVerdict: {
+      code: 'no_obvious_fault',
+      summary: 'No obvious fault before the probe.',
+      likelyLayer: 'unknown',
+      hints: []
+    },
+    afterVerdict: {
+      code: 'likely_premature_complete',
+      summary: 'Hermes ended early.',
+      likelyLayer: 'hermes_sender',
+      hints: []
+    },
+    analysisProfiles: ['premature_complete']
+  });
+
+  assert.equal(report.findings[0].status, 'proved');
+  assert.equal(report.responseSummary.latestAssistantLooksIncomplete, true);
+  assert.match(report.findings[0].summary, /reproduced/i);
+});
+
+test('buildChatProbeReport reports inconclusive when no assistant response arrives', () => {
+  const report = buildChatProbeReport({
+    responseMessages: [message('system-1', 'system', 'tool progress')],
+    beforeVerdict: null,
+    afterVerdict: null,
+    analysisProfiles: ['premature_complete']
+  });
+
+  assert.equal(report.findings[0].status, 'inconclusive');
+  assert.equal(report.responseSummary.latestAssistantMessageId, null);
 });
