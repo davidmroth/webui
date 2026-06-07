@@ -177,6 +177,14 @@ interface UpdatableAssistantMessage {
   displayType?: MessageDisplayType;
 }
 
+interface DeleteMessageForUserDeps {
+  queryFn?: ServerQueryFn;
+  executeFn?: typeof execute;
+  updateConversationStateFn?: typeof updateConversationState;
+}
+
+export type DeleteMessageForUserResult = 'deleted' | 'not_found' | 'not_latest_user';
+
 export function shouldAdvanceAssistantTail(input: {
   role?: 'assistant' | 'system';
   displayType?: MessageDisplayType;
@@ -2871,9 +2879,14 @@ export async function getAttachmentBuffer(storageKey: string) {
 export async function deleteMessageForUser(
   userId: string,
   conversationId: string,
-  messageId: string
-): Promise<boolean> {
-  const conversationRows = await query<ConversationStateRow>(
+  messageId: string,
+  deps: DeleteMessageForUserDeps = {}
+): Promise<DeleteMessageForUserResult> {
+  const queryFn = deps.queryFn ?? query;
+  const executeFn = deps.executeFn ?? execute;
+  const updateConversationStateFn = deps.updateConversationStateFn ?? updateConversationState;
+
+  const conversationRows = await queryFn<ConversationStateRow>(
     `SELECT conversations.id, conversations.created_at, conversations.curr_node, conversations.title
      FROM conversations
      WHERE conversations.id = :conversation_id
@@ -2883,10 +2896,10 @@ export async function deleteMessageForUser(
   );
   const conversation = conversationRows[0];
   if (!conversation) {
-    return false;
+    return 'not_found';
   }
 
-  const rows = await query<MessageRow>(
+  const rows = await queryFn<MessageRow>(
     `SELECT messages.id,
             messages.parent_id,
             messages.role,
@@ -2906,7 +2919,16 @@ export async function deleteMessageForUser(
   const messageTree = buildMessageTree(rows);
   const target = messageTree.get(messageId)?.row;
   if (!target || target.type === 'root') {
-    return false;
+    return 'not_found';
+  }
+
+  const activeBranch = collectBranchRows(
+    messageTree,
+    resolveConversationLeafId(messageTree, conversation.curr_node)
+  );
+  const latestUser = latestUserMessageInBranch(activeBranch);
+  if (target.role !== 'user' || latestUser?.id !== target.id) {
+    return 'not_latest_user';
   }
 
   const deleteIds = [messageId, ...collectDescendantIds(messageTree, messageId)];
@@ -2927,27 +2949,27 @@ export async function deleteMessageForUser(
   const placeholders = deleteIds.map((_, index) => `:message_id_${index}`).join(', ');
   const params = Object.fromEntries(deleteIds.map((id, index) => [`message_id_${index}`, id]));
 
-  await execute(
+  await executeFn(
     `DELETE FROM hermes_events
      WHERE message_id IN (${placeholders})`,
     params
   );
-  await execute(
+  await executeFn(
     `DELETE FROM attachments
      WHERE message_id IN (${placeholders})`,
     params
   );
-  await execute(
+  await executeFn(
     `DELETE FROM messages
      WHERE id IN (${placeholders})`,
     params
   );
-  await updateConversationState(conversationId, {
+  await updateConversationStateFn(conversationId, {
     currNode: nextCurrNode,
     title: nextFirstUser ? deriveConversationTitle(nextFirstUser.content) : 'New conversation'
   });
 
-  return true;
+  return 'deleted';
 }
 
 /**

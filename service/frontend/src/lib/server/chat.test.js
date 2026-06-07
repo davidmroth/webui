@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  deleteMessageForUser,
   lookupBriefingConversationId,
   resolveVisibleConversationRows,
   resolveAssistantParentMessageId,
@@ -159,6 +160,182 @@ test('filterChatVisibleRows collapses duplicate Hermes assistant prose rows', ()
     filterChatVisibleRows(rows).map((row) => row.id),
     ['assistant-2']
   );
+});
+
+test('deleteMessageForUser deletes only the latest user turn and its descendants', async () => {
+  const executeCalls = [];
+  const stateUpdates = [];
+
+  const result = await deleteMessageForUser('user-1', 'conv-1', 'user-2', {
+    queryFn: async (sql) => {
+      if (sql.includes('FROM conversations')) {
+        return [createConversationState('assistant-2')];
+      }
+
+      if (sql.includes('FROM messages')) {
+        return [
+          {
+            id: 'root-1',
+            parent_id: null,
+            role: 'system',
+            content: '',
+            created_at: '2026-04-27T00:00:00.000Z',
+            updated_at: '2026-04-27T00:00:00.000Z',
+            status: 'complete',
+            type: 'root',
+            msg_timestamp: 0
+          },
+          {
+            id: 'user-1',
+            parent_id: 'root-1',
+            role: 'user',
+            content: 'First prompt',
+            created_at: '2026-04-27T00:00:01.000Z',
+            updated_at: '2026-04-27T00:00:01.000Z',
+            status: 'complete',
+            type: 'text',
+            msg_timestamp: 1
+          },
+          {
+            id: 'assistant-1',
+            parent_id: 'user-1',
+            role: 'assistant',
+            content: 'First reply',
+            created_at: '2026-04-27T00:00:02.000Z',
+            updated_at: '2026-04-27T00:00:02.000Z',
+            status: 'complete',
+            type: 'text',
+            msg_timestamp: 2
+          },
+          {
+            id: 'user-2',
+            parent_id: 'assistant-1',
+            role: 'user',
+            content: 'Latest prompt',
+            created_at: '2026-04-27T00:00:03.000Z',
+            updated_at: '2026-04-27T00:00:03.000Z',
+            status: 'complete',
+            type: 'text',
+            msg_timestamp: 3
+          },
+          {
+            id: 'assistant-2',
+            parent_id: 'user-2',
+            role: 'assistant',
+            content: 'Latest reply',
+            created_at: '2026-04-27T00:00:04.000Z',
+            updated_at: '2026-04-27T00:00:04.000Z',
+            status: 'complete',
+            type: 'text',
+            msg_timestamp: 4
+          }
+        ];
+      }
+
+      throw new Error(`Unexpected query: ${sql}`);
+    },
+    executeFn: async (sql, params = {}) => {
+      executeCalls.push({ sql, params });
+    },
+    updateConversationStateFn: async (conversationId, options) => {
+      stateUpdates.push({ conversationId, options });
+    }
+  });
+
+  assert.equal(result, 'deleted');
+  assert.equal(executeCalls.length, 3);
+  assert.deepEqual(Object.values(executeCalls[0].params).sort(), ['assistant-2', 'user-2']);
+  assert.deepEqual(stateUpdates, [
+    {
+      conversationId: 'conv-1',
+      options: { currNode: 'assistant-1', title: 'First prompt' }
+    }
+  ]);
+});
+
+test('deleteMessageForUser rejects deleting anything except the latest user prompt', async () => {
+  const executeCalls = [];
+  const stateUpdates = [];
+
+  const result = await deleteMessageForUser('user-1', 'conv-1', 'assistant-2', {
+    queryFn: async (sql) => {
+      if (sql.includes('FROM conversations')) {
+        return [createConversationState('assistant-2')];
+      }
+
+      if (sql.includes('FROM messages')) {
+        return [
+          {
+            id: 'root-1',
+            parent_id: null,
+            role: 'system',
+            content: '',
+            created_at: '2026-04-27T00:00:00.000Z',
+            updated_at: '2026-04-27T00:00:00.000Z',
+            status: 'complete',
+            type: 'root',
+            msg_timestamp: 0
+          },
+          {
+            id: 'user-1',
+            parent_id: 'root-1',
+            role: 'user',
+            content: 'First prompt',
+            created_at: '2026-04-27T00:00:01.000Z',
+            updated_at: '2026-04-27T00:00:01.000Z',
+            status: 'complete',
+            type: 'text',
+            msg_timestamp: 1
+          },
+          {
+            id: 'assistant-1',
+            parent_id: 'user-1',
+            role: 'assistant',
+            content: 'First reply',
+            created_at: '2026-04-27T00:00:02.000Z',
+            updated_at: '2026-04-27T00:00:02.000Z',
+            status: 'complete',
+            type: 'text',
+            msg_timestamp: 2
+          },
+          {
+            id: 'user-2',
+            parent_id: 'assistant-1',
+            role: 'user',
+            content: 'Latest prompt',
+            created_at: '2026-04-27T00:00:03.000Z',
+            updated_at: '2026-04-27T00:00:03.000Z',
+            status: 'complete',
+            type: 'text',
+            msg_timestamp: 3
+          },
+          {
+            id: 'assistant-2',
+            parent_id: 'user-2',
+            role: 'assistant',
+            content: 'Latest reply',
+            created_at: '2026-04-27T00:00:04.000Z',
+            updated_at: '2026-04-27T00:00:04.000Z',
+            status: 'complete',
+            type: 'text',
+            msg_timestamp: 4
+          }
+        ];
+      }
+
+      throw new Error(`Unexpected query: ${sql}`);
+    },
+    executeFn: async (sql, params = {}) => {
+      executeCalls.push({ sql, params });
+    },
+    updateConversationStateFn: async (conversationId, options) => {
+      stateUpdates.push({ conversationId, options });
+    }
+  });
+
+  assert.equal(result, 'not_latest_user');
+  assert.equal(executeCalls.length, 0);
+  assert.equal(stateUpdates.length, 0);
 });
 
 test('shouldReclaimStaleHermesProcessingEvent only when worker heartbeat is offline', () => {

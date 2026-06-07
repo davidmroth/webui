@@ -26,13 +26,19 @@ export async function PATCH(event) {
 
 export async function DELETE(event) {
   const session = await requireSession(event);
-  const deleted = await deleteMessageForUser(
+  const result = await deleteMessageForUser(
     session.userId,
     event.params.conversationId,
     event.params.messageId
   );
-  if (!deleted) {
+
+  if (result === 'not_latest_user') {
+    return json({ error: 'Only the latest user prompt can be deleted.' }, { status: 400 });
+  }
+
+  if (result === 'not_found') {
     return json({ error: 'Message not found.' }, { status: 404 });
   }
+
   return json({ ok: true });
 }

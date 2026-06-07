@@ -2164,8 +2164,19 @@
   }
 
   async function deleteMessage(message: ChatMessage) {
-    if (!currentConversationId || message.id.startsWith('pending-')) return;
-    if (typeof window !== 'undefined' && !window.confirm('Delete this message?')) return;
+    if (
+      !currentConversationId ||
+      message.id.startsWith('pending-') ||
+      message.role !== 'user'
+    ) {
+      return;
+    }
+    if (
+      typeof window !== 'undefined' &&
+      !window.confirm('Delete your latest prompt and its response?')
+    ) {
+      return;
+    }
     markBusy(message.id, true);
     try {
       const response = await fetch(
@@ -2174,7 +2185,7 @@
       );
       if (!response.ok) {
         const payload = await response.json().catch(() => ({}));
-        throw new Error(payload.error || 'Unable to delete message.');
+        throw new Error(payload.error || 'Unable to delete latest prompt.');
       }
       if (editingMessageId === message.id) {
         cancelEditingMessage();
@@ -2182,7 +2193,7 @@
       await loadMessages(currentConversationId);
       await refreshConversations();
     } catch (error) {
-      errorMessage = error instanceof Error ? error.message : 'Unable to delete message.';
+      errorMessage = error instanceof Error ? error.message : 'Unable to delete latest prompt.';
     } finally {
       markBusy(message.id, false);
     }

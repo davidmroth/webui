@@ -111,7 +111,7 @@
   }
 
   function isHiddenTranscriptMessage(message: ChatMessage) {
-    return (message as ChatMessage & { role?: string }).role === 'tool';
+    return (message as unknown as { role?: string }).role === 'tool';
   }
 
   function effectiveRole(message: ChatMessage): ChatMessage['role'] {
@@ -128,6 +128,21 @@
 
   function isStreamingAssistant(message: ChatMessage) {
     return message.role === 'assistant' && message.status === 'streaming';
+  }
+
+  function isBusyMessage(messageId: string) {
+    return busyMessageIds?.has(messageId) ?? false;
+  }
+
+  function latestUserDeleteMessageId() {
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const candidate = messages[index];
+      if (candidate.role === 'user') {
+        return candidate.id;
+      }
+    }
+
+    return null;
   }
 
   function buildMessageStats(message: ChatMessage, _index: number): MessageStats | null {
@@ -411,7 +426,6 @@
           {/if}
 
           {#if !(isStreamingAssistant(message) && !hasVisibleContent(message))}
-            {@const isBusy = busyMessageIds?.has(message.id) ?? false}
             {#if displayRole === 'assistant'}
               <div class="llama-message-actions assistant-actions" aria-label="Message actions">
                 <button
@@ -425,20 +439,11 @@
                 <button
                   class="message-action-icon"
                   type="button"
-                  title={isBusy ? 'Regenerating…' : 'Regenerate'}
-                  disabled={isBusy || !onRegenerate}
+                  title={isBusyMessage(message.id) ? 'Regenerating…' : 'Regenerate'}
+                  disabled={isBusyMessage(message.id) || !onRegenerate}
                   onclick={() => onRegenerate?.(message)}
                 >
                   <RefreshCw class="h-3 w-3" />
-                </button>
-                <button
-                  class="message-action-icon"
-                  type="button"
-                  title={isBusy ? 'Working…' : 'Delete'}
-                  disabled={isBusy || !onDelete}
-                  onclick={() => onDelete?.(message)}
-                >
-                  <Trash2 class="h-3 w-3" />
                 </button>
               </div>
 
@@ -466,6 +471,17 @@
                 >
                   <Edit class="h-3 w-3" />
                 </button>
+                {#if latestUserDeleteMessageId() === message.id}
+                  <button
+                    class="message-action-icon"
+                    type="button"
+                    title={isBusyMessage(message.id) ? 'Deleting latest turn…' : 'Delete latest prompt and response'}
+                    disabled={isBusyMessage(message.id) || !onDelete}
+                    onclick={() => onDelete?.(message)}
+                  >
+                    <Trash2 class="h-3 w-3" />
+                  </button>
+                {/if}
               </div>
               {#if hasRevisionNavigation(message)}
                 <div class="message-revision-switcher message-revision-switcher--inline" aria-label="Message revisions">
