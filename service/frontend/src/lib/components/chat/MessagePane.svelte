@@ -73,6 +73,98 @@
   }: Props = $props();
   let statsViewByMessageId = $state<Record<string, StatsView>>({});
 
+  // Local-day boundary markers ("Today" / "Yesterday" / weekday / date) shown
+  // between message rows whenever the calendar day changes. Computed in the
+  // viewer's local timezone from each message's createdAt, considering only
+  // visible (non hidden-transcript) rows so the divider lines up with what the
+  // user actually sees.
+  const dayLabelFormatterFull = new Intl.DateTimeFormat([], {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric'
+  });
+  const dayLabelFormatterWeekday = new Intl.DateTimeFormat([], { weekday: 'long' });
+  const dayLabelFormatterSameYear = new Intl.DateTimeFormat([], {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric'
+  });
+  const dayLabelFormatterOtherYear = new Intl.DateTimeFormat([], {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric'
+  });
+
+  function localDayKey(value: string): string | null {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+      return null;
+    }
+
+    return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+  }
+
+  function relativeDayLabel(value: string): string {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+      return '';
+    }
+
+    const now = new Date();
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const startOfMessageDay = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    const dayMs = 24 * 60 * 60 * 1000;
+    const diffDays = Math.round((startOfToday.getTime() - startOfMessageDay.getTime()) / dayMs);
+
+    if (diffDays === 0) {
+      return 'Today';
+    }
+    if (diffDays === 1) {
+      return 'Yesterday';
+    }
+    if (diffDays > 1 && diffDays < 7) {
+      return dayLabelFormatterWeekday.format(date);
+    }
+    if (date.getFullYear() === now.getFullYear()) {
+      return dayLabelFormatterSameYear.format(date);
+    }
+
+    return dayLabelFormatterOtherYear.format(date);
+  }
+
+  interface DaySeparatorInfo {
+    label: string;
+    ariaLabel: string;
+  }
+
+  const daySeparatorByMessageId = $derived.by(() => {
+    const result: Record<string, DaySeparatorInfo> = {};
+    let previousDayKey: string | null = null;
+
+    for (const message of messages) {
+      if (isHiddenTranscriptMessage(message)) {
+        continue;
+      }
+
+      const timestamp = message.createdAt;
+      const dayKey = localDayKey(timestamp);
+      if (!dayKey) {
+        continue;
+      }
+
+      if (dayKey !== previousDayKey) {
+        result[message.id] = {
+          label: relativeDayLabel(timestamp),
+          ariaLabel: dayLabelFormatterFull.format(new Date(timestamp))
+        };
+        previousDayKey = dayKey;
+      }
+    }
+
+    return result;
+  });
+
   const modelBadges = [
     publicEnv.PUBLIC_MODEL_SIZE_LABEL,
     publicEnv.PUBLIC_MODEL_CAPABILITY_LABEL,
@@ -264,6 +356,16 @@
 
     {#each messages as message, index}
       {#if !isHiddenTranscriptMessage(message)}
+      {@const daySeparator = daySeparatorByMessageId[message.id]}
+      {#if daySeparator}
+        <div
+          class="llama-day-separator"
+          role="separator"
+          aria-label={daySeparator.ariaLabel}
+        >
+          <span class="llama-day-separator-pill">{daySeparator.label}</span>
+        </div>
+      {/if}
       {@const displayRole = effectiveRole(message)}
       <div class={`llama-message-row ${displayRole}`}>
         <div class="llama-message-card">

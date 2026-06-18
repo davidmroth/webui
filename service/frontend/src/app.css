@@ -1384,6 +1384,51 @@ a {
   position: relative;
 }
 
+.llama-day-separator {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  width: 100%;
+  margin: 0.35rem 0;
+  pointer-events: none;
+  isolation: isolate;
+}
+
+.llama-day-separator::before,
+.llama-day-separator::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(
+    to var(--day-sep-direction, right),
+    transparent,
+    color-mix(in srgb, var(--border) 85%, transparent)
+  );
+}
+
+.llama-day-separator::after {
+  --day-sep-direction: left;
+}
+
+.llama-day-separator-pill {
+  flex: 0 0 auto;
+  padding: 0.2rem 0.7rem;
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--panel-strong) 92%, transparent);
+  backdrop-filter: blur(6px);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  white-space: nowrap;
+  box-shadow: 0 1px 2px -1px rgba(22, 22, 20, 0.18);
+}
+
 .llama-message-card {
   display: grid;
   gap: 0.65rem;
