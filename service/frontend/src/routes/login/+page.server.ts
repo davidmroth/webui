@@ -1,11 +1,25 @@
 import { fail, redirect } from '@sveltejs/kit';
 import { authenticateApiKey, createUserSession } from '$server/auth';
 
-export async function load({ locals }) {
-  if (locals.session) {
-    throw redirect(303, '/chat');
+function safeReturnTo(raw: string | null): string {
+  if (!raw) return '/chat';
+  try {
+    const decoded = decodeURIComponent(raw);
+    // Only allow relative paths starting with / to prevent open-redirect.
+    if (decoded.startsWith('/') && !decoded.startsWith('//')) {
+      return decoded;
+    }
+  } catch {
+    // Ignore malformed values.
   }
-  return {};
+  return '/chat';
+}
+
+export async function load({ locals, url }) {
+  if (locals.session) {
+    throw redirect(303, safeReturnTo(url.searchParams.get('return_to')));
+  }
+  return { returnTo: url.searchParams.get('return_to') ?? '' };
 }
 
 export const actions = {
@@ -22,6 +36,7 @@ export const actions = {
     }
 
     await createUserSession(event, user);
-    throw redirect(303, '/chat');
+    const returnTo = safeReturnTo(String(formData.get('return_to') || ''));
+    throw redirect(303, returnTo);
   }
 };

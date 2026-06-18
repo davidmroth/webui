@@ -2635,9 +2635,10 @@
       : null;
     if (shareParam) {
       try {
-        const decoded = decodeURIComponent(shareParam);
-        if (decoded.trim()) {
-          draftMessage = decoded.trim();
+        // searchParams.get() already URL-decodes the value; no further
+        // decoding is needed (double-decoding corrupts URLs with %XX in them).
+        if (shareParam.trim()) {
+          draftMessage = shareParam.trim();
         }
         // Clean the URL so the pre-filled text doesn't re-appear on reload.
         const cleanUrl = new URL(window.location.href);

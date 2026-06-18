@@ -1,7 +1,7 @@
 <script lang="ts">
   import ThemeModeToggle from '$lib/components/ThemeModeToggle.svelte';
 
-  let { form } = $props();
+  let { form, data } = $props();
 </script>
 
 <div class="login-shell">
@@ -17,6 +17,9 @@
     </p>
 
     <form method="POST" class="login-form">
+      {#if data.returnTo}
+        <input type="hidden" name="return_to" value={data.returnTo} />
+      {/if}
       <label class="login-label">
         <span class="login-label-text">Access key</span>
         <input class="field" name="apiKey" type="password" autocomplete="current-password" />

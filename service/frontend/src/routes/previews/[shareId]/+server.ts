@@ -1,4 +1,4 @@
-import type { PageServerLoad } from './$types';
+import type { RequestHandler } from './$types';
 import { getPreviewViewerAccess } from '$server/preview-sharing';
 import { query } from '$server/db';
 import { isHtmlAttachmentContentType, isMarkdownAttachmentContentType } from '$lib/utils/attachment-content-type';
@@ -61,7 +61,7 @@ function buildLoadingHtml(): string {
 </html>`;
 }
 
-export const load: PageServerLoad = async (event) => {
+export const GET: RequestHandler = async (event) => {
   const session = event.locals.session;
   const access = await getPreviewViewerAccess(event.params.shareId, session?.userId ?? null);
 

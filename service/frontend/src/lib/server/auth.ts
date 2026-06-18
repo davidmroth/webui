@@ -160,7 +160,9 @@ export async function resolveSession(event: RequestEvent) {
 export async function requireSession(event: RequestEvent) {
   const session = event.locals.session ?? (await resolveSession(event));
   if (!session) {
-    throw redirect(303, '/login');
+    const returnTo = event.url.pathname + event.url.search;
+    const loginUrl = returnTo === '/' ? '/login' : `/login?return_to=${encodeURIComponent(returnTo)}`;
+    throw redirect(303, loginUrl);
   }
   return session;
 }
