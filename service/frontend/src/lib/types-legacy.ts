@@ -15,6 +15,12 @@ export interface MessageAttachment {
   isHtml: boolean;
   isMarkdown: boolean;
   isAudio: boolean;
+  /** Share state — populated when the attachment has an active preview share */
+  shareState?: {
+    shareId: string;
+    isPublic: boolean;
+    previewPath: string;
+  } | null;
 }
 
 export interface ConversationSummary {

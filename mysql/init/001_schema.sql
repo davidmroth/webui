@@ -108,3 +108,15 @@ CREATE TABLE IF NOT EXISTS briefing_shares (
   CONSTRAINT fk_briefing_shares_owner FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE CASCADE,
   INDEX idx_briefing_shares_owner (owner_user_id)
 );
+
+CREATE TABLE IF NOT EXISTS preview_shares (
+  share_id CHAR(36) PRIMARY KEY,
+  attachment_id CHAR(36) NOT NULL UNIQUE,
+  owner_user_id CHAR(36) NOT NULL,
+  is_public TINYINT(1) NOT NULL DEFAULT 0,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT fk_preview_shares_attachment FOREIGN KEY (attachment_id) REFERENCES attachments(id) ON DELETE CASCADE,
+  CONSTRAINT fk_preview_shares_owner FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE CASCADE,
+  INDEX idx_preview_shares_owner (owner_user_id)
+);
