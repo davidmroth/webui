@@ -2629,6 +2629,25 @@
   }
 
   onMount(() => {
+    // Handle share target: pre-fill composer with content shared from another app.
+    const shareParam = typeof window !== 'undefined'
+      ? new URL(window.location.href).searchParams.get('share')
+      : null;
+    if (shareParam) {
+      try {
+        const decoded = decodeURIComponent(shareParam);
+        if (decoded.trim()) {
+          draftMessage = decoded.trim();
+        }
+        // Clean the URL so the pre-filled text doesn't re-appear on reload.
+        const cleanUrl = new URL(window.location.href);
+        cleanUrl.searchParams.delete('share');
+        window.history.replaceState({}, '', cleanUrl.toString());
+      } catch {
+        // Ignore decode failures from malformed share data.
+      }
+    }
+
     const rootElement = document.documentElement;
     const bodyElement = document.body;
     const syncChatViewport = () => {
