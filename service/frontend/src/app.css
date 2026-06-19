@@ -700,6 +700,31 @@ a {
   min-width: 0;
 }
 
+.llama-conversation-progressive-footer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.55rem;
+  padding: 0.5rem 0.35rem 0.3rem;
+}
+
+.llama-conversation-load-more {
+  border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
+  background: color-mix(in srgb, var(--panel-strong) 92%, transparent);
+  color: var(--text-muted);
+  border-radius: 999px;
+  padding: 0.3rem 0.65rem;
+  font-size: 0.74rem;
+  line-height: 1;
+  transition: background 140ms ease, color 140ms ease, border-color 140ms ease;
+}
+
+.llama-conversation-load-more:hover {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--border) 98%, transparent);
+  background: color-mix(in srgb, var(--accent-soft) 78%, transparent);
+}
+
 .llama-conversation-link {
   display: grid;
   width: 100%;
@@ -1373,7 +1398,8 @@ a {
 
 .llama-message-stack,
 .message-stack {
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 0.85rem;
   width: min(760px, 100%);
   margin: 0 auto;
@@ -1387,13 +1413,15 @@ a {
 .llama-day-separator {
   position: sticky;
   top: 0;
-  z-index: 2;
+  z-index: 6;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 0.75rem;
   width: 100%;
   margin: 0.35rem 0;
+  padding: 0.1rem 0;
+  background: var(--panel);
   pointer-events: none;
   isolation: isolate;
 }

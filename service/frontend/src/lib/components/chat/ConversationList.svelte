@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import { Download, MoreHorizontal, SquarePen, Trash2 } from '@lucide/svelte';
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
   import type { ConversationSummary } from '$lib/types-legacy';
@@ -12,6 +13,9 @@
     onExport?: (conversation: ConversationSummary) => void;
     onDelete?: (conversation: ConversationSummary) => void;
     busyConversationId?: string | null;
+    progressiveLoad?: boolean;
+    initialRenderCount?: number;
+    renderBatchSize?: number;
   }
 
   let {
@@ -22,10 +26,90 @@
     onEdit,
     onExport,
     onDelete,
-    busyConversationId = null
+    busyConversationId = null,
+    progressiveLoad = true,
+    initialRenderCount = 30,
+    renderBatchSize = 25
   }: Props = $props();
 
+  let listRootElement = $state<HTMLDivElement | null>(null);
+  let loadMoreSentinel = $state<HTMLDivElement | null>(null);
+  let visibleCount = $state<number>(30);
+  let intersectionObserver: IntersectionObserver | null = null;
+
   const hasRowActions = $derived(Boolean(onEdit || onExport || onDelete));
+  const progressiveEnabled = $derived(progressiveLoad && conversations.length > initialRenderCount);
+  const visibleConversations = $derived.by(() => {
+    if (!progressiveEnabled) {
+      return conversations;
+    }
+
+    return conversations.slice(0, Math.min(conversations.length, visibleCount));
+  });
+  const hasMoreConversations = $derived(visibleConversations.length < conversations.length);
+
+  $effect(() => {
+    visibleCount = Math.max(initialRenderCount, Math.min(visibleCount, conversations.length));
+  });
+
+  $effect(() => {
+    if (!progressiveEnabled) {
+      return;
+    }
+
+    // If the visible rows cannot fill the list viewport, expand immediately.
+    if (!listRootElement) {
+      return;
+    }
+
+    if (listRootElement.scrollHeight <= listRootElement.clientHeight + 6 && hasMoreConversations) {
+      visibleCount = Math.min(conversations.length, visibleCount + renderBatchSize);
+    }
+  });
+
+  onMount(() => {
+    if (typeof IntersectionObserver === 'undefined') {
+      return;
+    }
+
+    intersectionObserver = new IntersectionObserver(
+      (entries) => {
+        const [entry] = entries;
+        if (!entry?.isIntersecting || !hasMoreConversations) {
+          return;
+        }
+
+        visibleCount = Math.min(conversations.length, visibleCount + renderBatchSize);
+      },
+      {
+        root: listRootElement,
+        rootMargin: '0px 0px 140px 0px',
+        threshold: 0.01
+      }
+    );
+
+    return () => {
+      intersectionObserver?.disconnect();
+      intersectionObserver = null;
+    };
+  });
+
+  $effect(() => {
+    const sentinel = loadMoreSentinel;
+    if (!intersectionObserver || !sentinel || !hasMoreConversations) {
+      return;
+    }
+
+    intersectionObserver.observe(sentinel);
+
+    return () => {
+      intersectionObserver?.unobserve(sentinel);
+    };
+  });
+
+  function loadMoreConversations() {
+    visibleCount = Math.min(conversations.length, visibleCount + renderBatchSize);
+  }
 
   function formatConversationTime(value: string) {
     return new Date(value).toLocaleTimeString([], {
@@ -36,13 +120,13 @@
   }
 </script>
 
-<div class="llama-conversation-list">
+<div class="llama-conversation-list" bind:this={listRootElement}>
   {#if conversations.length === 0}
     <div class="card" style="padding: 0.95rem; color: var(--text-muted);">
       No conversations yet. Start one from the composer.
     </div>
   {:else}
-    {#each conversations as conversation}
+    {#each visibleConversations as conversation}
       <div class:active={conversation.id === currentConversationId} class="llama-conversation-row">
         <button
           type="button"
@@ -126,5 +210,18 @@
         {/if}
       </div>
     {/each}
+
+    {#if hasMoreConversations}
+      <div class="llama-conversation-progressive-footer" bind:this={loadMoreSentinel}>
+        <div class="app-loading-spinner" aria-hidden="true"></div>
+        <button
+          type="button"
+          class="llama-conversation-load-more"
+          onclick={loadMoreConversations}
+        >
+          Load more conversations
+        </button>
+      </div>
+    {/if}
   {/if}
 </div>

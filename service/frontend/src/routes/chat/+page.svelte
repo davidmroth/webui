@@ -207,6 +207,7 @@
   let composerStatsCapsLoadInFlight: Promise<void> | null = null;
   let lastComposerStatsCapsLoadAt = 0;
   let pendingLayoutAutoScroll = false;
+  let isConversationLoading = $state(false);
   let streamHealthState = $state<'connected' | 'degraded' | 'disconnected'>('disconnected');
   let activePollerStopFn: (() => void) | null = null;
   let refreshCoalesceTimer: number | null = null;
@@ -277,6 +278,19 @@
     }
 
     saveInputHistory(window.localStorage, CHAT_INPUT_HISTORY_LOCALSTORAGE_KEY, nextHistory);
+  }
+
+  function runWhenBrowserIdle(task: () => void) {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    if ('requestIdleCallback' in window) {
+      window.requestIdleCallback(task, { timeout: 1000 });
+      return;
+    }
+
+    window.setTimeout(task, 0);
   }
 
   function resetComposerInputHistoryNavigation() {
@@ -969,6 +983,7 @@
 
     return conversations.filter((conversation) => conversation.title.toLowerCase().includes(query));
   });
+  const shouldUseProgressiveSidebarLoad = $derived(searchQuery.trim().length === 0);
 
   const displayMessages = $derived.by(() => {
     const pendingAssistant = currentConversationId ? pendingAssistantByConversation[currentConversationId] : null;
@@ -1147,7 +1162,7 @@
     return null;
   });
   const composerBusy = $derived.by(
-    () => isSending || isAssistantBusy
+    () => isSending || isAssistantBusy || isConversationLoading
   );
   const passiveRunStateNotice = $derived.by(() => {
     if (!runStateNotice || runStateNotice.tone === 'active') {
@@ -1840,74 +1855,88 @@
     }
   }
 
-  async function loadMessages(conversationId: string | null, options: { forceScroll?: boolean } = {}) {
+  async function loadMessages(
+    conversationId: string | null,
+    options: { forceScroll?: boolean; showLoadingState?: boolean } = {}
+  ) {
+    const showLoadingState = options.showLoadingState ?? false;
     const previousScrollTop = messageScrollElement?.scrollTop ?? 0;
     const shouldStickToBottom = options.forceScroll ?? (shouldFollowLatestMessages() || isNearBottom());
 
-    if (!conversationId) {
-      messages = [];
-      loadedMessagesConversationId = null;
-      currentRunState = createIdleRunState();
-      isAtBottom = true;
-      return;
+    if (showLoadingState) {
+      isConversationLoading = true;
     }
 
-    const headers: HeadersInit = {};
-    // Only send the ETag when we already have messages for this conversation displayed.
-    // If loadedMessagesConversationId !== conversationId (e.g. after a conversation switch
-    // cleared the message list), we must fetch a full response — a 304 would leave messages empty.
-    const messagesEtag =
-      loadedMessagesConversationId === conversationId
-        ? messagesEtagByConversation[conversationId]
-        : null;
-    if (messagesEtag) {
-      headers['if-none-match'] = messagesEtag;
-    }
+    try {
+      if (!conversationId) {
+        messages = [];
+        loadedMessagesConversationId = null;
+        currentRunState = createIdleRunState();
+        isAtBottom = true;
+        return;
+      }
 
-    const response = await fetch(`/api/conversations/${conversationId}/messages`, { headers });
-    if (response.status === 304) {
-      return;
-    }
+      const headers: HeadersInit = {};
+      // Only send the ETag when we already have messages for this conversation displayed.
+      // If loadedMessagesConversationId !== conversationId (e.g. after a conversation switch
+      // cleared the message list), we must fetch a full response — a 304 would leave messages empty.
+      const messagesEtag =
+        loadedMessagesConversationId === conversationId
+          ? messagesEtagByConversation[conversationId]
+          : null;
+      if (messagesEtag) {
+        headers['if-none-match'] = messagesEtag;
+      }
 
-    if (!response.ok) {
-      return;
-    }
+      const response = await fetch(`/api/conversations/${conversationId}/messages`, { headers });
+      if (response.status === 304) {
+        return;
+      }
 
-    const responseEtag = response.headers.get('etag');
-    if (responseEtag) {
-      messagesEtagByConversation = {
-        ...messagesEtagByConversation,
-        [conversationId]: responseEtag
+      if (!response.ok) {
+        return;
+      }
+
+      const responseEtag = response.headers.get('etag');
+      if (responseEtag) {
+        messagesEtagByConversation = {
+          ...messagesEtagByConversation,
+          [conversationId]: responseEtag
+        };
+      }
+
+      const payload = await response.json();
+      if (!isCurrentConversationRequest(conversationId, currentConversationId)) {
+        return;
+      }
+
+      syncPendingAssistant(conversationId, payload.messages);
+      rememberConversationStreamCursor(conversationId, payload.messages);
+      loadedMessagesConversationId = conversationId;
+      messages = payload.messages;
+      currentRunState = normalizeConversationRunState(payload.runState);
+      if (editingMessageId && !payload.messages.some((message: ChatMessage) => message.id === editingMessageId)) {
+        editingMessageId = null;
+        editingDraft = '';
+      }
+      await maybeNotifyAssistantReply(conversationId, payload.messages);
+      serverAssistantBusyByConversation = {
+        ...serverAssistantBusyByConversation,
+        [conversationId]: Boolean(payload.assistantBusy)
       };
-    }
-
-    const payload = await response.json();
-    if (!isCurrentConversationRequest(conversationId, currentConversationId)) {
-      return;
-    }
-
-    syncPendingAssistant(conversationId, payload.messages);
-    rememberConversationStreamCursor(conversationId, payload.messages);
-    loadedMessagesConversationId = conversationId;
-    messages = payload.messages;
-    currentRunState = normalizeConversationRunState(payload.runState);
-    if (editingMessageId && !payload.messages.some((message: ChatMessage) => message.id === editingMessageId)) {
-      editingMessageId = null;
-      editingDraft = '';
-    }
-    await maybeNotifyAssistantReply(conversationId, payload.messages);
-    serverAssistantBusyByConversation = {
-      ...serverAssistantBusyByConversation,
-      [conversationId]: Boolean(payload.assistantBusy)
-    };
-    await tick();
-    if (messageScrollElement) {
-      if (shouldStickToBottom) {
-        scrollMessagesToBottomSync();
-        shouldAutoScroll = true;
-      } else {
-        messageScrollElement.scrollTop = previousScrollTop;
-        shouldAutoScroll = syncBottomTrackingState();
+      await tick();
+      if (messageScrollElement) {
+        if (shouldStickToBottom) {
+          scrollMessagesToBottomSync();
+          shouldAutoScroll = true;
+        } else {
+          messageScrollElement.scrollTop = previousScrollTop;
+          shouldAutoScroll = syncBottomTrackingState();
+        }
+      }
+    } finally {
+      if (showLoadingState) {
+        isConversationLoading = false;
       }
     }
   }
@@ -2039,7 +2068,7 @@
     closeDeleteConversationDialog();
     setChatUrl(conversationId);
     if (isMobileViewport) setSidebarCollapsed(true);
-    await loadMessages(conversationId, { forceScroll: true });
+    await loadMessages(conversationId, { forceScroll: true, showLoadingState: true });
     focusComposer();
   }
 
@@ -2127,7 +2156,7 @@
       clearPendingAssistant(currentConversationId);
       setPendingAssistant(currentConversationId, payload.messageId, placeholderId);
       await refreshConversations();
-      await loadMessages(currentConversationId, { forceScroll: true });
+      await loadMessages(currentConversationId, { forceScroll: true, showLoadingState: true });
       focusComposer();
     } catch (error) {
       errorMessage = error instanceof Error ? error.message : 'Unable to update message.';
@@ -2759,8 +2788,12 @@
     } else {
       void disablePushSubscription({ silenceErrors: true });
     }
-    void loadComposerStatsCaps({ force: true });
-    void loadSlashCommands({ force: true });
+    runWhenBrowserIdle(() => {
+      void loadComposerStatsCaps({ force: true });
+    });
+    runWhenBrowserIdle(() => {
+      void loadSlashCommands({ force: true });
+    });
 
     syncMobileViewport();
     const mediaQuery = window.matchMedia('(max-width: 768px)');
@@ -2897,6 +2930,7 @@
         conversations={filteredConversations}
         currentConversationId={currentConversationId}
         use24HourTime={use24HourTime}
+        progressiveLoad={shouldUseProgressiveSidebarLoad}
         onSelect={selectConversation}
         onEdit={openRenameConversationDialog}
         onExport={exportConversation}
@@ -3005,6 +3039,15 @@
           ondragleave={handleDragLeave}
           ondrop={handleDrop}
         >
+          {#if isConversationLoading}
+            <div class="llama-chat-loading-overlay" role="status" aria-live="polite">
+              <div class="llama-chat-loading-indicator">
+                <div class="app-loading-spinner" aria-hidden="true"></div>
+                <div class="llama-chat-loading-label">Loading conversation...</div>
+              </div>
+            </div>
+          {/if}
+
           {#if displayMessages.length === 0}
             <div class="llama-empty-state">
               <h1>{appName}</h1>
