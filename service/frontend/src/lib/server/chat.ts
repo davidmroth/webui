@@ -203,6 +203,94 @@ export function shouldAdvanceAssistantTail(input: {
   return !isHermesSystemStatusContent(trimmedContent);
 }
 
+export function normalizeAssistantProseContent(content: string | null | undefined): string {
+  return String(content ?? '').trim();
+}
+
+export function messageHasStoredToolCalls(raw: string | object | null | undefined): boolean {
+  const parsed = parseJsonColumn(raw);
+  return Array.isArray(parsed) && parsed.length > 0;
+}
+
+export function incomingMessageHasToolCalls(toolCalls: unknown): boolean {
+  return Array.isArray(toolCalls) && toolCalls.length > 0;
+}
+
+export type DuplicateAssistantProseAction = 'enrich' | 'skip_duplicate';
+
+interface AssistantProseParentRow {
+  role: string;
+  content: string;
+  source?: string;
+  tool_calls?: string | object | null;
+}
+
+/**
+ * When Hermes posts the same assistant prose twice in one turn (stream/commentary
+ * then transcript/tool metadata), merge onto the existing bubble instead of
+ * inserting a child duplicate.
+ */
+export function resolveDuplicateAssistantProseAction(
+  parentRow: AssistantProseParentRow | null | undefined,
+  input: {
+    role?: 'assistant' | 'system';
+    content: string;
+    toolCalls?: unknown;
+  }
+): DuplicateAssistantProseAction | null {
+  if (input.role !== 'assistant') {
+    return null;
+  }
+
+  if (!parentRow || parentRow.role !== 'assistant' || parentRow.source !== 'hermes') {
+    return null;
+  }
+
+  if (
+    normalizeAssistantProseContent(parentRow.content) !==
+    normalizeAssistantProseContent(input.content)
+  ) {
+    return null;
+  }
+
+  const parentHasTools = messageHasStoredToolCalls(parentRow.tool_calls);
+  const incomingHasTools = incomingMessageHasToolCalls(input.toolCalls);
+
+  if (incomingHasTools && !parentHasTools) {
+    return 'enrich';
+  }
+
+  if (!incomingHasTools && !parentHasTools) {
+    return 'skip_duplicate';
+  }
+
+  if (!incomingHasTools && parentHasTools) {
+    return 'skip_duplicate';
+  }
+
+  return null;
+}
+
+function shouldCollapseVisibleAssistantDuplicate(
+  previous: MessageRow,
+  row: MessageRow
+): boolean {
+  if (previous.role !== 'assistant' || row.role !== 'assistant') {
+    return false;
+  }
+
+  const prose = normalizeAssistantProseContent(row.content);
+  if (!prose) {
+    return false;
+  }
+
+  if (normalizeAssistantProseContent(previous.content) !== prose) {
+    return false;
+  }
+
+  return previous.parent_id === row.parent_id || row.parent_id === previous.id;
+}
+
 /**
  * Strip Hermes transcript rows that exist for gateway export but should not
  * appear in the browser chat UI.
@@ -218,20 +306,13 @@ export function filterChatVisibleRows(rows: MessageRow[]): MessageRow[] {
     if (
       row.role === 'assistant' &&
       row.source === 'hermes' &&
-      !String(row.content ?? '').trim()
+      !normalizeAssistantProseContent(row.content)
     ) {
       continue;
     }
 
     const previous = filtered.at(-1);
-    if (
-      previous &&
-      previous.role === 'assistant' &&
-      row.role === 'assistant' &&
-      previous.parent_id === row.parent_id &&
-      previous.content === row.content &&
-      String(previous.content ?? '').trim()
-    ) {
+    if (previous && shouldCollapseVisibleAssistantDuplicate(previous, row)) {
       filtered[filtered.length - 1] = row;
       continue;
     }
@@ -2635,18 +2716,48 @@ export async function storeAssistantMessage(
     throw new Error(`Conversation not found: ${conversationId}`);
   }
 
-  const messageId = randomUUID();
   const parentMessageId = options.parentMessageId
     ? options.parentMessageId
     : await resolveAssistantParentMessageId(
         conversationId,
         options.userMessageId
       );
+  const role = options.role === 'system' ? 'system' : 'assistant';
+  const parentRows = await query<AssistantProseParentRow & { id: string }>(
+    `SELECT id, role, content, source, tool_calls
+     FROM messages
+     WHERE id = :id AND conversation_id = :conversation_id
+     LIMIT 1`,
+    { id: parentMessageId, conversation_id: conversationId }
+  );
+  const duplicateAction = resolveDuplicateAssistantProseAction(parentRows[0], {
+    role,
+    content,
+    toolCalls: options.toolCalls
+  });
+  if (duplicateAction) {
+    const existingMessageId = parentRows[0]?.id ?? parentMessageId;
+    if (duplicateAction === 'enrich' || options.timings) {
+      await updateAssistantMessage(conversationId, existingMessageId, content, {
+        timings: options.timings,
+        toolCalls: duplicateAction === 'enrich' ? options.toolCalls : undefined
+      });
+    } else if (options.publishDoneEvent !== false) {
+      publishConversationStreamEvent({
+        type: 'done',
+        conversationId,
+        messageId: existingMessageId,
+        status: 'complete'
+      });
+    }
+    return existingMessageId;
+  }
+
+  const messageId = randomUUID();
   const assistantRevisionGroupId = await getProcessingEventRevisionGroupId(conversationId);
   const messageTimestamp = Date.now();
   const timingsJson = serializeTimingsForStorage(options.timings);
   const toolCallsJson = serializeToolCallsForStorage(options.toolCalls);
-  const role = options.role === 'system' ? 'system' : 'assistant';
   const advancesTail = shouldAdvanceAssistantTail({
     role,
     displayType: options.displayType,

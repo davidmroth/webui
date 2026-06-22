@@ -10,7 +10,9 @@ import {
   shouldReclaimStaleHermesProcessingEvent,
   shouldAdvanceAssistantTail,
   filterChatVisibleRows,
-  updateAssistantMessage
+  updateAssistantMessage,
+  resolveDuplicateAssistantProseAction,
+  normalizeAssistantProseContent
 } from './chat.ts';
 
 function createConversationState(currNode) {
@@ -159,6 +161,128 @@ test('filterChatVisibleRows collapses duplicate Hermes assistant prose rows', ()
   assert.deepEqual(
     filterChatVisibleRows(rows).map((row) => row.id),
     ['assistant-2']
+  );
+});
+
+test('filterChatVisibleRows collapses parent-child duplicate Hermes assistant prose rows', () => {
+  const rows = [
+    {
+      id: 'assistant-1',
+      parent_id: 'user-1',
+      role: 'assistant',
+      content: 'Let me read the current file and verify every link.',
+      source: 'hermes',
+      type: 'text',
+      status: 'complete',
+      created_at: '2026-04-27T00:00:01.000Z',
+      updated_at: '2026-04-27T00:00:01.000Z',
+      msg_timestamp: 1
+    },
+    {
+      id: 'assistant-2',
+      parent_id: 'assistant-1',
+      role: 'assistant',
+      content: 'Let me read the current file and verify every link.',
+      source: 'hermes',
+      type: 'text',
+      status: 'complete',
+      created_at: '2026-04-27T00:00:02.000Z',
+      updated_at: '2026-04-27T00:00:02.000Z',
+      msg_timestamp: 2
+    },
+    {
+      id: 'system-1',
+      parent_id: 'assistant-2',
+      role: 'system',
+      content: 'read_file: "~/.guide.html"',
+      source: 'hermes',
+      type: 'text',
+      status: 'complete',
+      created_at: '2026-04-27T00:00:03.000Z',
+      updated_at: '2026-04-27T00:00:03.000Z',
+      msg_timestamp: 3,
+      extra: { displayType: 'tool_progress' }
+    }
+  ];
+
+  assert.deepEqual(
+    filterChatVisibleRows(rows).map((row) => row.id),
+    ['assistant-2', 'system-1']
+  );
+});
+
+test('resolveDuplicateAssistantProseAction enriches prose with tool metadata', () => {
+  assert.equal(
+    resolveDuplicateAssistantProseAction(
+      {
+        role: 'assistant',
+        content: 'Let me read the file.',
+        source: 'hermes',
+        tool_calls: null
+      },
+      {
+        role: 'assistant',
+        content: 'Let me read the file.',
+        toolCalls: [
+          {
+            id: 'call-1',
+            type: 'function',
+            function: { name: 'read_file', arguments: '{}' }
+          }
+        ]
+      }
+    ),
+    'enrich'
+  );
+});
+
+test('resolveDuplicateAssistantProseAction skips idempotent duplicate prose', () => {
+  assert.equal(
+    resolveDuplicateAssistantProseAction(
+      {
+        role: 'assistant',
+        content: 'Here is the answer.',
+        source: 'hermes',
+        tool_calls: null
+      },
+      {
+        role: 'assistant',
+        content: 'Here is the answer.'
+      }
+    ),
+    'skip_duplicate'
+  );
+});
+
+test('resolveDuplicateAssistantProseAction ignores distinct assistant prose', () => {
+  assert.equal(
+    resolveDuplicateAssistantProseAction(
+      {
+        role: 'assistant',
+        content: 'First thought.',
+        source: 'hermes',
+        tool_calls: null
+      },
+      {
+        role: 'assistant',
+        content: 'Second thought.',
+        toolCalls: [
+          {
+            id: 'call-1',
+            type: 'function',
+            function: { name: 'read_file', arguments: '{}' }
+          }
+        ]
+      }
+    ),
+    null
+  );
+});
+
+test('normalizeAssistantProseContent trims surrounding whitespace', () => {
+  assert.equal(
+    normalizeAssistantProseContent('  Let me read the file.  '),
+    'Let me read the file.'
   );
 });
 
