@@ -17,6 +17,7 @@
     PlugZap,
     Search,
     Settings,
+    Square,
     SquarePen
   } from '@lucide/svelte';
   import ThemeModeToggle from '$lib/components/ThemeModeToggle.svelte';
@@ -1164,6 +1165,10 @@
   const composerBusy = $derived.by(
     () => isSending || isAssistantBusy || isConversationLoading
   );
+  const composerHasDraft = $derived(
+    draftMessage.trim().length > 0 || pendingFiles.length > 0
+  );
+  const composerShowsStop = $derived(!composerHasDraft && isAssistantBusy);
   const passiveRunStateNotice = $derived.by(() => {
     if (!runStateNotice || runStateNotice.tone === 'active') {
       return null;
@@ -2385,7 +2390,7 @@
     }
   }
 
-  async function clearStalledAssistantTurn() {
+  async function stopActiveAssistantTurn() {
     if (!currentConversationId || isClearingStalled) {
       return;
     }
@@ -2399,7 +2404,7 @@
 
       if (!response.ok) {
         const payload = await response.json().catch(() => ({}));
-        throw new Error(payload.error || 'Unable to clear stalled assistant turn.');
+        throw new Error(payload.error || 'Unable to stop the active assistant turn.');
       }
 
       clearPendingAssistant(currentConversationId);
@@ -2407,10 +2412,14 @@
       await loadMessages(currentConversationId);
       focusComposer();
     } catch (error) {
-      errorMessage = error instanceof Error ? error.message : 'Unable to clear stalled assistant turn.';
+      errorMessage = error instanceof Error ? error.message : 'Unable to stop the active assistant turn.';
     } finally {
       isClearingStalled = false;
     }
+  }
+
+  async function clearStalledAssistantTurn() {
+    await stopActiveAssistantTurn();
   }
 
   function dismissStalledWarning() {
@@ -2425,7 +2434,16 @@
   }
 
   async function submitComposer() {
-    if (isSending) {
+    if (isSending || isClearingStalled) {
+      return;
+    }
+
+    if (composerShowsStop) {
+      await stopActiveAssistantTurn();
+      return;
+    }
+
+    if (!composerHasDraft) {
       return;
     }
 
@@ -2547,6 +2565,10 @@
 
   function handleSubmit(event: SubmitEvent) {
     event.preventDefault();
+    void submitComposer();
+  }
+
+  function handleComposerPrimaryAction() {
     void submitComposer();
   }
 
@@ -3256,19 +3278,27 @@
                     <button
                       class="send-button"
                       class:send-button--working={composerBusy}
-                      type="submit"
-                      aria-label={composerBusy ? 'Hermes is still working' : 'Send message'}
-                      aria-busy={composerBusy}
-                      disabled={isSending}
+                      class:send-button--stop={!composerHasDraft}
+                      type={composerHasDraft ? 'submit' : 'button'}
+                      aria-label={composerHasDraft
+                        ? 'Send message'
+                        : isAssistantBusy
+                          ? 'Stop Hermes'
+                          : 'Stop Hermes'}
+                      aria-busy={isSending || isClearingStalled}
+                      disabled={isSending || isClearingStalled || (!composerHasDraft && !isAssistantBusy)}
+                      onclick={!composerHasDraft ? handleComposerPrimaryAction : undefined}
                     >
-                      {#if isSending}
+                      {#if isSending || isClearingStalled}
                         <span class="assistant-typing-loader assistant-typing-loader--compact send-button-loader" aria-hidden="true">
                           {#each [0, 1, 2, 3, 4, 5, 6, 7, 8] as delayStep}
                             <span class="assistant-typing-square" style={`--assistant-loader-delay: ${delayStep * 0.07}s`}></span>
                           {/each}
                         </span>
-                      {:else}
+                      {:else if composerHasDraft}
                         <ArrowUp class="h-3.5 w-3.5" />
+                      {:else}
+                        <Square class="h-3.5 w-3.5" />
                       {/if}
                     </button>
                   </div>
@@ -3276,7 +3306,13 @@
               </div>
 
               {#if !isMobileViewport}
-                <div class="llama-footnote">Press Enter to send, Shift + Enter for new line.</div>
+                <div class="llama-footnote">
+                  {composerHasDraft
+                    ? 'Press Enter to send, Shift + Enter for new line.'
+                    : isAssistantBusy
+                      ? 'Type to steer Hermes, or use the stop button to cancel the current turn.'
+                      : 'Press Enter to send, Shift + Enter for new line.'}
+                </div>
               {/if}
 
               {#if passiveRunStateNotice}

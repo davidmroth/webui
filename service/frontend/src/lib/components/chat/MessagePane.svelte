@@ -222,6 +222,26 @@
     return message.role === 'assistant' && message.status === 'streaming';
   }
 
+  function isAssistantMessageFullyRendered(message: ChatMessage) {
+    return (
+      message.role === 'assistant' &&
+      message.status === 'complete' &&
+      hasVisibleContent(message)
+    );
+  }
+
+  function shouldHideBlankAssistantMessage(message: ChatMessage) {
+    if (message.role !== 'assistant') {
+      return false;
+    }
+
+    if (hasVisibleContent(message) || message.attachments.length > 0) {
+      return false;
+    }
+
+    return !isStreamingAssistant(message);
+  }
+
   function isBusyMessage(messageId: string) {
     return busyMessageIds?.has(messageId) ?? false;
   }
@@ -355,7 +375,7 @@
     {/if}
 
     {#each messages as message, index}
-      {#if !isHiddenTranscriptMessage(message)}
+      {#if !isHiddenTranscriptMessage(message) && !shouldHideBlankAssistantMessage(message)}
       {@const daySeparator = daySeparatorByMessageId[message.id]}
       {#if daySeparator}
         <div
@@ -444,7 +464,7 @@
             <div class="message-meta">Status: {message.status}</div>
           {/if}
 
-          {#if displayRole === 'assistant' && !(isStreamingAssistant(message) && !hasVisibleContent(message))}
+          {#if isAssistantMessageFullyRendered(message)}
             {@const stats = buildMessageStats(message, index)}
             <div class="assistant-meta-row">
               <div class="assistant-meta-cluster assistant-model-badges">
@@ -527,8 +547,7 @@
             </div>
           {/if}
 
-          {#if !(isStreamingAssistant(message) && !hasVisibleContent(message))}
-            {#if displayRole === 'assistant'}
+          {#if isAssistantMessageFullyRendered(message)}
               <div class="llama-message-actions assistant-actions" aria-label="Message actions">
                 <button
                   class={`message-action-icon ${copiedMessageId === message.id ? 'is-active' : ''}`}
@@ -548,11 +567,9 @@
                   <RefreshCw class="h-3 w-3" />
                 </button>
               </div>
-
-            {/if}
           {/if}
         </div>
-        {#if !(isStreamingAssistant(message) && !hasVisibleContent(message)) && editingMessageId !== message.id}
+        {#if (displayRole !== 'assistant' || isAssistantMessageFullyRendered(message)) && editingMessageId !== message.id}
           {#if displayRole === 'user'}
             <div class="user-controls-outside">
               <div class="llama-message-actions user-actions user-actions-outside" aria-label="Message actions">
