@@ -3278,16 +3278,12 @@
                     <button
                       class="send-button"
                       class:send-button--working={composerBusy}
-                      class:send-button--stop={!composerHasDraft}
-                      type={composerHasDraft ? 'submit' : 'button'}
-                      aria-label={composerHasDraft
-                        ? 'Send message'
-                        : isAssistantBusy
-                          ? 'Stop Hermes'
-                          : 'Stop Hermes'}
+                      class:send-button--stop={composerShowsStop}
+                      type={composerShowsStop ? 'button' : 'submit'}
+                      aria-label={composerShowsStop ? 'Stop Hermes' : 'Send message'}
                       aria-busy={isSending || isClearingStalled}
-                      disabled={isSending || isClearingStalled || (!composerHasDraft && !isAssistantBusy)}
-                      onclick={!composerHasDraft ? handleComposerPrimaryAction : undefined}
+                      disabled={isSending || isClearingStalled || (!composerHasDraft && !composerShowsStop)}
+                      onclick={composerShowsStop ? handleComposerPrimaryAction : undefined}
                     >
                       {#if isSending || isClearingStalled}
                         <span class="assistant-typing-loader assistant-typing-loader--compact send-button-loader" aria-hidden="true">
@@ -3295,10 +3291,10 @@
                             <span class="assistant-typing-square" style={`--assistant-loader-delay: ${delayStep * 0.07}s`}></span>
                           {/each}
                         </span>
-                      {:else if composerHasDraft}
-                        <ArrowUp class="h-3.5 w-3.5" />
-                      {:else}
+                      {:else if composerShowsStop}
                         <Square class="h-3.5 w-3.5" />
+                      {:else}
+                        <ArrowUp class="h-3.5 w-3.5" />
                       {/if}
                     </button>
                   </div>
