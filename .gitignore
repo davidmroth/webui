@@ -7,5 +7,6 @@ service/frontend/dev-dist/
 infra/
 *.override.yml
 *.code-workspace
+plugin/__pycache__/
 .validation/
 .data/

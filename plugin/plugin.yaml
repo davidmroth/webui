@@ -1,0 +1,39 @@
+name: webchat-platform
+label: WebChat
+kind: platform
+version: 1.0.0
+description: >
+  Browser WebUI gateway adapter for Hermes Agent.
+  Reverse-polls the sibling web UI for inbound messages and posts assistant
+  replies over authenticated HTTP.
+author: Hermes Agent
+requires_env:
+  - name: WEBCHAT_SERVICE_TOKEN
+    description: Shared bearer token between Hermes gateway and the WebUI service
+    prompt: WebChat service token
+    password: true
+  - name: WEBCHAT_URL
+    description: Base URL of the WebUI service (e.g. http://127.0.0.1:3000)
+    prompt: WebChat base URL
+    password: false
+optional_env:
+  - name: WEBCHAT_ENABLED
+    description: Set to true/1/yes to auto-enable the WebChat platform from env
+    prompt: Enable WebChat?
+    password: false
+  - name: WEBCHAT_POLL_INTERVAL
+    description: Inbox poll interval in seconds (default 1.0)
+    prompt: Poll interval (seconds)
+    password: false
+  - name: WEBCHAT_PUBLIC_BASE_URL
+    description: Public URL for file/download links shown to the browser UI
+    prompt: Public base URL
+    password: false
+  - name: WEBCHAT_HOME_CHANNEL
+    description: Default conversation ID for cron/notification delivery
+    prompt: Home conversation ID
+    password: false
+  - name: WEBCHAT_HOME_CHANNEL_NAME
+    description: Display name for the home channel
+    prompt: Home channel name
+    password: false
