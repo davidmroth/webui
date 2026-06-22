@@ -1246,6 +1246,17 @@ class WebChatAdapter(BasePlatformAdapter):
             )
         return await self._send_file(chat_id, image_url, caption)
 
+    def enrich_delivery_metadata(
+        self,
+        metadata: Optional[Dict[str, Any]],
+        event: Any,
+    ) -> Optional[Dict[str, Any]]:
+        timings = getattr(event, "_hermes_timings", None)
+        if timings:
+            metadata = dict(metadata or {})
+            metadata["timings"] = timings
+        return metadata
+
     async def get_chat_info(self, chat_id: str) -> Dict[str, Any]:
         return {
             "name": f"Webchat conversation {chat_id}",
@@ -1321,6 +1332,30 @@ def _webchat_configured() -> bool:
 
 def register(ctx):
     """Plugin entry point: called by the Hermes plugin system."""
+    import importlib.util
+    import sys
+    from pathlib import Path
+
+    plugin_dir = Path(__file__).resolve().parent
+    tools_path = plugin_dir / "tools.py"
+    hooks_path = plugin_dir / "gateway_hooks.py"
+    tools_name = "webui_plugin_tools"
+    hooks_name = "webui_plugin_gateway_hooks"
+
+    def _load(name: str, path: Path):
+        if name in sys.modules:
+            return sys.modules[name]
+        spec = importlib.util.spec_from_file_location(name, path)
+        if spec is None or spec.loader is None:
+            raise ImportError(f"Cannot load WebUI plugin module from {path}")
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[name] = module
+        spec.loader.exec_module(module)
+        return module
+
+    tools_mod = _load(tools_name, tools_path)
+    hooks_mod = _load(hooks_name, hooks_path)
+    tools_mod.register_tools(ctx)
     ctx.register_platform(
         name="webchat",
         label="WebChat",
@@ -1353,4 +1388,5 @@ def register(ctx):
             "You are chatting via the browser WebUI. Markdown and file attachments "
             "are supported. Keep responses readable in a chat transcript."
         ),
+        gateway_hooks=hooks_mod.WEBCHAT_GATEWAY_HOOKS,
     )

@@ -7,6 +7,9 @@ description: >
   Reverse-polls the sibling web UI for inbound messages and posts assistant
   replies over authenticated HTTP.
 author: Hermes Agent
+provides_tools:
+  - send_file_to_webchat
+  - send_html_to_webchat
 requires_env:
   - name: WEBCHAT_SERVICE_TOKEN
     description: Shared bearer token between Hermes gateway and the WebUI service

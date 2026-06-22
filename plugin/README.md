@@ -1,56 +1,39 @@
-# Hermes WebChat platform plugin
+# Hermes WebUI integration plugin
 
-This directory is the **Hermes gateway adapter** for the WebUI. It lives in the WebUI repo so the HTTP contract and adapter stay in one place.
+All Hermes-side WebUI integration lives in this directory:
 
-## Install (Docker dev with hermes-agent)
+| File | Role |
+| --- | --- |
+| `adapter.py` | Gateway platform adapter (reverse-poll WebUI inbox) |
+| `gateway_hooks.py` | Session reconciliation, status buffering, transcript streaming, trusted auth |
+| `tools.py` | `send_file_to_webchat`, `send_html_to_webchat` |
+| `plugin.yaml` | Plugin manifest + env metadata |
 
-Hermes loads user plugins from `~/.hermes/plugins/`. In `hermes-agent/docker-compose.override.yml` this folder is mounted read-only:
+Hermes core now exposes **generic** `GatewayPlatformHooks` on `PlatformEntry` — no WebUI-specific branches remain in `gateway/run.py` beyond hook dispatch.
+
+## Docker mount (hermes-agent)
 
 ```yaml
+# hermes-agent/docker-compose.override.yml
 - ../webui/plugin:/opt/data/plugins/webchat-platform:ro
 ```
 
-Enable once per profile:
+Enable once:
 
 ```bash
 docker compose exec gateway hermes plugins enable webchat-platform
 ```
 
-Or add to `~/.hermes/config.yaml`:
-
-```yaml
-plugins:
-  enabled:
-    - webchat-platform
-```
-
 ## Environment
-
-Set on the **gateway** (and match `HERMES_WEBCHAT_SERVICE_TOKEN` on the WebUI):
 
 | Variable | Purpose |
 | --- | --- |
-| `WEBCHAT_ENABLED` | Auto-enable platform (`true` / `1` / `yes`) |
-| `WEBCHAT_URL` | WebUI base URL (e.g. `http://webui:3000` on compose network) |
-| `WEBCHAT_SERVICE_TOKEN` | Shared bearer token (same as WebUI `HERMES_WEBCHAT_SERVICE_TOKEN`) |
-| `WEBCHAT_PUBLIC_BASE_URL` | Public URL for download links in chat |
-| `WEBCHAT_HOME_CHANNEL` | Default conversation ID for cron delivery |
+| `WEBCHAT_ENABLED` | Auto-enable platform |
+| `WEBCHAT_URL` | WebUI base URL (`http://webui:3000` on compose network) |
+| `WEBCHAT_SERVICE_TOKEN` | Shared bearer token (matches WebUI `HERMES_WEBCHAT_SERVICE_TOKEN`) |
+| `WEBCHAT_PUBLIC_BASE_URL` | Public URL for download links |
+| `WEBCHAT_HOME_CHANNEL` | Default conversation for cron `deliver=webui` |
 
-## WebUI API contract
+## API contract
 
-The adapter polls and posts against `/api/internal/hermes/*` routes implemented under `service/frontend/src/routes/api/internal/hermes/`. When you change those routes, update `adapter.py` here in the same PR.
-
-## Tests
-
-Hermes integration tests import this plugin from the sibling checkout:
-
-```bash
-# From hermes-agent (expects ../webui/plugin)
-docker compose run --rm gateway scripts/run_tests.sh tests/gateway/test_webchat.py -q
-```
-
-Override path when the WebUI repo is elsewhere:
-
-```bash
-export WEBUI_PLUGIN_PATH=/path/to/webui/plugin
-```
+Routes under `service/frontend/src/routes/api/internal/hermes/` — change adapter + hooks in the same PR when the contract changes.
