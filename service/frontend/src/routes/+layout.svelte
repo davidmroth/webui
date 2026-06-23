@@ -15,7 +15,7 @@
       return;
     }
 
-    if (typeof window === 'undefined' || window.location.pathname !== '/briefings') {
+    if (typeof window === 'undefined' || !window.location.pathname.startsWith('/briefings')) {
       briefingsInitialPaintDone = true;
       return;
     }
@@ -26,7 +26,7 @@
   });
 
   const isBriefingsPageLoading = $derived(
-    navigating.to?.url.pathname === '/briefings' ||
+    navigating.to?.url.pathname.startsWith('/briefings') ||
     briefingsInitialPaintDone === false
   );
 

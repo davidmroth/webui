@@ -1,4 +1,5 @@
 import { redirect } from '@sveltejs/kit';
+import { renderBriefingBootShell } from '$lib/server/briefing-boot-shell';
 import { buildBriefingPageHtml } from '$lib/server/briefing-standalone-html';
 import { getBriefingViewerAccess } from '$server/briefing-sharing';
 import { loadBriefingPreview } from '$server/briefings';
@@ -12,11 +13,22 @@ import {
 } from '$lib/server/briefing-status-page';
 
 function buildRetryHref(pathname: string) {
-	return `${pathname}?retry=1`;
+	return `${pathname}?retry=1&render=full`;
 }
 
 function buildRetryBriefingAction(pathname: string) {
 	return pathname;
+}
+
+function htmlResponse(html: string, status = 200, cacheControl = 'private, max-age=60') {
+	return new Response(html, {
+		status,
+		headers: {
+			'cache-control': cacheControl,
+			'content-type': 'text/html; charset=utf-8',
+			'x-content-type-options': 'nosniff'
+		}
+	});
 }
 
 function respondWithGeneratedHtml(
@@ -37,28 +49,14 @@ function respondWithGeneratedHtml(
 		preview.jobId,
 		management
 	);
-	return new Response(html, {
-		status: 200,
-		headers: {
-			'cache-control': 'private, max-age=60',
-			'content-type': 'text/html; charset=utf-8',
-			'x-content-type-options': 'nosniff'
-		}
-	});
+	return htmlResponse(html);
 }
 
-export async function GET(event) {
+async function buildBriefingStandaloneHtmlResponse(event: import('@sveltejs/kit').RequestEvent) {
 	const session = event.locals.session;
 	const access = await getBriefingViewerAccess(event.params.jobId, session?.userId ?? null);
 	if (!access.canView) {
-		return new Response(renderBriefingUnauthorizedPage(event.params.jobId), {
-			status: 401,
-			headers: {
-				'cache-control': 'private, max-age=0, must-revalidate',
-				'content-type': 'text/html; charset=utf-8',
-				'x-content-type-options': 'nosniff'
-			}
-		});
+		return htmlResponse(renderBriefingUnauthorizedPage(event.params.jobId), 401, 'private, max-age=0, must-revalidate');
 	}
 
 	const preview = await loadBriefingPreview(event.params.jobId);
@@ -76,18 +74,15 @@ export async function GET(event) {
 	}
 
 	if (preview.state !== 'ready') {
-		return new Response(renderBriefingStatusPage(preview, {
+		return htmlResponse(
+			renderBriefingStatusPage(preview, {
 				retryHref: buildRetryHref(event.url.pathname),
 				rerenderBriefingAction: access.canManage ? buildRetryBriefingAction(event.url.pathname) : null,
 				regenerateBriefingAction: access.canManage ? buildRetryBriefingAction(event.url.pathname) : null
-			}), {
-				status: statusCodeForBriefingPreviewState(preview.state),
-				headers: {
-					'cache-control': preview.state === 'processing' ? 'no-store' : 'private, max-age=0, must-revalidate',
-					'content-type': 'text/html; charset=utf-8',
-					'x-content-type-options': 'nosniff'
-				}
-			});
+			}),
+			statusCodeForBriefingPreviewState(preview.state),
+			preview.state === 'processing' ? 'no-store' : 'private, max-age=0, must-revalidate'
+		);
 	}
 
 	const resolvedJobId = preview.jobId;
@@ -98,20 +93,21 @@ export async function GET(event) {
 	});
 }
 
+export async function GET(event) {
+	if (event.url.searchParams.get('render') !== 'full') {
+		return htmlResponse(renderBriefingBootShell(), 200, 'no-store');
+	}
+
+	return buildBriefingStandaloneHtmlResponse(event);
+}
+
 export async function POST(event) {
 	const session = await requireSession(event);
 	const formData = await event.request.formData();
 	const intent = String(formData.get('intent') || 'rerender').trim();
 	const access = await getBriefingViewerAccess(event.params.jobId, session.userId);
 	if (!access.canManage) {
-		return new Response(renderBriefingUnauthorizedPage(event.params.jobId), {
-			status: 403,
-			headers: {
-				'cache-control': 'private, max-age=0, must-revalidate',
-				'content-type': 'text/html; charset=utf-8',
-				'x-content-type-options': 'nosniff'
-			}
-		});
+		return htmlResponse(renderBriefingUnauthorizedPage(event.params.jobId), 403, 'private, max-age=0, must-revalidate');
 	}
 
 	const preview = await loadBriefingPreview(event.params.jobId);
