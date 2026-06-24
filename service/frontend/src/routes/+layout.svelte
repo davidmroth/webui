@@ -1,6 +1,7 @@
 <script lang="ts">
   import '../app.css';
-  import { navigating } from '$app/state';
+  import { browser } from '$app/environment';
+  import { navigating, page } from '$app/state';
   import { onMount } from 'svelte';
   import { ModeWatcher } from 'mode-watcher';
   import { Toaster, toast } from 'svelte-sonner';
@@ -8,27 +9,44 @@
 
   let { children } = $props();
 
-  let briefingsInitialPaintDone = $state(false);
+  function isBriefingsSpaPath(pathname: string | undefined) {
+    if (!pathname) {
+      return false;
+    }
+
+    if (pathname === '/briefings' || pathname.startsWith('/briefings?')) {
+      return true;
+    }
+
+    return /^\/briefings\/[^/]+\/player(?:\/|$)/.test(pathname);
+  }
+
+  function briefingsSpaDataReady(data: Record<string, unknown> | undefined) {
+    return Boolean(data?.briefings || data?.preview);
+  }
+
+  const isBriefingsPageLoading = $derived(
+    (navigating.to?.url.pathname && isBriefingsSpaPath(navigating.to.url.pathname)) ||
+      (browser &&
+        isBriefingsSpaPath(page.url.pathname) &&
+        !briefingsSpaDataReady(page.data as Record<string, unknown>))
+  );
 
   $effect(() => {
-    if (briefingsInitialPaintDone) {
+    if (!browser) {
       return;
     }
 
-    if (typeof window === 'undefined' || !window.location.pathname.startsWith('/briefings')) {
-      briefingsInitialPaintDone = true;
+    if (isBriefingsSpaPath(page.url.pathname) && !briefingsSpaDataReady(page.data as Record<string, unknown>)) {
       return;
     }
 
     requestAnimationFrame(() => {
-      briefingsInitialPaintDone = true;
+      requestAnimationFrame(() => {
+        document.documentElement.classList.remove('app-init');
+      });
     });
   });
-
-  const isBriefingsPageLoading = $derived(
-    navigating.to?.url.pathname.startsWith('/briefings') ||
-    briefingsInitialPaintDone === false
-  );
 
   const LINK_WINDOW_FEATURES = 'noopener,noreferrer';
   const MOBILE_VIEWPORT_MEDIA_QUERY = '(max-width: 768px)';
@@ -110,15 +128,6 @@
   }
 
   onMount(() => {
-    // Clear the boot-time `app-init` class once the app has hydrated and
-    // painted at least once. Two RAFs ensures Svelte's first DOM update has
-    // committed before transitions/animations are re-enabled.
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        document.documentElement.classList.remove('app-init');
-      });
-    });
-
     let updateToastVisible = false;
     let updateServiceWorker: ((reloadPage?: boolean) => Promise<void>) | undefined;
     let refreshInterval: ReturnType<typeof setInterval> | undefined;
