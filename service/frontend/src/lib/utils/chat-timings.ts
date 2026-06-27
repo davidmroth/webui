@@ -6,6 +6,7 @@ export interface TimingSummary {
   generatedTokens: number | null;
   generatedMs: number | null;
   generatedTokensPerSecond: number | null;
+  ttftMs: number | null;
   contextUsed: number | null;
   contextTotal: number | null;
   outputMax: number | null;
@@ -183,6 +184,7 @@ export function readTimingSummary(value: unknown): TimingSummary {
   const explicitContextUsed = readTimingNumber(value, ['context_used', 'contextUsed']);
   const contextTotal = readTimingNumber(value, ['n_ctx', 'context_total', 'contextTotal']);
   const outputMax = readTimingNumber(value, ['n_predict', 'max_tokens', 'output_max', 'outputTokensMax']);
+  const ttftMs = readTimingDurationMs(value, ['ttft_ms', 'time_to_first_token_ms', 'ttfb_ms']);
   const contextUsed =
     explicitContextUsed ??
     (promptTokens != null || cacheTokens != null ? (promptTokens ?? 0) + (cacheTokens ?? 0) : null);
@@ -197,6 +199,7 @@ export function readTimingSummary(value: unknown): TimingSummary {
     generatedTokens,
     generatedMs,
     generatedTokensPerSecond,
+    ttftMs,
     contextUsed,
     contextTotal,
     outputMax
