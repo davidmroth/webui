@@ -15,6 +15,9 @@
   let nowMs = $state(Date.now());
   let livePreviewByJobId = $state<Record<string, BriefingPreview>>({});
 
+  const RING_RADIUS = 18;
+  const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
+
   function clampPercent(value: number) {
     return Math.max(0, Math.min(100, Math.round(value)));
   }
@@ -37,8 +40,13 @@
     }
   }
 
-  function enhanceDelete(jobId: string) {
-    return () => {
+  function enhanceDelete(jobId: string, title: string) {
+    return ({ cancel }: { cancel: () => void }) => {
+      if (!window.confirm(`Delete briefing "${title}"?`)) {
+        cancel();
+        return;
+      }
+
       deletingJobId = jobId;
       deleteError = null;
 
@@ -463,12 +471,7 @@
                   <form
                     method="POST"
                     action="?/delete"
-                    use:enhance={enhanceDelete(item.reference.jobId)}
-                    onsubmit={(event) => {
-                      if (typeof window !== 'undefined' && !window.confirm(`Delete briefing \"${item.reference.title}\"?`)) {
-                        event.preventDefault();
-                      }
-                    }}
+                    use:enhance={enhanceDelete(item.reference.jobId, item.reference.title)}
                   >
                     <input type="hidden" name="jobId" value={item.reference.jobId} />
                     <input type="hidden" name="page" value={data.briefings.page} />

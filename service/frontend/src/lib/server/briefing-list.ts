@@ -94,32 +94,6 @@ function normalizeBoolean(value: unknown): boolean {
   return value === true || value === 1;
 }
 
-function compareBriefingsDescending(left: BriefingListEntry, right: BriefingListEntry) {
-  const leftTime = Date.parse(left.reference.generatedAt ?? left.createdAt ?? '');
-  const rightTime = Date.parse(right.reference.generatedAt ?? right.createdAt ?? '');
-
-  const normalizedLeft = Number.isFinite(leftTime) ? leftTime : 0;
-  const normalizedRight = Number.isFinite(rightTime) ? rightTime : 0;
-  return normalizedRight - normalizedLeft;
-}
-
-function paginateBriefings(items: BriefingListEntry[], page: number, pageSize: number): BriefingListResult {
-  const total = items.length;
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
-  const safePage = clampInteger(page, 1, totalPages);
-  const offset = (safePage - 1) * pageSize;
-
-  return {
-    items: items.slice(offset, offset + pageSize),
-    page: safePage,
-    pageSize,
-    total,
-    totalPages,
-    hasPreviousPage: safePage > 1,
-    hasNextPage: safePage < totalPages
-  };
-}
-
 function buildJobIdParams(jobIds: string[], prefix: string) {
   const placeholders: string[] = [];
   const params: Record<string, unknown> = {};
@@ -135,38 +109,7 @@ function buildJobIdParams(jobIds: string[], prefix: string) {
   };
 }
 
-async function listDbBriefingsForUser(
-  userId: string,
-  queryFn: NonNullable<BriefingListDeps['queryFn']>
-): Promise<BriefingListEntry[]> {
-  const rows = await queryFn<BriefingListRow>(
-    `SELECT briefings.job_id,
-            briefings.briefing_id,
-            briefings.title,
-            briefings.summary,
-            briefings.state,
-            briefings.validation_valid,
-            briefings.validation_warning_count,
-            briefings.validation_error_count,
-            briefings.created_at,
-            briefings.updated_at,
-            briefings.started_at,
-            briefings.completed_at,
-            briefings.failed_at,
-            conversations.id AS conversation_id,
-            conversations.title AS conversation_title,
-            COALESCE(briefings.completed_at, briefings.failed_at, briefings.started_at, briefings.created_at) AS sort_at,
-            briefing_shares.is_public AS is_public
-     FROM briefings
-     LEFT JOIN conversations ON conversations.id = briefings.conversation_id
-     LEFT JOIN briefing_shares
-       ON briefing_shares.job_id = briefings.job_id
-     WHERE briefings.owner_user_id = :user_id
-     ORDER BY sort_at DESC, briefings.updated_at DESC, briefings.job_id DESC`,
-    { user_id: userId }
-  );
-
-  return rows.map((row) => {
+function mapBriefingListRow(userId: string, row: BriefingListRow): BriefingListEntry {
 		const record = {
 			jobId: row.job_id,
 			ownerUserId: userId,
@@ -190,15 +133,86 @@ async function listDbBriefingsForUser(
 			failedAt: row.failed_at
 		};
 
-		return {
-			conversationId: row.conversation_id,
-			conversationTitle: row.conversation_title,
-			createdAt: row.sort_at,
-			isPublic: Boolean(row.is_public),
-			state: row.state,
-			reference: buildBriefingReferenceFromRecord(record)
-		} satisfies BriefingListEntry;
-	});
+	return {
+		conversationId: row.conversation_id,
+		conversationTitle: row.conversation_title,
+		createdAt: row.sort_at,
+		isPublic: Boolean(row.is_public),
+		state: row.state,
+		reference: buildBriefingReferenceFromRecord(record)
+	} satisfies BriefingListEntry;
+}
+
+const BRIEFING_LIST_SELECT = `SELECT briefings.job_id,
+            briefings.briefing_id,
+            briefings.title,
+            briefings.summary,
+            briefings.state,
+            briefings.validation_valid,
+            briefings.validation_warning_count,
+            briefings.validation_error_count,
+            briefings.created_at,
+            briefings.updated_at,
+            briefings.started_at,
+            briefings.completed_at,
+            briefings.failed_at,
+            conversations.id AS conversation_id,
+            conversations.title AS conversation_title,
+            COALESCE(briefings.completed_at, briefings.failed_at, briefings.started_at, briefings.created_at) AS sort_at,
+            briefing_shares.is_public AS is_public
+     FROM briefings
+     LEFT JOIN conversations ON conversations.id = briefings.conversation_id
+     LEFT JOIN briefing_shares
+       ON briefing_shares.job_id = briefings.job_id
+     WHERE briefings.owner_user_id = :user_id`;
+
+async function countDbBriefingsForUser(
+  userId: string,
+  queryFn: NonNullable<BriefingListDeps['queryFn']>
+): Promise<number> {
+  const [row] = await queryFn<BriefingCountRow>(
+    `SELECT COUNT(*) AS total
+     FROM briefings
+     WHERE briefings.owner_user_id = :user_id`,
+    { user_id: userId }
+  );
+
+  return normalizeNonNegativeInteger(row?.total);
+}
+
+async function listDbBriefingsForUserPage(
+  userId: string,
+  options: {
+    page: number;
+    pageSize: number;
+    queryFn: NonNullable<BriefingListDeps['queryFn']>;
+  }
+): Promise<BriefingListResult> {
+  const total = await countDbBriefingsForUser(userId, options.queryFn);
+  const totalPages = Math.max(1, Math.ceil(total / options.pageSize));
+  const safePage = clampInteger(options.page, 1, totalPages);
+  const offset = (safePage - 1) * options.pageSize;
+
+  const rows = await options.queryFn<BriefingListRow>(
+    `${BRIEFING_LIST_SELECT}
+     ORDER BY sort_at DESC, briefings.updated_at DESC, briefings.job_id DESC
+     LIMIT :limit OFFSET :offset`,
+    {
+      user_id: userId,
+      limit: options.pageSize,
+      offset
+    }
+  );
+
+  return {
+    items: rows.map((row) => mapBriefingListRow(userId, row)),
+    page: safePage,
+    pageSize: options.pageSize,
+    total,
+    totalPages,
+    hasPreviousPage: safePage > 1,
+    hasNextPage: safePage < totalPages
+  };
 }
 
 async function loadShareRowsForJobs(
@@ -263,23 +277,29 @@ export async function assertBriefingOwnedByUser(
 
 export async function listBriefingsForUser(
   userId: string,
-  options: { page?: number; pageSize?: number } & BriefingListDeps = {}
+  options: { page?: number; pageSize?: number; syncFromStorage?: boolean } & BriefingListDeps = {}
 ): Promise<BriefingListResult> {
   const queryFn: NonNullable<BriefingListDeps['queryFn']> = options.queryFn ?? query;
   const executeFn: NonNullable<BriefingListDeps['executeFn']> = options.executeFn ?? execute;
   const pageSize = clampInteger(options.pageSize ?? 12, 1, 100);
-  try {
-    await syncBriefingCatalogFromStorage({
-      queryFn: queryFn as unknown as typeof query,
-      executeFn,
-      listObjectKeysFn: options.listObjectKeysFn ?? listBriefingObjectKeys,
-      readObjectBufferFn: options.readObjectBufferFn ?? getBriefingObjectBuffer
-    } as Parameters<typeof syncBriefingCatalogFromStorage>[0]);
-  } catch {
-    // Ignore sync failures and serve the last known DB state.
+  if (options.syncFromStorage) {
+    try {
+      await syncBriefingCatalogFromStorage({
+        queryFn: queryFn as unknown as typeof query,
+        executeFn,
+        listObjectKeysFn: options.listObjectKeysFn ?? listBriefingObjectKeys,
+        readObjectBufferFn: options.readObjectBufferFn ?? getBriefingObjectBuffer
+      } as Parameters<typeof syncBriefingCatalogFromStorage>[0]);
+    } catch {
+      // Ignore sync failures and serve the last known DB state.
+    }
   }
-  const dbItems = await listDbBriefingsForUser(userId, queryFn);
-  return paginateBriefings(dbItems.sort(compareBriefingsDescending), options.page ?? 1, pageSize);
+
+  return listDbBriefingsForUserPage(userId, {
+    page: options.page ?? 1,
+    pageSize,
+    queryFn
+  });
 }
 
 export async function deleteBriefingForUser(

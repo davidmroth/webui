@@ -15,7 +15,8 @@ function parsePageParam(raw: string | null) {
 export const load: PageServerLoad = async (event) => {
   const session = await requireSession(event);
   const briefings = await listBriefingsForUser(session.userId, {
-    page: parsePageParam(event.url.searchParams.get('page'))
+    page: parsePageParam(event.url.searchParams.get('page')),
+    syncFromStorage: false
   });
 
   return {

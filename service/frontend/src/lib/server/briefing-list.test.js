@@ -3,73 +3,89 @@ import assert from 'node:assert/strict';
 
 import { deleteBriefingForUser, listBriefingsForUser } from './briefing-list.ts';
 
+const briefingRows = [
+  {
+    job_id: 'job-1',
+    briefing_id: 'briefing-1',
+    title: 'Morning Pulse',
+    summary: null,
+    state: 'ready',
+    validation_valid: 1,
+    validation_warning_count: 0,
+    validation_error_count: 0,
+    conversation_id: 'conv-3',
+    conversation_title: 'Morning briefing',
+    sort_at: '2026-05-16 12:00:00',
+    created_at: '2026-05-16 12:00:00',
+    updated_at: '2026-05-16 12:00:00',
+    started_at: '2026-05-16 12:00:00',
+    completed_at: '2026-05-16 12:00:00',
+    failed_at: null,
+    is_public: 0
+  },
+  {
+    job_id: 'job-2',
+    briefing_id: 'briefing-2',
+    title: 'Afternoon Pulse',
+    summary: null,
+    state: 'ready',
+    validation_valid: 1,
+    validation_warning_count: 0,
+    validation_error_count: 0,
+    conversation_id: 'conv-2',
+    conversation_title: 'Afternoon briefing',
+    sort_at: '2026-05-16 11:00:00',
+    created_at: '2026-05-16 11:00:00',
+    updated_at: '2026-05-16 11:00:00',
+    started_at: '2026-05-16 11:00:00',
+    completed_at: '2026-05-16 11:00:00',
+    failed_at: null,
+    is_public: 0
+  },
+  {
+    job_id: 'job-3',
+    briefing_id: 'briefing-3',
+    title: 'Q2 Market Update',
+    summary: 'Revenue, margin, and exposure shifts.',
+    state: 'ready',
+    validation_valid: 1,
+    validation_warning_count: 1,
+    validation_error_count: 0,
+    conversation_id: 'conv-1',
+    conversation_title: 'Daily briefing',
+    sort_at: '2026-05-16 10:00:00',
+    created_at: '2026-05-16 10:00:00',
+    updated_at: '2026-05-16 10:00:00',
+    started_at: '2026-05-16 10:00:00',
+    completed_at: '2026-05-16 10:00:00',
+    failed_at: null,
+    is_public: 1
+  }
+];
+
+function createPagedBriefingQueryFn(rows = briefingRows) {
+  return async (sql, params = {}) => {
+    if (sql.includes('COUNT(*)')) {
+      assert.equal(params.user_id, 'user-1');
+      return [{ total: rows.length }];
+    }
+
+    if (sql.includes('WHERE briefings.owner_user_id = :user_id')) {
+      const offset = Number(params.offset ?? 0);
+      const limit = Number(params.limit ?? rows.length);
+      return rows.slice(offset, offset + limit);
+    }
+
+    return [];
+  };
+}
+
 test('listBriefingsForUser clamps oversized pages and maps briefing metadata', async () => {
   const result = await listBriefingsForUser('user-1', {
     page: 9,
     pageSize: 2,
     listObjectKeysFn: async () => [],
-    queryFn: async (sql, params) => {
-      assert.equal(params?.user_id, 'user-1');
-      return [
-        {
-          job_id: 'job-1',
-          briefing_id: 'briefing-1',
-          title: 'Morning Pulse',
-          summary: null,
-          state: 'ready',
-          validation_valid: 1,
-          validation_warning_count: 0,
-          validation_error_count: 0,
-          conversation_id: 'conv-3',
-          conversation_title: 'Morning briefing',
-          sort_at: '2026-05-16 12:00:00',
-          created_at: '2026-05-16 12:00:00',
-          updated_at: '2026-05-16 12:00:00',
-          started_at: '2026-05-16 12:00:00',
-          completed_at: '2026-05-16 12:00:00',
-          failed_at: null,
-          is_public: 0
-        },
-        {
-          job_id: 'job-2',
-          briefing_id: 'briefing-2',
-          title: 'Afternoon Pulse',
-          summary: null,
-          state: 'ready',
-          validation_valid: 1,
-          validation_warning_count: 0,
-          validation_error_count: 0,
-          conversation_id: 'conv-2',
-          conversation_title: 'Afternoon briefing',
-          sort_at: '2026-05-16 11:00:00',
-          created_at: '2026-05-16 11:00:00',
-          updated_at: '2026-05-16 11:00:00',
-          started_at: '2026-05-16 11:00:00',
-          completed_at: '2026-05-16 11:00:00',
-          failed_at: null,
-          is_public: 0
-        },
-        {
-          job_id: 'job-3',
-          briefing_id: 'briefing-3',
-          title: 'Q2 Market Update',
-          summary: 'Revenue, margin, and exposure shifts.',
-          state: 'ready',
-          validation_valid: 1,
-          validation_warning_count: 1,
-          validation_error_count: 0,
-          conversation_id: 'conv-1',
-          conversation_title: 'Daily briefing',
-          sort_at: '2026-05-16 10:00:00',
-          created_at: '2026-05-16 10:00:00',
-          updated_at: '2026-05-16 10:00:00',
-          started_at: '2026-05-16 10:00:00',
-          completed_at: '2026-05-16 10:00:00',
-          failed_at: null,
-          is_public: 1,
-        }
-      ];
-    }
+    queryFn: createPagedBriefingQueryFn()
   });
 
   assert.equal(result.page, 2);
@@ -88,8 +104,13 @@ test('listBriefingsForUser clamps oversized pages and maps briefing metadata', a
 test('listBriefingsForUser derives default briefing urls when references omit them', async () => {
   const result = await listBriefingsForUser('user-2', {
     listObjectKeysFn: async () => [],
-    queryFn: async (sql) => {
-      return [
+    queryFn: async (sql, params = {}) => {
+      if (sql.includes('COUNT(*)')) {
+        return [{ total: 1 }];
+      }
+
+      if (sql.includes('WHERE briefings.owner_user_id = :user_id')) {
+        return [
         {
           job_id: 'job-42',
           briefing_id: 'briefing-42',
@@ -110,6 +131,9 @@ test('listBriefingsForUser derives default briefing urls when references omit th
           is_public: 0,
         }
       ];
+      }
+
+      return [];
     }
   });
 
@@ -123,6 +147,7 @@ test('listBriefingsForUser derives default briefing urls when references omit th
 test('listBriefingsForUser syncs storage-backed jobs into the canonical table', async () => {
 	const records = new Map();
   const result = await listBriefingsForUser('user-3', {
+    syncFromStorage: true,
     listObjectKeysFn: async () => [
       'webui/briefings/job-storage-2/briefing.json',
       'webui/briefings/job-storage-2/status.json'
@@ -154,8 +179,11 @@ test('listBriefingsForUser syncs storage-backed jobs into the canonical table', 
 				const record = records.get(params.job_id);
 				return record ? [record] : [];
 			}
+			if (sql.includes('COUNT(*)')) {
+				return [{ total: records.size }];
+			}
 			if (sql.includes('WHERE briefings.owner_user_id = :user_id')) {
-				return Array.from(records.values()).map((record) => ({
+				const rows = Array.from(records.values()).map((record) => ({
 					job_id: record.job_id,
 					briefing_id: record.briefing_id,
 					title: record.title,
@@ -174,6 +202,9 @@ test('listBriefingsForUser syncs storage-backed jobs into the canonical table', 
 					failed_at: record.failed_at,
 					is_public: 0
 				}));
+				const offset = Number(params.offset ?? 0);
+				const limit = Number(params.limit ?? rows.length);
+				return rows.slice(offset, offset + limit);
       }
 
       return [];
@@ -213,6 +244,7 @@ test('listBriefingsForUser syncs storage-backed jobs into the canonical table', 
 test('listBriefingsForUser keeps manifest-backed jobs failed when status reports publish timeout', async () => {
   const records = new Map();
   const result = await listBriefingsForUser('user-8', {
+    syncFromStorage: true,
     listObjectKeysFn: async () => [
       'webui/briefings/job-publish-failed/briefing.json',
       'webui/briefings/job-publish-failed/status.json'
@@ -259,8 +291,11 @@ test('listBriefingsForUser keeps manifest-backed jobs failed when status reports
         const record = records.get(params.job_id);
         return record ? [record] : [];
       }
+      if (sql.includes('COUNT(*)')) {
+        return [{ total: records.size }];
+      }
       if (sql.includes('WHERE briefings.owner_user_id = :user_id')) {
-        return Array.from(records.values()).map((record) => ({
+        const rows = Array.from(records.values()).map((record) => ({
           job_id: record.job_id,
           briefing_id: record.briefing_id,
           title: record.title,
@@ -279,6 +314,9 @@ test('listBriefingsForUser keeps manifest-backed jobs failed when status reports
           failed_at: record.failed_at,
           is_public: 0
         }));
+        const offset = Number(params.offset ?? 0);
+        const limit = Number(params.limit ?? rows.length);
+        return rows.slice(offset, offset + limit);
       }
 
       return [];
@@ -313,6 +351,26 @@ test('listBriefingsForUser keeps manifest-backed jobs failed when status reports
   assert.equal(result.items[0].state, 'failed');
   assert.equal(result.items[0].reference.validation.warningCount, 1);
   assert.equal(records.get('job-publish-failed').state, 'failed');
+});
+
+test('listBriefingsForUser skips storage sync by default', async () => {
+  let listedStorage = false;
+
+  await listBriefingsForUser('user-9', {
+    queryFn: async (sql) => {
+      if (sql.includes('COUNT(*)')) {
+        return [{ total: 0 }];
+      }
+
+      return [];
+    },
+    listObjectKeysFn: async () => {
+      listedStorage = true;
+      return [];
+    }
+  });
+
+  assert.equal(listedStorage, false);
 });
 
 test('deleteBriefingForUser removes stored briefing objects and share state', async () => {
