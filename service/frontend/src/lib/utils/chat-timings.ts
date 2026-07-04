@@ -144,9 +144,18 @@ export function readTimingSummary(value: unknown): TimingSummary {
     'prompt_eval_duration',
     'prompt_duration'
   ]);
-  const promptTokensPerSecond = readTimingNumber(value, ['prompt_per_second']);
+  let promptTokensPerSecond = readTimingNumber(value, ['prompt_per_second']);
   if (promptMs == null && promptTokens != null && promptTokensPerSecond != null && promptTokensPerSecond > 0) {
     promptMs = (promptTokens / promptTokensPerSecond) * 1000;
+  }
+
+  // Cached tokens are restored from KV rather than recomputed, so prefill
+  // throughput must be measured over uncached tokens only. Recompute even
+  // when the payload carries prompt_per_second — older engines/proxies
+  // computed it over the full prompt, which wildly inflates the rate.
+  if (cacheTokens != null && cacheTokens > 0 && promptTokens != null && promptMs != null && promptMs > 0) {
+    const uncachedTokens = promptTokens - cacheTokens;
+    promptTokensPerSecond = uncachedTokens > 0 ? uncachedTokens / (promptMs / 1000) : null;
   }
 
   const generatedTokens = readTimingNumber(value, [
@@ -195,7 +204,9 @@ export function readTimingSummary(value: unknown): TimingSummary {
     promptMs,
     promptTokensPerSecond:
       promptTokensPerSecond ??
-      (promptTokens != null && promptMs != null && promptMs > 0 ? promptTokens / (promptMs / 1000) : null),
+      (promptTokens != null && promptMs != null && promptMs > 0
+        ? (promptTokens - (cacheTokens ?? 0)) / (promptMs / 1000)
+        : null),
     generatedTokens,
     generatedMs,
     generatedTokensPerSecond,
