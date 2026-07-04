@@ -536,7 +536,7 @@
                       </span>
                     </div>
 
-                    <div class="assistant-stat-chip" title={view === 'reading' ? 'Prompt processing speed' : 'Generation speed'}>
+                    <div class="assistant-stat-chip" title={view === 'reading' ? 'Uncached prefill throughput (KV cache hits excluded)' : 'Generation speed'}>
                       <Gauge class="h-3 w-3" />
                       <span>
                         {view === 'reading'

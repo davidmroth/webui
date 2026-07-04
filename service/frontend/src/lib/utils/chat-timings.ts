@@ -129,7 +129,7 @@ export function readTimingDurationMs(value: unknown, keys: string[]): number | n
 }
 
 export function readTimingSummary(value: unknown): TimingSummary {
-  const cacheTokens = readTimingNumber(value, ['cache_n', 'cache_tokens']);
+  const cacheTokens = readTimingNumber(value, ['cache_n', 'cache_tokens', 'prefix_len']);
   const promptTokens = readTimingNumber(value, [
     'prompt_n',
     'prompt_tokens',
