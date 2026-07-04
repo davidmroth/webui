@@ -4,6 +4,7 @@
     Check,
     Clock3,
     Copy,
+    DatabaseZap,
     Edit,
     Gauge,
     RefreshCw,
@@ -25,6 +26,7 @@
     promptTokens: number | null;
     promptSeconds: number | null;
     promptTokensPerSecond: number | null;
+    cacheTokens: number | null;
     generatedTokens: number;
     generatedSeconds: number;
     generatedTokensPerSecond: number;
@@ -288,6 +290,7 @@
       promptTokens,
       promptSeconds,
       promptTokensPerSecond: summary.promptTokensPerSecond,
+      cacheTokens: summary.cacheTokens,
       generatedTokens,
       generatedSeconds,
       generatedTokensPerSecond: summary.generatedTokensPerSecond ?? 0
@@ -541,6 +544,20 @@
                           : `${stats.generatedTokensPerSecond.toFixed(2)} t/s`}
                       </span>
                     </div>
+
+                    {#if view === 'reading' && stats.cacheTokens != null && stats.cacheTokens > 0}
+                      <div
+                        class="assistant-stat-chip"
+                        title="Prompt tokens restored from the KV cache instead of recomputed"
+                      >
+                        <DatabaseZap class="h-3 w-3" />
+                        <span>
+                          {stats.cacheTokens.toLocaleString()} cached{stats.promptTokens
+                            ? ` (${Math.round((stats.cacheTokens / stats.promptTokens) * 100)}%)`
+                            : ''}
+                        </span>
+                      </div>
+                    {/if}
                   {/if}
                 </div>
               {/if}
