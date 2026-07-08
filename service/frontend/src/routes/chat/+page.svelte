@@ -17,7 +17,6 @@
     PlugZap,
     Search,
     Settings,
-    Square,
     SquarePen
   } from '@lucide/svelte';
   import ThemeModeToggle from '$lib/components/ThemeModeToggle.svelte';
@@ -3292,7 +3291,7 @@
                           {/each}
                         </span>
                       {:else if composerShowsStop}
-                        <Square class="h-3.5 w-3.5" />
+                        <span class="send-button-stop-icon" aria-hidden="true"></span>
                       {:else}
                         <ArrowUp class="h-3.5 w-3.5" />
                       {/if}

@@ -2342,6 +2342,14 @@ a {
   opacity: 0.92;
 }
 
+.send-button-stop-icon {
+  display: block;
+  width: 0.62rem;
+  height: 0.62rem;
+  border-radius: 0.12rem;
+  background: currentColor;
+}
+
 .compose-icon-button:disabled {
   color: var(--disabled-text);
 }
