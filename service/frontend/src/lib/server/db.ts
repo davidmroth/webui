@@ -9,6 +9,7 @@ export const pool = mysql.createPool({
   user: config.databaseUser,
   password: config.databasePassword,
   database: config.databaseName,
+  charset: 'utf8mb4_unicode_ci',
   connectionLimit: 10,
   namedPlaceholders: true
 });
