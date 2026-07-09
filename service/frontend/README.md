@@ -79,6 +79,7 @@ Hermes uses the `webchat` adapter to poll:
 
 - `GET /api/internal/hermes/health`
 - `GET /api/internal/hermes/inbox/next`
+- `GET /api/internal/hermes/events/:id`
 - `GET /api/internal/hermes/conversations/:id/context`
 - `POST /api/internal/hermes/events/:id/ack`
 - `POST /api/internal/hermes/conversations/:id/assistant`

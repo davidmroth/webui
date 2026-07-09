@@ -2347,10 +2347,30 @@ a {
 
 .send-button-stop-icon {
   display: block;
-  width: 0.62rem;
-  height: 0.62rem;
-  border-radius: 0.12rem;
+  width: 0.7rem;
+  height: 0.7rem;
+  border-radius: 0.14rem;
   background: currentColor;
+}
+
+.send-button--stop {
+  background: var(--text);
+  border-color: var(--text);
+  color: #fff;
+}
+
+.send-button--stop .send-button-stop-icon {
+  background: #fff;
+}
+
+:root.dark .send-button--stop {
+  background: #f4f4f5;
+  border-color: #f4f4f5;
+  color: #151518;
+}
+
+:root.dark .send-button--stop .send-button-stop-icon {
+  background: #151518;
 }
 
 .compose-icon-button:disabled {

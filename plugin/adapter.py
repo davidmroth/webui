@@ -864,6 +864,79 @@ class WebChatAdapter(BasePlatformAdapter):
         )
         response.raise_for_status()
 
+    @staticmethod
+    def _event_id_from_message(event: MessageEvent) -> Optional[str]:
+        payload = event.raw_message if isinstance(event.raw_message, dict) else {}
+        event_id = str(payload.get("eventId") or "").strip()
+        return event_id or None
+
+    def _event_status_url(self, event_id: str) -> str:
+        return f"{self._base_url}/api/internal/hermes/events/{event_id}"
+
+    async def _fetch_event_cancelled(self, event_id: str) -> bool:
+        if self._client is None or not event_id:
+            return False
+        try:
+            response = await self._client.get(
+                self._event_status_url(event_id),
+                headers=self._headers(),
+            )
+            if response.status_code == 404:
+                return False
+            response.raise_for_status()
+            payload = response.json()
+            if not isinstance(payload, dict):
+                return False
+            return payload.get("cancelled") is True or payload.get("status") == "cancelled"
+        except Exception as exc:
+            logger.debug("[%s] Failed to fetch cancellation status for %s: %s", self.name, event_id, exc)
+            return False
+
+    def _start_user_cancel_watcher(
+        self,
+        event: MessageEvent,
+        session_key: str,
+    ) -> Optional[asyncio.Task]:
+        event_id = self._event_id_from_message(event)
+        if not event_id or event.source is None:
+            return None
+
+        chat_id = event.source.chat_id
+
+        async def _watch() -> None:
+            try:
+                while True:
+                    await asyncio.sleep(self._poll_interval)
+                    if await self._fetch_event_cancelled(event_id):
+                        logger.info(
+                            "[%s] User cancelled event %s — interrupting session %s",
+                            self.name,
+                            event_id,
+                            session_key,
+                        )
+                        await self.interrupt_session_activity(session_key, chat_id)
+                        return
+            except asyncio.CancelledError:
+                raise
+
+        task = asyncio.create_task(_watch())
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
+        return task
+
+    async def _stop_user_cancel_watcher(self, watcher: Optional[asyncio.Task]) -> None:
+        if watcher is None:
+            return
+        watcher.cancel()
+        await asyncio.gather(watcher, return_exceptions=True)
+
+    async def _process_message_background(self, event: MessageEvent, session_key: str) -> None:
+        watcher = self._start_user_cancel_watcher(event, session_key)
+        try:
+            await super()._process_message_background(event, session_key)
+        finally:
+            await self._stop_user_cancel_watcher(watcher)
+
     def _cancelled_event_was_superseded(self, event: MessageEvent) -> bool:
         current_task = asyncio.current_task()
         if current_task is None or event.source is None:
@@ -886,14 +959,23 @@ class WebChatAdapter(BasePlatformAdapter):
         if not event_id:
             return
 
-        if outcome is ProcessingOutcome.CANCELLED and self._cancelled_event_was_superseded(event):
-            logger.info(
-                "[%s] Acknowledging superseded cancelled event %s",
-                self.name,
-                event_id,
-            )
-            await self._ack_event(str(event_id))
-            return
+        if outcome is ProcessingOutcome.CANCELLED:
+            if await self._fetch_event_cancelled(str(event_id)):
+                logger.info(
+                    "[%s] Acknowledging user-cancelled event %s",
+                    self.name,
+                    event_id,
+                )
+                await self._ack_event(str(event_id))
+                return
+            if self._cancelled_event_was_superseded(event):
+                logger.info(
+                    "[%s] Acknowledging superseded cancelled event %s",
+                    self.name,
+                    event_id,
+                )
+                await self._ack_event(str(event_id))
+                return
 
         if outcome is not ProcessingOutcome.SUCCESS:
             logger.warning(

@@ -2244,6 +2244,68 @@ export async function updateAssistantMessage(
   }
 }
 
+export async function getHermesEventStatus(eventId: string): Promise<{
+  eventId: string;
+  conversationId: string;
+  messageId: string;
+  status: HermesRunStateRow['status'];
+  runStatus: HermesRunStatus;
+  cancelled: boolean;
+} | null> {
+  const rows = await query<{
+    id: string;
+    conversation_id: string;
+    message_id: string;
+    status: HermesRunStateRow['status'];
+    run_status: HermesRunStatus;
+  }>(
+    `SELECT id, conversation_id, message_id, status, run_status
+     FROM hermes_events
+     WHERE id = :event_id
+     LIMIT 1`,
+    { event_id: eventId }
+  );
+
+  const row = rows[0];
+  if (!row) {
+    return null;
+  }
+
+  return {
+    eventId: row.id,
+    conversationId: row.conversation_id,
+    messageId: row.message_id,
+    status: row.status,
+    runStatus: row.run_status,
+    cancelled: row.status === 'cancelled' || row.run_status === 'cancelled'
+  };
+}
+
+export async function isHermesUserTurnCancelled(
+  conversationId: string,
+  userMessageId?: string | null
+): Promise<boolean> {
+  const normalizedUserMessageId = userMessageId?.trim();
+  if (!normalizedUserMessageId) {
+    return false;
+  }
+
+  const rows = await query<{ status: HermesRunStateRow['status'] }>(
+    `SELECT status
+     FROM hermes_events
+     WHERE conversation_id = :conversation_id
+       AND message_id = :message_id
+     ORDER BY created_at DESC
+     LIMIT 1`,
+    {
+      conversation_id: conversationId,
+      message_id: normalizedUserMessageId
+    }
+  );
+
+  return rows[0]?.status === 'cancelled';
+}
+
 /**
  * Cancel the in-flight assistant turn for a conversation: marks any queued or
  * processing events cancelled and finalizes any streaming assistant message
@@ -2253,6 +2315,17 @@ export async function cancelActiveAssistantTurn(
   userId: string,
   conversationId: string
 ): Promise<boolean> {
+  const activeEvents = await query<{ id: string; message_id: string }>(
+    `SELECT hermes_events.id, hermes_events.message_id
+     FROM hermes_events
+     INNER JOIN conversations ON conversations.id = hermes_events.conversation_id
+     WHERE hermes_events.conversation_id = :conversation_id
+       AND conversations.user_id = :user_id
+       AND hermes_events.status IN ('queued', 'processing')
+     ORDER BY hermes_events.created_at DESC`,
+    { conversation_id: conversationId, user_id: userId }
+  );
+
   const eventResult = await execute(
     `UPDATE hermes_events
      INNER JOIN conversations ON conversations.id = hermes_events.conversation_id
@@ -2288,6 +2361,19 @@ export async function cancelActiveAssistantTurn(
     typeof eventResult === 'object' && eventResult !== null && 'affectedRows' in eventResult
       ? Number((eventResult as { affectedRows?: number }).affectedRows ?? 0)
       : 0;
+
+  if (affected > 0) {
+    publishHermesTypingIndicator(conversationId, false);
+    for (const activeEvent of activeEvents) {
+      publishHermesRunStatus({
+        conversationId,
+        messageId: activeEvent.message_id,
+        eventId: activeEvent.id,
+        runStatus: 'cancelled'
+      });
+    }
+  }
+
   return affected > 0 || streamingId !== null;
 }
 

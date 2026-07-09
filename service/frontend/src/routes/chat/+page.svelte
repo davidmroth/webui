@@ -3276,7 +3276,7 @@
                   <div class="llama-composer-actions llama-composer-actions-right">
                     <button
                       class="send-button"
-                      class:send-button--working={composerBusy}
+                      class:send-button--working={composerBusy && !composerShowsStop}
                       class:send-button--stop={composerShowsStop}
                       type={composerShowsStop ? 'button' : 'submit'}
                       aria-label={composerShowsStop ? 'Stop Hermes' : 'Send message'}

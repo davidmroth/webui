@@ -7,7 +7,8 @@ import {
   appendAssistantChunk,
   finalizeStreamingAssistantMessage,
   updateAssistantMessage,
-  recordHermesDeliveryTrace
+  recordHermesDeliveryTrace,
+  isHermesUserTurnCancelled
 } from '$server/chat';
 import { DiagnosticEventType, DiagnosticHop, emitDiagnosticEvent } from '$server/diagnostics';
 import { getConfig } from '$server/env';
@@ -278,6 +279,41 @@ function getRequestId(request: Request) {
   return request.headers.get('x-request-id')?.trim() || globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
+async function rejectCancelledTurn(
+  conversationId: string,
+  userMessageId: string | null,
+  senderTrace: NormalizedSenderTrace | null,
+  diagnosticBase: Record<string, unknown>,
+  requestId: string,
+  startedAt: number
+) {
+  await persistSenderTrace(conversationId, senderTrace, {
+    receiverStatus: 'rejected',
+    errorText: 'The user cancelled this turn.'
+  });
+  emitAssistantDiagnostic(
+    DiagnosticEventType.HermesAssistantPostRejected,
+    {
+      ...diagnosticBase,
+      statusCode: 409,
+      reason: 'The user cancelled this turn.',
+      durationMs: Date.now() - startedAt
+    },
+    conversationId
+  );
+  return json(
+    {
+      success: false,
+      error: 'The user cancelled this turn.',
+      error_code: 'HERMES_TURN_CANCELLED',
+      error_message: 'The user cancelled this turn.',
+      request_id: requestId,
+      userMessageId
+    },
+    { status: 409 }
+  );
+}
+
 export async function POST({ params, request }: { params: { conversationId: string }; request: Request }) {
   if (!isAuthorized(request)) {
     noteHermesWorkerAuthFailure('assistant-post');
@@ -312,6 +348,23 @@ export async function POST({ params, request }: { params: { conversationId: stri
       },
       params.conversationId
     );
+    if (userMessageId && (await isHermesUserTurnCancelled(params.conversationId, userMessageId))) {
+      return rejectCancelledTurn(
+        params.conversationId,
+        userMessageId,
+        null,
+        {
+          conversationId: params.conversationId,
+          requestId,
+          mode: 'multipart_create',
+          contentLength: content.length,
+          attachmentCount: files.length,
+          role
+        },
+        requestId,
+        startedAt
+      );
+    }
     if (!content && files.length === 0) {
       emitAssistantDiagnostic(
         DiagnosticEventType.HermesAssistantPostRejected,
@@ -411,6 +464,17 @@ export async function POST({ params, request }: { params: { conversationId: stri
     role
   };
   emitAssistantDiagnostic(DiagnosticEventType.HermesAssistantPostReceived, diagnosticBase, params.conversationId);
+
+  if (userMessageId && (await isHermesUserTurnCancelled(params.conversationId, userMessageId))) {
+    return rejectCancelledTurn(
+      params.conversationId,
+      userMessageId,
+      traceWithTimingSignal,
+      diagnosticBase,
+      requestId,
+      startedAt
+    );
+  }
 
   if (role === 'tool') {
     if (!toolCallId) {
