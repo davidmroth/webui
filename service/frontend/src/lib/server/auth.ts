@@ -112,7 +112,7 @@ export async function createUserSession(event: RequestEvent, user: UserRow) {
     httpOnly: true,
     path: '/',
     sameSite: 'lax',
-    secure: false,
+    secure: event.url.protocol === 'https:',
     expires: expiresAt
   });
 }

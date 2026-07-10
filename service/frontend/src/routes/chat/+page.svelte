@@ -61,7 +61,7 @@
   } from '$lib/utils/input-history';
   import { readTimingSummary } from '$lib/utils/chat-timings';
   import { isCurrentConversationRequest } from '$lib/utils/current-conversation-request';
-  import { getAttachmentContentFlags } from '$lib/utils/attachment-content-type';
+  import { getAttachmentContentFlags, resolveAttachmentContentType } from '$lib/utils/attachment-content-type';
 
   type PendingAttachment = {
     id: string;
@@ -2275,7 +2275,10 @@
     errorMessage = null;
 
     const optimisticAttachments = pendingFiles.map((pendingFile) => {
-      const contentType = pendingFile.file.type || 'application/octet-stream';
+      const contentType = resolveAttachmentContentType(
+        pendingFile.file.name,
+        pendingFile.file.type || 'application/octet-stream'
+      );
       const { isAudio, isHtml, isImage, isMarkdown, isPreviewable } =
         getAttachmentContentFlags(contentType);
 

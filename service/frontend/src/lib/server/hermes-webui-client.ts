@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises';
-import { basename, extname } from 'node:path';
+import { basename } from 'node:path';
+import { guessAttachmentContentTypeFromFileName } from '$lib/utils/attachment-content-type';
 
 export type HermesAssistantAttachment =
   | {
@@ -52,32 +53,6 @@ interface AssistantPostSuccess {
   messageId: string;
 }
 
-const CONTENT_TYPE_BY_EXTENSION: Record<string, string> = {
-  '.c': 'text/x-c',
-  '.cpp': 'text/x-c++',
-  '.csv': 'text/csv; charset=utf-8',
-  '.gif': 'image/gif',
-  '.go': 'text/x-go',
-  '.java': 'text/x-java-source',
-  '.jpeg': 'image/jpeg',
-  '.jpg': 'image/jpeg',
-  '.js': 'text/javascript; charset=utf-8',
-  '.json': 'application/json; charset=utf-8',
-  '.md': 'text/markdown; charset=utf-8',
-  '.pdf': 'application/pdf',
-  '.png': 'image/png',
-  '.py': 'text/x-python; charset=utf-8',
-  '.rb': 'text/x-ruby; charset=utf-8',
-  '.rs': 'text/rust; charset=utf-8',
-  '.svg': 'image/svg+xml',
-  '.ts': 'text/typescript; charset=utf-8',
-  '.txt': 'text/plain; charset=utf-8',
-  '.webp': 'image/webp',
-  '.xml': 'application/xml; charset=utf-8',
-  '.yaml': 'application/yaml; charset=utf-8',
-  '.yml': 'application/yaml; charset=utf-8'
-};
-
 function normalizeBaseUrl(baseUrl: string) {
   return baseUrl.replace(/\/+$/, '');
 }
@@ -120,7 +95,7 @@ export function createTextAttachment(
 }
 
 export function guessContentType(fileName: string) {
-  return CONTENT_TYPE_BY_EXTENSION[extname(fileName).toLowerCase()] ?? 'application/octet-stream';
+  return guessAttachmentContentTypeFromFileName(fileName);
 }
 
 export async function createFileAttachmentFromPath(

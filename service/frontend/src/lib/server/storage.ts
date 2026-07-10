@@ -17,7 +17,7 @@ const initializedTargets = new Set<string>();
 
 function objectStorageConfig(): StorageConnectionConfig {
   const config = getConfig();
-  return {
+  return normalizeStorageConnection({
     endpoint: config.objectStorageEndpoint,
     port: config.objectStoragePort,
     useSsl: config.objectStorageUseSsl,
@@ -25,6 +25,21 @@ function objectStorageConfig(): StorageConnectionConfig {
     secretKey: config.objectStorageSecretKey,
     bucket: config.objectStorageBucket,
     region: config.objectStorageRegion
+  });
+}
+
+function normalizeStorageConnection(config: StorageConnectionConfig): StorageConnectionConfig {
+  const endpoint = config.endpoint.trim();
+  const endpointLower = endpoint.toLowerCase();
+  const isAws = endpointLower.includes('amazonaws.com');
+  const useSsl = isAws ? true : config.useSsl;
+  const port = isAws && config.port === 9000 ? 443 : config.port;
+
+  return {
+    ...config,
+    endpoint,
+    useSsl,
+    port
   };
 }
 
@@ -48,12 +63,14 @@ export function createStorageClient() {
 }
 
 function createConfiguredStorageClient(config: StorageConnectionConfig) {
+  const normalized = normalizeStorageConnection(config);
   return new Client({
-    endPoint: config.endpoint,
-    port: config.port,
-    useSSL: config.useSsl,
-    accessKey: config.accessKey,
-    secretKey: config.secretKey
+    endPoint: normalized.endpoint,
+    port: normalized.port,
+    useSSL: normalized.useSsl,
+    accessKey: normalized.accessKey,
+    secretKey: normalized.secretKey,
+    region: normalized.region
   });
 }
 

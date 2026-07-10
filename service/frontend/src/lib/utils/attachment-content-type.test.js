@@ -3,12 +3,14 @@ import assert from 'node:assert/strict';
 
 import {
 	getAttachmentContentFlags,
+	guessAttachmentContentTypeFromFileName,
 	isAudioAttachmentContentType,
 	isHtmlAttachmentContentType,
 	isImageAttachmentContentType,
 	isInlineAttachmentContentType,
 	isMarkdownAttachmentContentType,
-	normalizeAttachmentContentType
+	normalizeAttachmentContentType,
+	resolveAttachmentContentType
 } from './attachment-content-type.ts';
 
 test('normalizeAttachmentContentType strips parameters and lowercases', () => {
@@ -56,4 +58,13 @@ test('attachment content type helpers preserve the intended inline policy', () =
 	assert.equal(isInlineAttachmentContentType('text/html'), false);
 	assert.equal(isInlineAttachmentContentType('text/markdown'), false);
 	assert.equal(isInlineAttachmentContentType('application/pdf'), false);
+});
+
+test('resolveAttachmentContentType infers image mime types from file names', () => {
+	assert.equal(
+		resolveAttachmentContentType('screenshot.png', 'application/octet-stream'),
+		'image/png'
+	);
+	assert.equal(guessAttachmentContentTypeFromFileName('diagram.webp'), 'image/webp');
+	assert.equal(resolveAttachmentContentType('notes.txt', 'text/plain'), 'text/plain');
 });

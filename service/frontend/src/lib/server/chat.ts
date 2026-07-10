@@ -8,7 +8,7 @@ import { sendPushReplyNotification } from './push-notifications';
 import { getObjectBuffer, uploadObject } from './storage';
 import { getHermesWorkerHeartbeat } from './hermes-heartbeat';
 import { isHermesSystemStatusContent } from '$lib/utils/hermes-system-status';
-import { getAttachmentContentFlags } from '$lib/utils/attachment-content-type';
+import { getAttachmentContentFlags, resolveAttachmentContentType } from '$lib/utils/attachment-content-type';
 import type {
   BriefingReference,
   ChatMessage,
@@ -1152,14 +1152,15 @@ function mapHermesDeliveryTrace(row: HermesDeliveryTraceRow): HermesDeliveryTrac
 }
 
 function mapAttachment(row: AttachmentRow): MessageAttachment {
+  const contentType = resolveAttachmentContentType(row.file_name, row.content_type);
   const { isAudio, isHtml, isImage, isMarkdown, isPreviewable } = getAttachmentContentFlags(
-    row.content_type
+    contentType
   );
 
   return {
     id: row.id,
     fileName: row.file_name,
-    contentType: row.content_type,
+    contentType,
     sizeBytes: row.size_bytes,
     downloadUrl: `/api/attachments/${row.id}/download`,
     previewUrl: isPreviewable ? `/api/attachments/${row.id}/preview` : undefined,
@@ -1464,8 +1465,8 @@ async function saveAttachmentsForMessage(
       continue;
     }
     const buffer = Buffer.from(await file.arrayBuffer());
-    const contentType = file.type || 'application/octet-stream';
     const fileName = file.name || 'attachment';
+    const contentType = resolveAttachmentContentType(fileName, file.type || 'application/octet-stream');
     const uploaded = await uploadObject({
       conversationId,
       messageId,
@@ -2544,7 +2545,7 @@ export async function dequeueHermesEvent(options: { publicBaseUrl?: string | nul
       attachments: attachments.map((attachment) => ({
         attachmentId: attachment.id,
         fileName: attachment.file_name,
-        contentType: attachment.content_type,
+        contentType: resolveAttachmentContentType(attachment.file_name, attachment.content_type),
         sizeBytes: attachment.size_bytes,
         internalDownloadUrl: `/api/internal/hermes/attachments/${attachment.id}/download`
       }))

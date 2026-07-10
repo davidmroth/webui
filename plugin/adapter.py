@@ -798,6 +798,15 @@ class WebChatAdapter(BasePlatformAdapter):
             timestamp=timestamp,
         )
 
+    @staticmethod
+    def _resolve_attachment_content_type(file_name: str, content_type: str) -> str:
+        normalized = str(content_type or "application/octet-stream").strip().lower()
+        if normalized and normalized != "application/octet-stream":
+            return str(content_type or "application/octet-stream").strip()
+
+        guessed, _ = mimetypes.guess_type(str(file_name or "").strip())
+        return guessed or "application/octet-stream"
+
     async def _materialize_attachments(
         self,
         attachments: list[dict[str, Any]],
@@ -812,8 +821,11 @@ class WebChatAdapter(BasePlatformAdapter):
             if not attachment_id:
                 continue
 
-            content_type = str(attachment.get("contentType") or "application/octet-stream")
             file_name = str(attachment.get("fileName") or attachment_id)
+            content_type = self._resolve_attachment_content_type(
+                file_name,
+                str(attachment.get("contentType") or "application/octet-stream"),
+            )
             download_url = attachment.get("internalDownloadUrl") or (
                 f"/api/internal/hermes/attachments/{attachment_id}/download"
             )

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { Download, Maximize2, Minimize2, Share2, X } from '@lucide/svelte';
+	import AuthenticatedImage from '$lib/components/chat/AuthenticatedImage.svelte';
 	import type { MessageAttachment } from '$lib/types-legacy';
 
 	interface Props {
@@ -184,7 +185,7 @@
 				<a class="attachment-card attachment-download" href={attachment.downloadUrl} download={attachment.fileName}>
 					<div class="attachment-card-main">
 						{#if attachment.isImage}
-							<img class="attachment-preview" src={attachment.downloadUrl} alt={attachment.fileName} />
+							<AuthenticatedImage class="attachment-preview" src={attachment.downloadUrl} alt={attachment.fileName} />
 						{/if}
 						<div class="attachment-card-content">
 							<div>{attachment.fileName}</div>

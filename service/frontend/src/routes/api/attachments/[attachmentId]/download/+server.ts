@@ -1,9 +1,13 @@
 import { getAttachmentBuffer, getAttachmentForUser } from '$server/chat';
-import { requireSession } from '$server/auth';
+import { resolveSession } from '$server/auth';
 import { isInlineAttachmentContentType } from '$lib/utils/attachment-content-type';
 
 export async function GET(event) {
-  const session = await requireSession(event);
+  const session = event.locals.session ?? (await resolveSession(event));
+  if (!session) {
+    return new Response('Unauthorized', { status: 401 });
+  }
+
   const attachment = await getAttachmentForUser(session.userId, event.params.attachmentId);
   if (!attachment) {
     return new Response('Not found', { status: 404 });

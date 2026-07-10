@@ -1826,6 +1826,22 @@ a {
   border: 1px solid rgba(29, 29, 24, 0.08);
 }
 
+.attachment-preview--loading {
+  background: linear-gradient(90deg, rgba(29, 29, 24, 0.06), rgba(29, 29, 24, 0.12), rgba(29, 29, 24, 0.06));
+}
+
+.attachment-preview--error {
+  display: grid;
+  place-items: center;
+  padding: 0.35rem;
+  background: rgba(176, 48, 48, 0.08);
+  color: #9b2c2c;
+  font-size: 0.62rem;
+  font-weight: 650;
+  text-align: center;
+  line-height: 1.2;
+}
+
 .attachment-audio-controls {
   display: grid;
   gap: 0.65rem;

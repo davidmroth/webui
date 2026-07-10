@@ -31,6 +31,7 @@ Initial implementation of a browser-first Hermes channel using SvelteKit, MySQL,
 10. Sign in with the bootstrap key from `.env`.
 
 For S3 or other managed object-storage providers, set `OBJECT_STORAGE_REGION` to the bucket region (for example `us-east-2`).
+Use `OBJECT_STORAGE_ENDPOINT` like `s3.us-east-2.amazonaws.com`, `OBJECT_STORAGE_USE_SSL=true`, and `OBJECT_STORAGE_PORT=443` for AWS S3. The storage client also auto-normalizes AWS endpoints that still use the local MinIO defaults (`port=9000`, `use_ssl=false`).
 If your bucket is shared across services, set `OBJECT_STORAGE_PREFIX` (for example `hermes-webui/prod`) so all webui uploads stay in a dedicated namespace folder.
 
 ### Maintenance page
