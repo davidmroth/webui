@@ -1,4 +1,8 @@
-import { extname } from 'node:path';
+function fileExtension(fileName: string): string {
+	const dot = fileName.lastIndexOf('.');
+	if (dot <= 0) return '';
+	return fileName.slice(dot).toLowerCase();
+}
 
 const CONTENT_TYPE_BY_EXTENSION: Record<string, string> = {
 	'.c': 'text/x-c',
@@ -31,7 +35,7 @@ export function normalizeAttachmentContentType(contentType: string): string {
 }
 
 export function guessAttachmentContentTypeFromFileName(fileName: string): string {
-	return CONTENT_TYPE_BY_EXTENSION[extname(fileName).toLowerCase()] ?? 'application/octet-stream';
+	return CONTENT_TYPE_BY_EXTENSION[fileExtension(fileName)] ?? 'application/octet-stream';
 }
 
 export function resolveAttachmentContentType(fileName: string, reportedContentType: string): string {
