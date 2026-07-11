@@ -573,59 +573,51 @@
                           role="group"
                           aria-label="Reading metrics"
                         >
-                          <div class="assistant-stats-section-chips assistant-stats-section-chips--inline">
-                            {#if stats.promptTokens != null}
-                              <div class="assistant-stat-chip" title="Prompt tokens">
-                                <WholeWord class="h-3 w-3" />
-                                <span>{stats.promptTokens.toLocaleString()} tokens</span>
-                              </div>
-                            {/if}
-
-                            {#if stats.ttftSeconds != null}
-                              <div
-                                class="assistant-stat-chip"
-                                title="Time to first token (prefill before decode begins)"
-                              >
-                                <Zap class="h-3 w-3" />
-                                <span>TTFT {formatDuration(stats.ttftSeconds)}</span>
-                              </div>
-                            {/if}
-
-                            {#if stats.promptSeconds != null}
-                              <div
-                                class="assistant-stat-chip"
-                                title={stats.ttftSeconds != null
-                                  ? 'Total prompt processing time'
-                                  : 'Prompt processing time'}
-                              >
-                                <Hourglass class="h-3 w-3" />
-                                <span>{formatDuration(stats.promptSeconds)}</span>
-                              </div>
-                            {/if}
-
-                            {#if stats.promptTokensPerSecond != null}
-                              <div
-                                class="assistant-stat-chip"
-                                title="Uncached prefill throughput (KV cache hits excluded)"
-                              >
-                                <Gauge class="h-3 w-3" />
-                                <span>{stats.promptTokensPerSecond.toFixed(2)} t/s</span>
-                              </div>
-                            {/if}
-
-                            {#if stats.cacheTokens != null && stats.cacheTokens > 0}
-                              <div
-                                class="assistant-stat-chip"
-                                title="Prompt tokens restored from the KV cache instead of recomputed"
-                              >
-                                <DatabaseZap class="h-3 w-3" />
-                                <span>
-                                  {stats.cacheTokens.toLocaleString()} cached{stats.promptTokens
-                                    ? ` (${Math.round((stats.cacheTokens / stats.promptTokens) * 100)}%)`
-                                    : ''}
-                                </span>
-                              </div>
-                            {/if}
+                          <div class="assistant-stats-metrics">
+                            <div class="assistant-stats-metrics-col">
+                              {#if stats.promptTokens != null}
+                                <div class="assistant-stat-chip" title="Prompt tokens">
+                                  <WholeWord class="h-3 w-3" />
+                                  <span>{stats.promptTokens.toLocaleString()} tokens</span>
+                                </div>
+                              {/if}
+                              {#if stats.promptSeconds != null}
+                                <div
+                                  class="assistant-stat-chip"
+                                  title={stats.ttftSeconds != null
+                                    ? 'Total prompt processing time'
+                                    : 'Prompt processing time'}
+                                >
+                                  <Hourglass class="h-3 w-3" />
+                                  <span>{formatDuration(stats.promptSeconds)}</span>
+                                </div>
+                              {/if}
+                              {#if stats.cacheTokens != null && stats.cacheTokens > 0}
+                                <div
+                                  class="assistant-stat-chip"
+                                  title="Prompt tokens restored from the KV cache instead of recomputed"
+                                >
+                                  <DatabaseZap class="h-3 w-3" />
+                                  <span>
+                                    {stats.cacheTokens.toLocaleString()} cached{stats.promptTokens
+                                      ? ` (${Math.round((stats.cacheTokens / stats.promptTokens) * 100)}%)`
+                                      : ''}
+                                  </span>
+                                </div>
+                              {/if}
+                            </div>
+                            <div class="assistant-stats-metric-rule" aria-hidden="true"></div>
+                            <div class="assistant-stats-metrics-col">
+                              {#if stats.promptTokensPerSecond != null}
+                                <div
+                                  class="assistant-stat-chip"
+                                  title="Uncached prefill throughput (KV cache hits excluded)"
+                                >
+                                  <Gauge class="h-3 w-3" />
+                                  <span>{stats.promptTokensPerSecond.toFixed(2)} t/s</span>
+                                </div>
+                              {/if}
+                            </div>
                           </div>
                         </div>
 
@@ -640,30 +632,32 @@
                           role="group"
                           aria-label="Generation metrics"
                         >
-                          <div class="assistant-stats-section-chips assistant-stats-section-chips--inline">
-                            <div class="assistant-stat-chip" title="Generated tokens">
-                              <WholeWord class="h-3 w-3" />
-                              <span>{stats.generatedTokens.toLocaleString()} tokens</span>
-                            </div>
-
-                            {#if stats.ttftSeconds != null}
-                              <div
-                                class="assistant-stat-chip"
-                                title="Time to first token (prefill before decode begins)"
-                              >
-                                <Zap class="h-3 w-3" />
-                                <span>TTFT {formatDuration(stats.ttftSeconds)}</span>
+                          <div class="assistant-stats-metrics">
+                            <div class="assistant-stats-metrics-col">
+                              <div class="assistant-stat-chip" title="Generated tokens">
+                                <WholeWord class="h-3 w-3" />
+                                <span>{stats.generatedTokens.toLocaleString()} tokens</span>
                               </div>
-                            {/if}
-
-                            <div class="assistant-stat-chip" title="Decode time after first token">
-                              <Hourglass class="h-3 w-3" />
-                              <span>{formatDuration(stats.generatedSeconds)}</span>
+                              <div class="assistant-stat-chip" title="Decode time after first token">
+                                <Hourglass class="h-3 w-3" />
+                                <span>{formatDuration(stats.generatedSeconds)}</span>
+                              </div>
                             </div>
-
-                            <div class="assistant-stat-chip" title="Decode throughput after first token">
-                              <Gauge class="h-3 w-3" />
-                              <span>{stats.generatedTokensPerSecond.toFixed(2)} t/s</span>
+                            <div class="assistant-stats-metric-rule" aria-hidden="true"></div>
+                            <div class="assistant-stats-metrics-col">
+                              {#if stats.ttftSeconds != null}
+                                <div
+                                  class="assistant-stat-chip"
+                                  title="Time until the first response token appears"
+                                >
+                                  <Zap class="h-3 w-3" />
+                                  <span>TTFT {formatDuration(stats.ttftSeconds)}</span>
+                                </div>
+                              {/if}
+                              <div class="assistant-stat-chip" title="Decode throughput after first token">
+                                <Gauge class="h-3 w-3" />
+                                <span>{stats.generatedTokensPerSecond.toFixed(2)} t/s</span>
+                              </div>
                             </div>
                           </div>
                         </div>
@@ -679,7 +673,7 @@
                           onclick={() => copyConversationId(message.id)}
                         >
                           <span class="assistant-stats-conv-id">
-                            Conversation · {conversationId}
+                            <span class="assistant-stats-conv-label">Conversation · </span>{conversationId}
                           </span>
                           {#if copiedConversationIdForMessageId === message.id}
                             <Check class="h-3 w-3 assistant-stats-conv-copy-icon" />
