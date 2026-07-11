@@ -10,13 +10,14 @@
     RefreshCw,
     Sparkles,
     Trash2,
-    WholeWord
+    WholeWord,
+    Zap
   } from '@lucide/svelte';
   import MessageAttachments from '$lib/components/chat/MessageAttachments.svelte';
   import { env as publicEnv } from '$env/dynamic/public';
   import ActionHistory from '$lib/components/chat/ActionHistory.svelte';
   import type { ChatMessage, MessageAttachment } from '$lib/types-legacy';
-  import { readTimingSummary } from '$lib/utils/chat-timings';
+  import { readTimingSummary, resolveTtftMs } from '$lib/utils/chat-timings';
   import { isHermesSystemStatusContent } from '$lib/utils/hermes-system-status';
   import { renderMarkdown } from '$lib/utils/markdown';
 
@@ -27,6 +28,7 @@
     promptSeconds: number | null;
     promptTokensPerSecond: number | null;
     cacheTokens: number | null;
+    ttftSeconds: number | null;
     generatedTokens: number;
     generatedSeconds: number;
     generatedTokensPerSecond: number;
@@ -285,12 +287,15 @@
 
     const promptSeconds = promptMs != null && promptMs > 0 ? promptMs / 1000 : null;
     const generatedSeconds = generatedMs / 1000;
+    const ttftMs = resolveTtftMs(summary);
+    const ttftSeconds = ttftMs != null && ttftMs > 0 ? ttftMs / 1000 : null;
 
     return {
       promptTokens,
       promptSeconds,
       promptTokensPerSecond: summary.promptTokensPerSecond,
       cacheTokens: summary.cacheTokens,
+      ttftSeconds,
       generatedTokens,
       generatedSeconds,
       generatedTokensPerSecond: summary.generatedTokensPerSecond ?? 0
@@ -527,7 +532,24 @@
                       </span>
                     </div>
 
-                    <div class="assistant-stat-chip" title={view === 'reading' ? 'Prompt processing time' : 'Generation time'}>
+                    {#if stats.ttftSeconds != null}
+                      <div
+                        class="assistant-stat-chip"
+                        title="Time to first token (prefill before decode begins)"
+                      >
+                        <Zap class="h-3 w-3" />
+                        <span>TTFT {formatDuration(stats.ttftSeconds)}</span>
+                      </div>
+                    {/if}
+
+                    <div
+                      class="assistant-stat-chip"
+                      title={view === 'reading'
+                        ? stats.ttftSeconds != null
+                          ? 'Total prompt processing time'
+                          : 'Prompt processing time'
+                        : 'Decode time after first token'}
+                    >
                       <Clock3 class="h-3 w-3" />
                       <span>
                         {view === 'reading'
@@ -536,7 +558,7 @@
                       </span>
                     </div>
 
-                    <div class="assistant-stat-chip" title={view === 'reading' ? 'Uncached prefill throughput (KV cache hits excluded)' : 'Generation speed'}>
+                    <div class="assistant-stat-chip" title={view === 'reading' ? 'Uncached prefill throughput (KV cache hits excluded)' : 'Decode throughput after first token'}>
                       <Gauge class="h-3 w-3" />
                       <span>
                         {view === 'reading'

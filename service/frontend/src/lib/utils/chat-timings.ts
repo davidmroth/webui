@@ -56,16 +56,29 @@ function collectTimingScopes(value: unknown): Array<Record<string, unknown>> {
   push(root.timings);
   push(root.usage);
 
+  const usage = toRecord(root.usage);
+  if (usage) {
+    push(usage.timings);
+  }
+
   const verbose = toRecord(root.__verbose);
   if (verbose) {
     push(verbose.timings);
     push(verbose.usage);
+    const verboseUsage = toRecord(verbose.usage);
+    if (verboseUsage) {
+      push(verboseUsage.timings);
+    }
   }
 
   const response = toRecord(root.response);
   if (response) {
     push(response.timings);
     push(response.usage);
+    const responseUsage = toRecord(response.usage);
+    if (responseUsage) {
+      push(responseUsage.timings);
+    }
   }
 
   const data = toRecord(root.data);
@@ -193,7 +206,12 @@ export function readTimingSummary(value: unknown): TimingSummary {
   const explicitContextUsed = readTimingNumber(value, ['context_used', 'contextUsed']);
   const contextTotal = readTimingNumber(value, ['n_ctx', 'context_total', 'contextTotal']);
   const outputMax = readTimingNumber(value, ['n_predict', 'max_tokens', 'output_max', 'outputTokensMax']);
-  const ttftMs = readTimingDurationMs(value, ['ttft_ms', 'time_to_first_token_ms', 'ttfb_ms']);
+  const ttftMs = readTimingDurationMs(value, [
+    'ttft_ms',
+    'time_to_first_token_ms',
+    'ttfb_ms',
+    'prefill_ms'
+  ]);
   const contextUsed =
     explicitContextUsed ??
     (promptTokens != null || cacheTokens != null ? (promptTokens ?? 0) + (cacheTokens ?? 0) : null);
@@ -215,4 +233,15 @@ export function readTimingSummary(value: unknown): TimingSummary {
     contextTotal,
     outputMax
   };
+}
+
+/** Prefill latency before the first generated token (distinct from decode t/s). */
+export function resolveTtftMs(summary: TimingSummary): number | null {
+  if (summary.ttftMs != null && summary.ttftMs > 0) {
+    return summary.ttftMs;
+  }
+  if (summary.promptMs != null && summary.promptMs > 0) {
+    return summary.promptMs;
+  }
+  return null;
 }

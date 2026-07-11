@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { readTimingSummary } from './chat-timings.ts';
+import { readTimingSummary, resolveTtftMs } from './chat-timings.ts';
 
 test('readTimingSummary excludes cached tokens from prefill t/s', () => {
 	const summary = readTimingSummary({
@@ -40,4 +40,34 @@ test('readTimingSummary uses uncached tokens when no cache is reported', () => {
 
 	assert.equal(summary.cacheTokens, null);
 	assert.equal(summary.promptTokensPerSecond, 988 / 1.34);
+});
+
+test('readTimingSummary reads prefill_ms from nested usage.timings', () => {
+	const summary = readTimingSummary({
+		usage: {
+			timings: {
+				prefill_ms: 89_605,
+				decode_tokens_per_sec: 13.7
+			},
+			prompt_tokens: 20_602,
+			completion_tokens: 11
+		},
+		predicted_n: 11,
+		predicted_ms: 803
+	});
+
+	assert.equal(summary.ttftMs, 89_605);
+	assert.equal(resolveTtftMs(summary), 89_605);
+});
+
+test('resolveTtftMs falls back to prompt_ms when ttft is absent', () => {
+	const summary = readTimingSummary({
+		prompt_n: 446,
+		prompt_ms: 1_200,
+		predicted_n: 8,
+		predicted_ms: 886
+	});
+
+	assert.equal(summary.ttftMs, null);
+	assert.equal(resolveTtftMs(summary), 1_200);
 });

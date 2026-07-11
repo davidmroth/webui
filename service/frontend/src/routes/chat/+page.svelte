@@ -59,7 +59,7 @@
     saveInputHistory,
     type InputHistoryDirection
   } from '$lib/utils/input-history';
-  import { readTimingSummary } from '$lib/utils/chat-timings';
+  import { readTimingSummary, resolveTtftMs } from '$lib/utils/chat-timings';
   import { isCurrentConversationRequest } from '$lib/utils/current-conversation-request';
   import { getAttachmentContentFlags, resolveAttachmentContentType } from '$lib/utils/attachment-content-type';
 
@@ -86,6 +86,7 @@
   type ComposerStatsStrip = {
     contextLabel: string | null;
     outputLabel: string | null;
+    ttftLabel: string | null;
     speedLabel: string | null;
     isFading: boolean;
   };
@@ -1044,14 +1045,16 @@
       composerStatsOutputMax ?? summary.outputMax
     );
     const speedLabel = formatSpeedStatsLabel(summary.generatedTokensPerSecond);
+    const ttftLabel = formatTtftStatsLabel(resolveTtftMs(summary));
 
-    if (!contextLabel && !outputLabel && !speedLabel) {
+    if (!contextLabel && !outputLabel && !ttftLabel && !speedLabel) {
       return null;
     }
 
     return {
       contextLabel,
       outputLabel,
+      ttftLabel,
       speedLabel,
       isFading: composerStatsPhase === 'fading'
     };
@@ -1261,7 +1264,20 @@
       return null;
     }
 
-    return `${tokensPerSecond.toFixed(1)} t/s`;
+    return `${tokensPerSecond.toFixed(1)} decode t/s`;
+  }
+
+  function formatTtftStatsLabel(ttftMs: number | null) {
+    if (ttftMs == null || !Number.isFinite(ttftMs) || ttftMs <= 0) {
+      return null;
+    }
+
+    const seconds = ttftMs / 1000;
+    if (seconds >= 60) {
+      return `TTFT ${(seconds / 60).toFixed(1)}m`;
+    }
+
+    return `TTFT ${seconds.toFixed(1)}s`;
   }
 
   function clearComposerStatsTimers() {
@@ -3143,6 +3159,12 @@
                     <div class="llama-composer-stat">
                       <span class="llama-composer-stat-label">Output:</span>
                       <span class="llama-composer-stat-value">{composerStatsStrip.outputLabel}</span>
+                    </div>
+                  {/if}
+
+                  {#if composerStatsStrip.ttftLabel}
+                    <div class="llama-composer-stat">
+                      <span class="llama-composer-stat-value">{composerStatsStrip.ttftLabel}</span>
                     </div>
                   {/if}
 

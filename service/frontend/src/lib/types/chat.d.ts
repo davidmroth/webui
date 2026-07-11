@@ -69,6 +69,8 @@ export interface ChatMessageTimings {
 	prompt_per_second?: number;
 	prompt_eval_count?: number;
 	prompt_eval_duration?: number;
+	ttft_ms?: number;
+	prefill_ms?: number;
 	eval_count?: number;
 	eval_duration?: number;
 	agentic?: ChatMessageAgenticTimings;
