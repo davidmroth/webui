@@ -2712,6 +2712,35 @@ a {
   background: rgba(31, 31, 28, 0.11);
   color: var(--text-muted);
   cursor: pointer;
+  flex: 0 0 auto;
+}
+
+.assistant-stats-toggle-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.assistant-message-toolbar {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.18rem;
+  padding: 0.12rem;
+  border-radius: var(--app-radius);
+  background: rgba(31, 31, 28, 0.11);
+}
+
+.assistant-message-toolbar .assistant-stats-toggle-button {
+  background: transparent;
+}
+
+.assistant-message-toolbar .assistant-stats-toggle-button.active {
+  background: rgba(255, 255, 255, 0.96);
+  color: var(--text);
+}
+
+:root.dark .assistant-message-toolbar .assistant-stats-toggle-button.active {
+  background: rgba(255, 255, 255, 0.14);
+  color: var(--accent-strong);
 }
 
 .assistant-stats-toggle-button.active {
@@ -2743,7 +2772,7 @@ a {
 .assistant-stats-card-header {
   display: flex;
   justify-content: flex-end;
-  padding: 0.45rem 0.65rem 0.35rem;
+  padding: 0.35rem 0.55rem 0.28rem;
   border-bottom: 1px solid rgba(31, 31, 28, 0.08);
 }
 
@@ -2761,15 +2790,15 @@ a {
 }
 
 .assistant-stats-card-body {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.65rem;
-  padding: 0.55rem 0.65rem 0.65rem;
-}
-
-.assistant-stats-section {
   display: flex;
   flex-direction: column;
+  gap: 0.28rem;
+  padding: 0.4rem 0.55rem 0.45rem;
+}
+
+.assistant-stats-band {
+  display: flex;
+  align-items: stretch;
   gap: 0.35rem;
   min-width: 0;
 }
@@ -2782,11 +2811,33 @@ a {
   text-transform: uppercase;
 }
 
+.assistant-stats-section-label--vertical {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 1rem;
+  width: 1rem;
+  padding: 0.12rem 0;
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  line-height: 1;
+  white-space: nowrap;
+  user-select: none;
+}
+
 .assistant-stats-section-chips {
   display: flex;
-  flex-direction: column;
   align-items: flex-start;
   gap: 0.18rem;
+}
+
+.assistant-stats-section-chips--inline {
+  flex: 1 1 auto;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.22rem 0.5rem;
+  min-width: 0;
 }
 
 .assistant-stats-card-footer {
@@ -2795,7 +2846,7 @@ a {
   justify-content: space-between;
   gap: 0.45rem;
   width: 100%;
-  padding: 0.45rem 0.65rem 0.55rem;
+  padding: 0.38rem 0.55rem 0.45rem;
   border: none;
   border-top: 1px solid rgba(31, 31, 28, 0.08);
   background: transparent;
@@ -3306,6 +3357,11 @@ a {
     margin-bottom: 0.85rem;
   }
 
+  .assistant-message-toolbar {
+    gap: 0.12rem;
+    padding: 0.18rem;
+  }
+
   .assistant-stats-toggle-button {
     width: 2.1rem;
     height: 2.1rem;
@@ -3316,16 +3372,43 @@ a {
     height: 0.95rem;
   }
 
+  .assistant-stats-card-header {
+    padding: 0.32rem 0.45rem 0.24rem;
+  }
+
   .assistant-stats-card-body {
-    grid-template-columns: 1fr;
+    gap: 0.35rem;
+    padding: 0.35rem 0.45rem 0.4rem;
   }
 
-  .llama-message-actions {
-    gap: 0.45rem;
+  .assistant-stats-band {
+    gap: 0.28rem;
   }
 
-  .assistant-actions {
-    margin-top: 0.2rem;
+  .assistant-stats-section-label--vertical {
+    flex-basis: 0.95rem;
+    width: 0.95rem;
+    font-size: 0.58rem;
+  }
+
+  .assistant-stats-section-chips--inline {
+    gap: 0.2rem 0.38rem;
+  }
+
+  .assistant-stat-chip {
+    font-size: 0.68rem;
+  }
+
+  .assistant-stats-card-footer {
+    padding: 0.34rem 0.45rem 0.4rem;
+  }
+
+  .assistant-stats-conv-id {
+    font-size: 0.64rem;
+  }
+
+  .assistant-stats-datetime {
+    font-size: 0.68rem;
   }
 
   .user-actions {

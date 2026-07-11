@@ -520,16 +520,35 @@
                 {@const completedAt = completedMessageDateTime(message)}
                 {@const statsExpanded = isStatsExpanded(message.id)}
                 <div class="assistant-meta-cluster assistant-stats-row">
-                  <button
-                    type="button"
-                    class="assistant-stats-toggle-button"
-                    class:active={statsExpanded}
-                    aria-expanded={statsExpanded}
-                    title={statsExpanded ? 'Hide message stats' : 'Show message stats'}
-                    onclick={() => toggleStatsExpanded(message.id)}
-                  >
-                    <BarChart2 class="h-3 w-3" />
-                  </button>
+                  <div class="assistant-message-toolbar" aria-label="Message actions">
+                    <button
+                      type="button"
+                      class="assistant-stats-toggle-button"
+                      class:active={statsExpanded}
+                      aria-expanded={statsExpanded}
+                      title={statsExpanded ? 'Hide message stats' : 'Show message stats'}
+                      onclick={() => toggleStatsExpanded(message.id)}
+                    >
+                      <BarChart2 class="h-3 w-3" />
+                    </button>
+                    <button
+                      type="button"
+                      class={`assistant-stats-toggle-button ${copiedMessageId === message.id ? 'active' : ''}`}
+                      title={copiedMessageId === message.id ? 'Copied' : 'Copy'}
+                      onclick={() => onCopy?.(message)}
+                    >
+                      <Copy class="h-3 w-3" />
+                    </button>
+                    <button
+                      type="button"
+                      class="assistant-stats-toggle-button"
+                      title={isBusyMessage(message.id) ? 'Regenerating…' : 'Regenerate'}
+                      disabled={isBusyMessage(message.id) || !onRegenerate}
+                      onclick={() => onRegenerate?.(message)}
+                    >
+                      <RefreshCw class="h-3 w-3" />
+                    </button>
+                  </div>
 
                   {#if statsExpanded}
                     <div class="assistant-stats-card">
@@ -543,9 +562,14 @@
                       {/if}
 
                       <div class="assistant-stats-card-body">
-                        <div class="assistant-stats-section">
-                          <div class="assistant-stats-section-label">Reading</div>
-                          <div class="assistant-stats-section-chips">
+                        <div class="assistant-stats-band" role="group" aria-label="Reading metrics">
+                          <div
+                            class="assistant-stats-section-label assistant-stats-section-label--vertical"
+                            aria-hidden="true"
+                          >
+                            Reading
+                          </div>
+                          <div class="assistant-stats-section-chips assistant-stats-section-chips--inline">
                             {#if stats.promptTokens != null}
                               <div class="assistant-stat-chip" title="Prompt tokens">
                                 <WholeWord class="h-3 w-3" />
@@ -601,9 +625,8 @@
                           </div>
                         </div>
 
-                        <div class="assistant-stats-section">
-                          <div class="assistant-stats-section-label">Generation</div>
-                          <div class="assistant-stats-section-chips">
+                        <div class="assistant-stats-band" role="group" aria-label="Generation metrics">
+                          <div class="assistant-stats-section-chips assistant-stats-section-chips--inline">
                             <div class="assistant-stat-chip" title="Generated tokens">
                               <WholeWord class="h-3 w-3" />
                               <span>{stats.generatedTokens.toLocaleString()} tokens</span>
@@ -654,31 +677,32 @@
                     </div>
                   {/if}
                 </div>
+              {:else}
+                <div class="assistant-meta-cluster assistant-stats-row">
+                  <div class="assistant-message-toolbar" aria-label="Message actions">
+                    <button
+                      type="button"
+                      class={`assistant-stats-toggle-button ${copiedMessageId === message.id ? 'active' : ''}`}
+                      title={copiedMessageId === message.id ? 'Copied' : 'Copy'}
+                      onclick={() => onCopy?.(message)}
+                    >
+                      <Copy class="h-3 w-3" />
+                    </button>
+                    <button
+                      type="button"
+                      class="assistant-stats-toggle-button"
+                      title={isBusyMessage(message.id) ? 'Regenerating…' : 'Regenerate'}
+                      disabled={isBusyMessage(message.id) || !onRegenerate}
+                      onclick={() => onRegenerate?.(message)}
+                    >
+                      <RefreshCw class="h-3 w-3" />
+                    </button>
+                  </div>
+                </div>
               {/if}
             </div>
           {/if}
 
-          {#if isAssistantMessageFullyRendered(message)}
-              <div class="llama-message-actions assistant-actions" aria-label="Message actions">
-                <button
-                  class={`message-action-icon ${copiedMessageId === message.id ? 'is-active' : ''}`}
-                  type="button"
-                  title={copiedMessageId === message.id ? 'Copied' : 'Copy'}
-                  onclick={() => onCopy?.(message)}
-                >
-                  <Copy class="h-3 w-3" />
-                </button>
-                <button
-                  class="message-action-icon"
-                  type="button"
-                  title={isBusyMessage(message.id) ? 'Regenerating…' : 'Regenerate'}
-                  disabled={isBusyMessage(message.id) || !onRegenerate}
-                  onclick={() => onRegenerate?.(message)}
-                >
-                  <RefreshCw class="h-3 w-3" />
-                </button>
-              </div>
-          {/if}
         </div>
         {#if (displayRole !== 'assistant' || isAssistantMessageFullyRendered(message)) && editingMessageId !== message.id}
           {#if displayRole === 'user'}
