@@ -562,13 +562,17 @@
                       {/if}
 
                       <div class="assistant-stats-card-body">
-                        <div class="assistant-stats-band" role="group" aria-label="Reading metrics">
-                          <div
-                            class="assistant-stats-section-label assistant-stats-section-label--vertical"
-                            aria-hidden="true"
-                          >
-                            Reading
-                          </div>
+                        <div
+                          class="assistant-stats-section-label assistant-stats-section-label--vertical assistant-stats-section-label--reading"
+                          aria-hidden="true"
+                        >
+                          Reading
+                        </div>
+                        <div
+                          class="assistant-stats-section-panel assistant-stats-section-panel--reading"
+                          role="group"
+                          aria-label="Reading metrics"
+                        >
                           <div class="assistant-stats-section-chips assistant-stats-section-chips--inline">
                             {#if stats.promptTokens != null}
                               <div class="assistant-stat-chip" title="Prompt tokens">
@@ -625,7 +629,17 @@
                           </div>
                         </div>
 
-                        <div class="assistant-stats-band" role="group" aria-label="Generation metrics">
+                        <div
+                          class="assistant-stats-section-label assistant-stats-section-label--vertical assistant-stats-section-label--generation"
+                          aria-hidden="true"
+                        >
+                          Generation
+                        </div>
+                        <div
+                          class="assistant-stats-section-panel assistant-stats-section-panel--generation"
+                          role="group"
+                          aria-label="Generation metrics"
+                        >
                           <div class="assistant-stats-section-chips assistant-stats-section-chips--inline">
                             <div class="assistant-stat-chip" title="Generated tokens">
                               <WholeWord class="h-3 w-3" />

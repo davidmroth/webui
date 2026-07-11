@@ -2790,17 +2790,12 @@ a {
 }
 
 .assistant-stats-card-body {
-  display: flex;
-  flex-direction: column;
-  gap: 0.28rem;
-  padding: 0.4rem 0.55rem 0.45rem;
-}
-
-.assistant-stats-band {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto minmax(0, 1fr);
+  grid-template-rows: auto;
+  gap: 0;
+  padding: 0;
   align-items: stretch;
-  gap: 0.35rem;
-  min-width: 0;
 }
 
 .assistant-stats-section-label {
@@ -2815,14 +2810,53 @@ a {
   display: flex;
   align-items: center;
   justify-content: center;
-  flex: 0 0 1rem;
-  width: 1rem;
-  padding: 0.12rem 0;
+  align-self: stretch;
+  flex: 0 0 auto;
+  width: 1.35rem;
+  padding: 0.45rem 0.3rem;
   writing-mode: vertical-rl;
   transform: rotate(180deg);
   line-height: 1;
   white-space: nowrap;
   user-select: none;
+}
+
+.assistant-stats-section-label--reading {
+  background: rgba(92, 82, 64, 0.16);
+  color: #5a5040;
+}
+
+.assistant-stats-section-label--generation {
+  background: rgba(58, 72, 88, 0.14);
+  color: #3f4d5e;
+  border-left: 1px solid rgba(31, 31, 28, 0.1);
+}
+
+:root.dark .assistant-stats-section-label--reading {
+  background: rgba(210, 190, 160, 0.12);
+  color: #c8baa8;
+}
+
+:root.dark .assistant-stats-section-label--generation {
+  background: rgba(150, 175, 210, 0.12);
+  color: #a8b8cc;
+  border-left-color: rgba(255, 255, 255, 0.1);
+}
+
+.assistant-stats-section-panel {
+  display: flex;
+  align-items: flex-start;
+  align-self: stretch;
+  min-width: 0;
+  padding: 0.42rem 0.55rem;
+}
+
+.assistant-stats-section-panel--generation {
+  border-left: 1px solid rgba(31, 31, 28, 0.06);
+}
+
+:root.dark .assistant-stats-section-panel--generation {
+  border-left-color: rgba(255, 255, 255, 0.06);
 }
 
 .assistant-stats-section-chips {
@@ -2832,11 +2866,10 @@ a {
 }
 
 .assistant-stats-section-chips--inline {
-  flex: 1 1 auto;
-  flex-direction: row;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.22rem 0.5rem;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.28rem 0.55rem;
+  width: 100%;
   min-width: 0;
 }
 
@@ -3377,34 +3410,71 @@ a {
   }
 
   .assistant-stats-card-body {
-    gap: 0.35rem;
-    padding: 0.35rem 0.45rem 0.4rem;
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-rows: auto auto;
   }
 
-  .assistant-stats-band {
-    gap: 0.28rem;
-  }
-
-  .assistant-stats-section-label--vertical {
-    flex-basis: 0.95rem;
-    width: 0.95rem;
+  .assistant-stats-section-label--reading {
+    grid-row: 1;
+    grid-column: 1;
+    width: 1.15rem;
+    padding: 0.38rem 0.22rem;
     font-size: 0.58rem;
   }
 
+  .assistant-stats-section-panel--reading {
+    grid-row: 1;
+    grid-column: 2;
+    padding: 0.38rem 0.45rem;
+  }
+
+  .assistant-stats-section-label--generation {
+    grid-row: 2;
+    grid-column: 1;
+    width: 1.15rem;
+    padding: 0.38rem 0.22rem;
+    font-size: 0.58rem;
+    border-left: none;
+    border-top: 1px solid rgba(31, 31, 28, 0.1);
+  }
+
+  :root.dark .assistant-stats-section-label--generation {
+    border-top-color: rgba(255, 255, 255, 0.1);
+    border-left: none;
+  }
+
+  .assistant-stats-section-panel--generation {
+    grid-row: 2;
+    grid-column: 2;
+    padding: 0.38rem 0.45rem;
+    border-left: none;
+    border-top: 1px solid rgba(31, 31, 28, 0.06);
+  }
+
+  :root.dark .assistant-stats-section-panel--generation {
+    border-left: none;
+    border-top-color: rgba(255, 255, 255, 0.06);
+  }
+
   .assistant-stats-section-chips--inline {
-    gap: 0.2rem 0.38rem;
+    grid-template-columns: 1fr;
+    gap: 0.24rem;
   }
 
   .assistant-stat-chip {
-    font-size: 0.68rem;
+    font-size: 0.7rem;
+    min-height: 1.35rem;
   }
 
   .assistant-stats-card-footer {
-    padding: 0.34rem 0.45rem 0.4rem;
+    padding: 0.38rem 0.45rem 0.42rem;
+    min-height: 2.75rem;
+    align-items: center;
   }
 
   .assistant-stats-conv-id {
     font-size: 0.64rem;
+    line-height: 1.4;
   }
 
   .assistant-stats-datetime {
@@ -3468,6 +3538,27 @@ a {
   .assistant-stats-row {
     flex-wrap: wrap;
     gap: 0.28rem;
+  }
+
+  .assistant-stats-section-panel--reading {
+    background: rgba(92, 82, 64, 0.045);
+  }
+
+  .assistant-stats-section-panel--generation {
+    background: rgba(58, 72, 88, 0.04);
+  }
+
+  :root.dark .assistant-stats-section-panel--reading {
+    background: rgba(210, 190, 160, 0.04);
+  }
+
+  :root.dark .assistant-stats-section-panel--generation {
+    background: rgba(150, 175, 210, 0.04);
+  }
+
+  .assistant-stat-chip {
+    white-space: normal;
+    max-width: 100%;
   }
 }
 
