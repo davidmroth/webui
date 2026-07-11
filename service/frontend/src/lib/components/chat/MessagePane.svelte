@@ -592,6 +592,18 @@
                                   <span>{formatDuration(stats.promptSeconds)}</span>
                                 </div>
                               {/if}
+                            </div>
+                            <div class="assistant-stats-metric-rule" aria-hidden="true"></div>
+                            <div class="assistant-stats-metrics-col">
+                              {#if stats.promptTokensPerSecond != null}
+                                <div
+                                  class="assistant-stat-chip"
+                                  title="Uncached prefill throughput (KV cache hits excluded)"
+                                >
+                                  <Gauge class="h-3 w-3" />
+                                  <span>{stats.promptTokensPerSecond.toFixed(2)} t/s</span>
+                                </div>
+                              {/if}
                               {#if stats.cacheTokens != null && stats.cacheTokens > 0}
                                 <div
                                   class="assistant-stat-chip"
@@ -603,18 +615,6 @@
                                       ? ` (${Math.round((stats.cacheTokens / stats.promptTokens) * 100)}%)`
                                       : ''}
                                   </span>
-                                </div>
-                              {/if}
-                            </div>
-                            <div class="assistant-stats-metric-rule" aria-hidden="true"></div>
-                            <div class="assistant-stats-metrics-col">
-                              {#if stats.promptTokensPerSecond != null}
-                                <div
-                                  class="assistant-stat-chip"
-                                  title="Uncached prefill throughput (KV cache hits excluded)"
-                                >
-                                  <Gauge class="h-3 w-3" />
-                                  <span>{stats.promptTokensPerSecond.toFixed(2)} t/s</span>
                                 </div>
                               {/if}
                             </div>
