@@ -41,6 +41,13 @@ Set `MAINTENANCE_TOKEN` in `.env` to enable the token-gated maintenance page at 
 - You can unlock it with the form on the page or by opening `/maintenance?token=YOUR_TOKEN` once; that sets an HttpOnly cookie and redirects to a clean URL.
 - The page exposes build metadata, runtime details, Hermes queue stats, database counts, object-storage status, and a raw JSON snapshot for debugging deployment mismatches.
 - `MAINTENANCE_COOKIE_NAME` lets you override the cookie name if you need to run multiple instances side by side.
+- The page also includes an AgentLens testing panel that triggers and polls two-turn validation runs without SSH.
+
+AgentLens testing panel variables:
+
+- `AGENTLENS_BASE_URL`: Base URL for the AgentLens API (default `http://agentlens:8501`).
+- `AGENTLENS_TESTING_API_KEY`: Optional key forwarded as `X-AgentLens-Testing-Key`.
+- `AGENTLENS_TESTING_TIMEOUT_MS`: Request timeout for maintenance testing API calls (default `15000`).
 
 Optional llama-style display badges can be configured with `PUBLIC_MODEL_DISPLAY_NAME`, `PUBLIC_MODEL_SIZE_LABEL`, `PUBLIC_MODEL_CAPABILITY_LABEL`, and `PUBLIC_MODEL_FILE_LABEL`. These only affect the frontend metadata row shown under assistant messages.
 

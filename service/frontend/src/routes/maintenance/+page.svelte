@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onDestroy } from 'svelte';
   import HermesConnectionStatusCard from '$lib/components/maintenance/HermesConnectionStatusCard.svelte';
   import {
     describeNotificationServiceWorker,
@@ -25,6 +26,44 @@
   let conversationForensics = $state<Record<string, unknown> | null>(null);
   let conversationForensicsError = $state<string | null>(null);
   let isLoadingConversationForensics = $state(false);
+
+  type AgentLensTestingTurn = {
+    turn: number;
+    status_code: number | null;
+    duration_ms: number | null;
+    finish_reason: string | null;
+    prompt_tokens: number | null;
+    completion_tokens: number | null;
+    prefill_ms: number | null;
+    cache_n: number | null;
+    error: string | null;
+  };
+
+  type AgentLensTestingRun = {
+    run_id: string;
+    status: 'queued' | 'running' | 'completed' | 'failed';
+    created_at: string;
+    started_at: string | null;
+    completed_at: string | null;
+    conversation_id: string;
+    model: string;
+    proxy_base_url: string;
+    turns: AgentLensTestingTurn[];
+    telemetry: Record<string, unknown>;
+    pass_criteria: Record<string, boolean>;
+    error: string | null;
+  };
+
+  let agentLensConversationInput = $state('');
+  let agentLensModelInput = $state('qwen3.6-27b-autoround');
+  let agentLensMaxTokensInput = $state('48');
+  let agentLensTurnGapSecondsInput = $state('1');
+  let agentLensRuns = $state<AgentLensTestingRun[]>([]);
+  let agentLensSelectedRun = $state<AgentLensTestingRun | null>(null);
+  let isLoadingAgentLensRuns = $state(false);
+  let isTriggeringAgentLensRun = $state(false);
+  let agentLensError = $state<string | null>(null);
+  let agentLensPollTimer = $state<ReturnType<typeof setTimeout> | null>(null);
 
   function logNotificationDiagnostic(label: string, value: unknown) {
     const entry: NotificationDiagnostic = {
@@ -373,6 +412,151 @@
       isLoadingConversationForensics = false;
     }
   }
+
+  function testingStatusClasses(status: AgentLensTestingRun['status']) {
+    if (status === 'completed') {
+      return 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300';
+    }
+    if (status === 'queued' || status === 'running') {
+      return 'bg-amber-500/15 text-amber-700 dark:text-amber-300';
+    }
+    return 'bg-destructive/15 text-destructive';
+  }
+
+  function stopAgentLensPolling() {
+    if (agentLensPollTimer) {
+      clearTimeout(agentLensPollTimer);
+      agentLensPollTimer = null;
+    }
+  }
+
+  function queueAgentLensPoll(runId: string, delayMs = 2000) {
+    stopAgentLensPolling();
+    agentLensPollTimer = setTimeout(() => {
+      void fetchAgentLensRun(runId, { continuePolling: true });
+    }, delayMs);
+  }
+
+  async function fetchAgentLensRuns() {
+    isLoadingAgentLensRuns = true;
+    agentLensError = null;
+    try {
+      const response = await fetch('/maintenance/agentlens/testing?limit=25', {
+        credentials: 'same-origin'
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok || !payload || typeof payload !== 'object' || !Array.isArray(payload.runs)) {
+        throw new Error(
+          payload && typeof payload === 'object' && 'error_message' in payload && typeof payload.error_message === 'string'
+            ? payload.error_message
+            : `AgentLens list request failed (${response.status}).`
+        );
+      }
+
+      agentLensRuns = payload.runs as AgentLensTestingRun[];
+      if (agentLensSelectedRun) {
+        const updated = agentLensRuns.find((run) => run.run_id === agentLensSelectedRun?.run_id) ?? null;
+        agentLensSelectedRun = updated;
+      } else if (agentLensRuns.length > 0) {
+        agentLensSelectedRun = agentLensRuns[0];
+      }
+    } catch (error) {
+      agentLensError =
+        error instanceof Error ? error.message : 'Unable to load AgentLens testing runs.';
+    } finally {
+      isLoadingAgentLensRuns = false;
+    }
+  }
+
+  async function fetchAgentLensRun(runId: string, options: { continuePolling?: boolean } = {}) {
+    try {
+      const response = await fetch(`/maintenance/agentlens/testing/${encodeURIComponent(runId)}`, {
+        credentials: 'same-origin'
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok || !payload || typeof payload !== 'object' || !payload.run) {
+        throw new Error(
+          payload && typeof payload === 'object' && 'error_message' in payload && typeof payload.error_message === 'string'
+            ? payload.error_message
+            : `AgentLens run request failed (${response.status}).`
+        );
+      }
+
+      const run = payload.run as AgentLensTestingRun;
+      agentLensSelectedRun = run;
+      agentLensRuns = [run, ...agentLensRuns.filter((existing) => existing.run_id !== run.run_id)];
+
+      if (options.continuePolling && (run.status === 'queued' || run.status === 'running')) {
+        queueAgentLensPoll(run.run_id);
+      } else {
+        stopAgentLensPolling();
+      }
+    } catch (error) {
+      stopAgentLensPolling();
+      agentLensError =
+        error instanceof Error ? error.message : 'Unable to load AgentLens testing run.';
+    }
+  }
+
+  async function triggerAgentLensRun() {
+    const conversationId = extractConversationId(agentLensConversationInput);
+    if (!conversationId) {
+      agentLensError = 'Enter a conversation UUID or a /chat?conversation=… URL before triggering a run.';
+      return;
+    }
+
+    isTriggeringAgentLensRun = true;
+    agentLensError = null;
+    try {
+      const maxTokens = Number(agentLensMaxTokensInput);
+      const turnGapSeconds = Number(agentLensTurnGapSecondsInput);
+      const response = await fetch('/maintenance/agentlens/testing', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify({
+          conversationId,
+          model: agentLensModelInput.trim() || undefined,
+          ...(Number.isFinite(maxTokens) ? { maxTokens } : {}),
+          ...(Number.isFinite(turnGapSeconds) ? { turnGapSeconds } : {})
+        })
+      });
+
+      const payload = await response.json().catch(() => null);
+      if (!response.ok || !payload || typeof payload !== 'object' || !payload.run) {
+        throw new Error(
+          payload && typeof payload === 'object' && 'error_message' in payload && typeof payload.error_message === 'string'
+            ? payload.error_message
+            : `AgentLens trigger request failed (${response.status}).`
+        );
+      }
+
+      const run = payload.run as AgentLensTestingRun;
+      agentLensSelectedRun = run;
+      agentLensRuns = [run, ...agentLensRuns.filter((existing) => existing.run_id !== run.run_id)];
+      queueAgentLensPoll(run.run_id, 1000);
+    } catch (error) {
+      agentLensError =
+        error instanceof Error ? error.message : 'Unable to trigger AgentLens testing run.';
+    } finally {
+      isTriggeringAgentLensRun = false;
+    }
+  }
+
+  function selectAgentLensRun(runId: string) {
+    agentLensError = null;
+    void fetchAgentLensRun(runId, { continuePolling: true });
+  }
+
+  if (typeof window !== 'undefined') {
+    void fetchAgentLensRuns();
+  }
+
+  onDestroy(() => {
+    stopAgentLensPolling();
+  });
 </script>
 
 <svelte:head>
@@ -1056,6 +1240,206 @@
 
         {#if conversationForensics}
           <pre class="mt-4 max-h-[60vh] max-w-full overflow-auto whitespace-pre-wrap rounded-lg bg-muted p-4 text-[11px] leading-5 [overflow-wrap:anywhere] sm:text-xs">{pretty(conversationForensics)}</pre>
+        {/if}
+      </section>
+
+      <section class="rounded-xl border border-border bg-card p-5 shadow-sm">
+        <h2 class="text-lg font-semibold">AgentLens testing runs</h2>
+        <p class="mt-2 text-sm text-muted-foreground">
+          Trigger and monitor the two-turn AgentLens validation run without SSH. Provide a conversation id from WebUI, then inspect turn timings, telemetry markers, and pass criteria.
+        </p>
+
+        <div class="mt-4 grid gap-3 lg:grid-cols-[2fr_1fr_1fr_1fr_auto]">
+          <input
+            class="rounded-md border border-input bg-background px-3 py-2 font-mono text-sm"
+            type="text"
+            placeholder="conversation UUID or /chat?conversation=..."
+            bind:value={agentLensConversationInput}
+          />
+          <input
+            class="rounded-md border border-input bg-background px-3 py-2 text-sm"
+            type="text"
+            placeholder="model"
+            bind:value={agentLensModelInput}
+          />
+          <input
+            class="rounded-md border border-input bg-background px-3 py-2 text-sm"
+            type="number"
+            min="1"
+            max="512"
+            bind:value={agentLensMaxTokensInput}
+          />
+          <input
+            class="rounded-md border border-input bg-background px-3 py-2 text-sm"
+            type="number"
+            min="0"
+            max="30"
+            step="0.1"
+            bind:value={agentLensTurnGapSecondsInput}
+          />
+          <button
+            type="button"
+            class="inline-flex items-center justify-center rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
+            disabled={isTriggeringAgentLensRun}
+            onclick={triggerAgentLensRun}
+          >
+            {isTriggeringAgentLensRun ? 'Starting…' : 'Trigger run'}
+          </button>
+        </div>
+
+        <div class="mt-2 text-xs text-muted-foreground">
+          Fields after conversation id are optional. Defaults: model <code>qwen3.6-27b-autoround</code>, max tokens <code>48</code>, turn gap <code>1.0s</code>.
+        </div>
+
+        <div class="mt-4 flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            class="inline-flex items-center rounded-md border border-border bg-background px-3 py-2 text-sm font-medium hover:bg-accent hover:text-accent-foreground disabled:opacity-60"
+            disabled={isLoadingAgentLensRuns}
+            onclick={fetchAgentLensRuns}
+          >
+            {isLoadingAgentLensRuns ? 'Refreshing…' : 'Refresh runs'}
+          </button>
+          {#if agentLensSelectedRun}
+            <button
+              type="button"
+              class="inline-flex items-center rounded-md border border-border bg-background px-3 py-2 text-sm font-medium hover:bg-accent hover:text-accent-foreground"
+              onclick={() => selectAgentLensRun(agentLensSelectedRun!.run_id)}
+            >
+              Refresh selected run
+            </button>
+          {/if}
+        </div>
+
+        {#if agentLensError}
+          <div class="mt-4 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            {agentLensError}
+          </div>
+        {/if}
+
+        {#if agentLensRuns.length > 0}
+          <div class="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
+            <div class="max-h-[420px] overflow-auto rounded-lg border border-border bg-muted/20 p-3">
+              <div class="space-y-2">
+                {#each agentLensRuns as run}
+                  <button
+                    type="button"
+                    class={`w-full rounded-md border p-3 text-left text-sm transition ${agentLensSelectedRun?.run_id === run.run_id ? 'border-primary bg-primary/10' : 'border-border bg-background hover:bg-muted/40'}`}
+                    onclick={() => selectAgentLensRun(run.run_id)}
+                  >
+                    <div class="flex items-center justify-between gap-2">
+                      <span class="font-medium">{run.run_id.slice(0, 8)}</span>
+                      <span class={`rounded-full px-2 py-1 text-xs font-medium ${testingStatusClasses(run.status)}`}>
+                        {run.status}
+                      </span>
+                    </div>
+                    <div class="mt-1 text-xs text-muted-foreground [overflow-wrap:anywhere]">
+                      {run.conversation_id}
+                    </div>
+                    <div class="mt-1 text-xs text-muted-foreground">
+                      {run.model} • {run.created_at}
+                    </div>
+                  </button>
+                {/each}
+              </div>
+            </div>
+
+            {#if agentLensSelectedRun}
+              {@const selected = agentLensSelectedRun}
+              <div class="rounded-lg border border-border bg-muted/20 p-4 text-sm">
+                <div class="flex flex-wrap items-center gap-2">
+                  <h3 class="text-base font-semibold">Run {selected.run_id}</h3>
+                  <span class={`rounded-full px-2 py-1 text-xs font-medium ${testingStatusClasses(selected.status)}`}>
+                    {selected.status}
+                  </span>
+                </div>
+
+                <div class="mt-3 grid gap-2 [overflow-wrap:anywhere] sm:grid-cols-2">
+                  <div><span class="font-medium">Conversation:</span> {selected.conversation_id}</div>
+                  <div><span class="font-medium">Model:</span> {selected.model}</div>
+                  <div><span class="font-medium">Created:</span> {selected.created_at}</div>
+                  <div><span class="font-medium">Completed:</span> {selected.completed_at ?? 'n/a'}</div>
+                  <div class="sm:col-span-2"><span class="font-medium">Proxy:</span> {selected.proxy_base_url}</div>
+                  {#if selected.error}
+                    <div class="sm:col-span-2 text-destructive"><span class="font-medium">Error:</span> {selected.error}</div>
+                  {/if}
+                </div>
+
+                <div class="mt-4">
+                  <div class="font-medium">Turn metrics</div>
+                  <div class="mt-2 space-y-2">
+                    {#if selected.turns.length === 0}
+                      <div class="text-muted-foreground">No turn data yet.</div>
+                    {:else}
+                      {#each selected.turns as turn}
+                        <div class="rounded-md border border-border bg-background p-3">
+                          <div class="flex flex-wrap items-center gap-2">
+                            <span class="font-medium">Turn {turn.turn}</span>
+                            {#if turn.status_code !== null}
+                              <span class={`rounded-full px-2 py-1 text-xs font-medium ${turn.status_code < 400 ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300' : 'bg-destructive/15 text-destructive'}`}>
+                                HTTP {turn.status_code}
+                              </span>
+                            {/if}
+                          </div>
+                          <div class="mt-2 grid gap-1 sm:grid-cols-2 [overflow-wrap:anywhere]">
+                            <div>Duration: {turn.duration_ms ?? 'n/a'} ms</div>
+                            <div>Finish: {turn.finish_reason ?? 'n/a'}</div>
+                            <div>Prompt tokens: {turn.prompt_tokens ?? 'n/a'}</div>
+                            <div>Completion tokens: {turn.completion_tokens ?? 'n/a'}</div>
+                            <div>Prefill: {turn.prefill_ms ?? 'n/a'} ms</div>
+                            <div>Cache n: {turn.cache_n ?? 'n/a'}</div>
+                          </div>
+                          {#if turn.error}
+                            <div class="mt-2 text-destructive">{turn.error}</div>
+                          {/if}
+                        </div>
+                      {/each}
+                    {/if}
+                  </div>
+                </div>
+
+                <div class="mt-4 grid gap-3 sm:grid-cols-2">
+                  <div class="rounded-md border border-border bg-background p-3">
+                    <div class="font-medium">Pass criteria</div>
+                    {#if Object.keys(selected.pass_criteria ?? {}).length === 0}
+                      <div class="mt-2 text-muted-foreground">No pass criteria yet.</div>
+                    {:else}
+                      <ul class="mt-2 space-y-1">
+                        {#each Object.entries(selected.pass_criteria) as [key, value]}
+                          <li class="flex items-center justify-between gap-2 [overflow-wrap:anywhere]">
+                            <span>{key}</span>
+                            <span class={`rounded-full px-2 py-0.5 text-xs font-medium ${value ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300' : 'bg-destructive/15 text-destructive'}`}>
+                              {value ? 'pass' : 'fail'}
+                            </span>
+                          </li>
+                        {/each}
+                      </ul>
+                    {/if}
+                  </div>
+
+                  <div class="rounded-md border border-border bg-background p-3">
+                    <div class="font-medium">Telemetry markers</div>
+                    {#if Object.keys(selected.telemetry ?? {}).length === 0}
+                      <div class="mt-2 text-muted-foreground">No telemetry markers yet.</div>
+                    {:else}
+                      <ul class="mt-2 space-y-1">
+                        {#each Object.entries(selected.telemetry) as [key, value]}
+                          <li class="flex items-center justify-between gap-2 [overflow-wrap:anywhere]">
+                            <span>{key}</span>
+                            <span class="font-mono text-xs">{String(value)}</span>
+                          </li>
+                        {/each}
+                      </ul>
+                    {/if}
+                  </div>
+                </div>
+              </div>
+            {/if}
+          </div>
+        {:else}
+          <div class="mt-4 text-sm text-muted-foreground">
+            No runs yet. Trigger one using a conversation id from the chat page.
+          </div>
         {/if}
       </section>
 

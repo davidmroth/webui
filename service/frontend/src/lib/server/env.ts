@@ -54,6 +54,9 @@ export function getConfig() {
     publicWebPushVapidPublicKey: getEnv('PUBLIC_WEB_PUSH_VAPID_PUBLIC_KEY', ''),
     maintenanceToken: getEnv('MAINTENANCE_TOKEN', ''),
     maintenanceCookieName: getEnv('MAINTENANCE_COOKIE_NAME', 'hermes_webui_maintenance'),
+    agentlensBaseUrl: getEnv('AGENTLENS_BASE_URL', 'http://agentlens:8501'),
+    agentlensTestingApiKey: getEnv('AGENTLENS_TESTING_API_KEY', ''),
+    agentlensTestingTimeoutMs: clampNumber(getNumber('AGENTLENS_TESTING_TIMEOUT_MS', 15000), 2000, 120000),
     bootstrapUserName: getEnv('BOOTSTRAP_USER_NAME', 'Owner'),
     bootstrapUserKey: getEnv('BOOTSTRAP_USER_KEY', 'dev-webui-key'),
     publicAppName: getEnv('PUBLIC_APP_NAME', 'Hermes WebUI')
