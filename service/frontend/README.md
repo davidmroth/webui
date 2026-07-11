@@ -42,6 +42,7 @@ Set `MAINTENANCE_TOKEN` in `.env` to enable the token-gated maintenance page at 
 - The page exposes build metadata, runtime details, Hermes queue stats, database counts, object-storage status, and a raw JSON snapshot for debugging deployment mismatches.
 - `MAINTENANCE_COOKIE_NAME` lets you override the cookie name if you need to run multiple instances side by side.
 - The page also includes an AgentLens testing panel that triggers and polls two-turn validation runs without SSH.
+- For the operational loop behind that panel, see [docs/runbooks/agentlens-feedback-loop-sop-mop.md](../../docs/runbooks/agentlens-feedback-loop-sop-mop.md).
 
 AgentLens testing panel variables:
 

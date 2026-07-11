@@ -86,6 +86,7 @@ docker exec -u hermes \
 
 - [`service/frontend/scripts/post-assistant-message.ts`](../service/frontend/scripts/post-assistant-message.ts) — post a static assistant message (no agent run)
 - [`service/frontend/src/routes/api/internal/diagnostics/chat-probe/`](../service/frontend/src/routes/api/internal/diagnostics/chat-probe/) — maintenance-token chat probe API
+- [docs/runbooks/agentlens-feedback-loop-sop-mop.md](../docs/runbooks/agentlens-feedback-loop-sop-mop.md) — operational loop for trigger-through-stack diagnosis and telemetry retrieval
 
 ## What to check when a run fails
 

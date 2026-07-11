@@ -9,11 +9,13 @@ import {
 } from '$server/chat';
 import { collectMaintenanceHermesConnectionStatus, getBuildInfo } from '$server/maintenance';
 import { getLatestAgentLensTestingRunForConversation } from '$server/agentlens-testing';
+import { getConfig } from '$server/env';
 import { requireSession } from '$server/auth';
 import { getHermesSlashCommands } from '$server/slash-commands';
 
 export async function load(event) {
   const session = await requireSession(event);
+  const config = getConfig();
   const [conversations, buildInfo] = await Promise.all([
     listConversations(session.userId),
     getBuildInfo()
@@ -26,7 +28,9 @@ export async function load(event) {
         isConversationBusy(session.userId, currentConversationId),
         getConversationRunState(session.userId, currentConversationId),
         collectMaintenanceHermesConnectionStatus(),
-        getLatestAgentLensTestingRunForConversation(currentConversationId)
+        config.agentlensTestingEnabled
+          ? getLatestAgentLensTestingRunForConversation(currentConversationId)
+          : Promise.resolve(null)
       ])
     : [[], false, { status: 'idle', active: false, stalled: false }, null, null];
 

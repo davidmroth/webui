@@ -1,5 +1,6 @@
 import { json } from '@sveltejs/kit';
 import { requireSession } from '$server/auth';
+import { getConfig } from '$server/env';
 import { getLatestAgentLensTestingRunForConversation } from '$server/agentlens-testing';
 
 const NO_STORE_HEADERS = {
@@ -10,6 +11,16 @@ const NO_STORE_HEADERS = {
 
 export async function GET(event) {
   await requireSession(event);
+  if (!getConfig().agentlensTestingEnabled) {
+    return json(
+      {
+        success: true,
+        run: null,
+        disabled: true
+      },
+      { headers: NO_STORE_HEADERS }
+    );
+  }
   const conversationId = event.url.searchParams.get('conversation_id')?.trim() ?? '';
 
   if (!conversationId) {

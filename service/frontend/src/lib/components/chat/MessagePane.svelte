@@ -1,14 +1,14 @@
 <script lang="ts">
   import {
-    BookOpenText,
+    BarChart2,
+    CalendarClock,
     Check,
-    Clock3,
     Copy,
     DatabaseZap,
     Edit,
     Gauge,
+    Hourglass,
     RefreshCw,
-    Sparkles,
     Trash2,
     WholeWord,
     Zap
@@ -20,8 +20,6 @@
   import { readTimingSummary, resolveTtftMs } from '$lib/utils/chat-timings';
   import { isHermesSystemStatusContent } from '$lib/utils/hermes-system-status';
   import { renderMarkdown } from '$lib/utils/markdown';
-
-  type StatsView = 'reading' | 'generation' | 'completion';
 
   interface MessageStats {
     promptTokens: number | null;
@@ -36,6 +34,7 @@
 
   interface Props {
     messages: ChatMessage[];
+    conversationId?: string | null;
     userDisplayName?: string;
     use24HourTime?: boolean;
     copiedMessageId?: string | null;
@@ -57,6 +56,7 @@
 
   let {
     messages,
+    conversationId = null,
     userDisplayName = 'You',
     use24HourTime = false,
     copiedMessageId = null,
@@ -75,7 +75,8 @@
     bottomSentinel = $bindable(null),
     onScroll
   }: Props = $props();
-  let statsViewByMessageId = $state<Record<string, StatsView>>({});
+  let expandedStatsByMessageId = $state<Record<string, boolean>>({});
+  let copiedConversationIdForMessageId = $state<string | null>(null);
 
   // Local-day boundary markers ("Today" / "Yesterday" / weekday / date) shown
   // between message rows whenever the calendar day changes. Computed in the
@@ -314,14 +315,14 @@
     return `${seconds.toFixed(1)}s`;
   }
 
-  function activeStatsView(messageId: string): StatsView {
-    return statsViewByMessageId[messageId] ?? 'generation';
+  function isStatsExpanded(messageId: string) {
+    return expandedStatsByMessageId[messageId] ?? false;
   }
 
-  function setStatsView(messageId: string, view: StatsView) {
-    statsViewByMessageId = {
-      ...statsViewByMessageId,
-      [messageId]: view
+  function toggleStatsExpanded(messageId: string) {
+    expandedStatsByMessageId = {
+      ...expandedStatsByMessageId,
+      [messageId]: !isStatsExpanded(messageId)
     };
   }
 
@@ -333,12 +334,46 @@
     });
   }
 
-  function completedMessageTime(message: ChatMessage) {
+  function formatMessageDateTime(value: string) {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+      return '';
+    }
+
+    const dateLabel = date.toLocaleDateString([], {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric'
+    });
+    const timeLabel = formatMessageTime(value);
+
+    return `${dateLabel} · ${timeLabel}`;
+  }
+
+  function completedMessageDateTime(message: ChatMessage) {
     if (message.status !== 'complete') {
       return null;
     }
 
-    return formatMessageTime(message.updatedAt ?? message.createdAt);
+    return formatMessageDateTime(message.updatedAt ?? message.createdAt);
+  }
+
+  async function copyConversationId(messageId: string) {
+    if (!conversationId) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(conversationId);
+      copiedConversationIdForMessageId = messageId;
+      setTimeout(() => {
+        if (copiedConversationIdForMessageId === messageId) {
+          copiedConversationIdForMessageId = null;
+        }
+      }, 1500);
+    } catch {
+      // Clipboard access may be denied in some contexts.
+    }
   }
 
   function showMessageHeader(role: ChatMessage['role']) {
@@ -482,104 +517,141 @@
               </div>
 
               {#if stats}
-                {@const view = activeStatsView(message.id)}
-                {@const completedAt = completedMessageTime(message)}
+                {@const completedAt = completedMessageDateTime(message)}
+                {@const statsExpanded = isStatsExpanded(message.id)}
                 <div class="assistant-meta-cluster assistant-stats-row">
-                  <div class="assistant-stats-toggle">
-                    <button
-                      type="button"
-                      class:active={view === 'reading'}
-                      class="stats-toggle-button"
-                      disabled={stats.promptTokens === null}
-                      title={stats.promptTokens === null ? 'Reading metrics unavailable' : 'Reading metrics'}
-                      onclick={() => setStatsView(message.id, 'reading')}
-                    >
-                      <BookOpenText class="h-3 w-3" />
-                    </button>
-                    <button
-                      type="button"
-                      class:active={view === 'generation'}
-                      class="stats-toggle-button"
-                      title="Generation metrics"
-                      onclick={() => setStatsView(message.id, 'generation')}
-                    >
-                      <Sparkles class="h-3 w-3" />
-                    </button>
-                    <button
-                      type="button"
-                      class:active={view === 'completion'}
-                      class="stats-toggle-button"
-                      disabled={!completedAt}
-                      title={completedAt ? 'Completion time' : 'Completion time unavailable'}
-                      onclick={() => setStatsView(message.id, 'completion')}
-                    >
-                      <Check class="h-3 w-3" />
-                    </button>
-                  </div>
+                  <button
+                    type="button"
+                    class="assistant-stats-toggle-button"
+                    class:active={statsExpanded}
+                    aria-expanded={statsExpanded}
+                    title={statsExpanded ? 'Hide message stats' : 'Show message stats'}
+                    onclick={() => toggleStatsExpanded(message.id)}
+                  >
+                    <BarChart2 class="h-3 w-3" />
+                  </button>
 
-                  {#if view === 'completion' && completedAt}
-                    <div class="assistant-stat-chip" title="Completed in your local time">
-                      <Clock3 class="h-3 w-3" />
-                      <span>{completedAt}</span>
-                    </div>
-                  {:else}
-                    <div class="assistant-stat-chip" title={view === 'reading' ? 'Prompt tokens' : 'Generated tokens'}>
-                      <WholeWord class="h-3 w-3" />
-                      <span>
-                        {view === 'reading'
-                          ? `${stats.promptTokens?.toLocaleString() ?? 0} tokens`
-                          : `${stats.generatedTokens.toLocaleString()} tokens`}
-                      </span>
-                    </div>
+                  {#if statsExpanded}
+                    <div class="assistant-stats-card">
+                      {#if completedAt}
+                        <div class="assistant-stats-card-header">
+                          <span class="assistant-stats-datetime" title="Completed in your local time">
+                            <CalendarClock class="h-3 w-3" />
+                            {completedAt}
+                          </span>
+                        </div>
+                      {/if}
 
-                    {#if stats.ttftSeconds != null}
-                      <div
-                        class="assistant-stat-chip"
-                        title="Time to first token (prefill before decode begins)"
-                      >
-                        <Zap class="h-3 w-3" />
-                        <span>TTFT {formatDuration(stats.ttftSeconds)}</span>
+                      <div class="assistant-stats-card-body">
+                        <div class="assistant-stats-section">
+                          <div class="assistant-stats-section-label">Reading</div>
+                          <div class="assistant-stats-section-chips">
+                            {#if stats.promptTokens != null}
+                              <div class="assistant-stat-chip" title="Prompt tokens">
+                                <WholeWord class="h-3 w-3" />
+                                <span>{stats.promptTokens.toLocaleString()} tokens</span>
+                              </div>
+                            {/if}
+
+                            {#if stats.ttftSeconds != null}
+                              <div
+                                class="assistant-stat-chip"
+                                title="Time to first token (prefill before decode begins)"
+                              >
+                                <Zap class="h-3 w-3" />
+                                <span>TTFT {formatDuration(stats.ttftSeconds)}</span>
+                              </div>
+                            {/if}
+
+                            {#if stats.promptSeconds != null}
+                              <div
+                                class="assistant-stat-chip"
+                                title={stats.ttftSeconds != null
+                                  ? 'Total prompt processing time'
+                                  : 'Prompt processing time'}
+                              >
+                                <Hourglass class="h-3 w-3" />
+                                <span>{formatDuration(stats.promptSeconds)}</span>
+                              </div>
+                            {/if}
+
+                            {#if stats.promptTokensPerSecond != null}
+                              <div
+                                class="assistant-stat-chip"
+                                title="Uncached prefill throughput (KV cache hits excluded)"
+                              >
+                                <Gauge class="h-3 w-3" />
+                                <span>{stats.promptTokensPerSecond.toFixed(2)} t/s</span>
+                              </div>
+                            {/if}
+
+                            {#if stats.cacheTokens != null && stats.cacheTokens > 0}
+                              <div
+                                class="assistant-stat-chip"
+                                title="Prompt tokens restored from the KV cache instead of recomputed"
+                              >
+                                <DatabaseZap class="h-3 w-3" />
+                                <span>
+                                  {stats.cacheTokens.toLocaleString()} cached{stats.promptTokens
+                                    ? ` (${Math.round((stats.cacheTokens / stats.promptTokens) * 100)}%)`
+                                    : ''}
+                                </span>
+                              </div>
+                            {/if}
+                          </div>
+                        </div>
+
+                        <div class="assistant-stats-section">
+                          <div class="assistant-stats-section-label">Generation</div>
+                          <div class="assistant-stats-section-chips">
+                            <div class="assistant-stat-chip" title="Generated tokens">
+                              <WholeWord class="h-3 w-3" />
+                              <span>{stats.generatedTokens.toLocaleString()} tokens</span>
+                            </div>
+
+                            {#if stats.ttftSeconds != null}
+                              <div
+                                class="assistant-stat-chip"
+                                title="Time to first token (prefill before decode begins)"
+                              >
+                                <Zap class="h-3 w-3" />
+                                <span>TTFT {formatDuration(stats.ttftSeconds)}</span>
+                              </div>
+                            {/if}
+
+                            <div class="assistant-stat-chip" title="Decode time after first token">
+                              <Hourglass class="h-3 w-3" />
+                              <span>{formatDuration(stats.generatedSeconds)}</span>
+                            </div>
+
+                            <div class="assistant-stat-chip" title="Decode throughput after first token">
+                              <Gauge class="h-3 w-3" />
+                              <span>{stats.generatedTokensPerSecond.toFixed(2)} t/s</span>
+                            </div>
+                          </div>
+                        </div>
                       </div>
-                    {/if}
 
-                    <div
-                      class="assistant-stat-chip"
-                      title={view === 'reading'
-                        ? stats.ttftSeconds != null
-                          ? 'Total prompt processing time'
-                          : 'Prompt processing time'
-                        : 'Decode time after first token'}
-                    >
-                      <Clock3 class="h-3 w-3" />
-                      <span>
-                        {view === 'reading'
-                          ? formatDuration(stats.promptSeconds)
-                          : formatDuration(stats.generatedSeconds)}
-                      </span>
+                      {#if conversationId}
+                        <button
+                          type="button"
+                          class="assistant-stats-card-footer"
+                          title={copiedConversationIdForMessageId === message.id
+                            ? 'Copied'
+                            : 'Copy conversation ID'}
+                          onclick={() => copyConversationId(message.id)}
+                        >
+                          <span class="assistant-stats-conv-id">
+                            Conversation · {conversationId}
+                          </span>
+                          {#if copiedConversationIdForMessageId === message.id}
+                            <Check class="h-3 w-3 assistant-stats-conv-copy-icon" />
+                          {:else}
+                            <Copy class="h-3 w-3 assistant-stats-conv-copy-icon" />
+                          {/if}
+                        </button>
+                      {/if}
                     </div>
-
-                    <div class="assistant-stat-chip" title={view === 'reading' ? 'Uncached prefill throughput (KV cache hits excluded)' : 'Decode throughput after first token'}>
-                      <Gauge class="h-3 w-3" />
-                      <span>
-                        {view === 'reading'
-                          ? `${(stats.promptTokensPerSecond ?? 0).toFixed(2)} t/s`
-                          : `${stats.generatedTokensPerSecond.toFixed(2)} t/s`}
-                      </span>
-                    </div>
-
-                    {#if view === 'reading' && stats.cacheTokens != null && stats.cacheTokens > 0}
-                      <div
-                        class="assistant-stat-chip"
-                        title="Prompt tokens restored from the KV cache instead of recomputed"
-                      >
-                        <DatabaseZap class="h-3 w-3" />
-                        <span>
-                          {stats.cacheTokens.toLocaleString()} cached{stats.promptTokens
-                            ? ` (${Math.round((stats.cacheTokens / stats.promptTokens) * 100)}%)`
-                            : ''}
-                        </span>
-                      </div>
-                    {/if}
                   {/if}
                 </div>
               {/if}

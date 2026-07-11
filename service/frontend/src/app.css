@@ -2653,6 +2653,12 @@ a {
   min-width: 0;
 }
 
+.assistant-stats-row:has(.assistant-stats-card) {
+  flex: 1 1 100%;
+  width: 100%;
+  align-items: flex-start;
+}
+
 .assistant-model-badge,
 .assistant-stat-chip {
   display: inline-flex;
@@ -2694,40 +2700,137 @@ a {
   letter-spacing: -0.01em;
 }
 
-.assistant-stats-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 0;
-  padding: 0.12rem;
-  border-radius: var(--app-radius);
-  background: rgba(31, 31, 28, 0.11);
-}
-
-.stats-toggle-button {
+.assistant-stats-toggle-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 1.25rem;
-  height: 1.25rem;
+  width: 1.5rem;
+  height: 1.5rem;
+  padding: 0;
   border: none;
   border-radius: var(--app-radius);
-  background: transparent;
+  background: rgba(31, 31, 28, 0.11);
   color: var(--text-muted);
+  cursor: pointer;
 }
 
-.stats-toggle-button.active {
+.assistant-stats-toggle-button.active {
   background: rgba(255, 255, 255, 0.96);
   color: var(--text);
 }
 
-:root.dark .stats-toggle-button.active {
+:root.dark .assistant-stats-toggle-button.active {
   background: rgba(255, 255, 255, 0.14);
   color: var(--accent-strong);
 }
 
-.stats-toggle-button:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
+.assistant-stats-card {
+  flex: 1 1 100%;
+  width: 100%;
+  min-width: 0;
+  margin-top: 0.35rem;
+  border: 1px solid rgba(31, 31, 28, 0.12);
+  border-radius: calc(var(--app-radius) + 2px);
+  background: rgba(255, 255, 255, 0.55);
+  overflow: hidden;
+}
+
+:root.dark .assistant-stats-card {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.assistant-stats-card-header {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0.45rem 0.65rem 0.35rem;
+  border-bottom: 1px solid rgba(31, 31, 28, 0.08);
+}
+
+:root.dark .assistant-stats-card-header {
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+
+.assistant-stats-datetime {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+  color: #66655f;
+  font-size: 0.72rem;
+  line-height: 1.2;
+}
+
+.assistant-stats-card-body {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.65rem;
+  padding: 0.55rem 0.65rem 0.65rem;
+}
+
+.assistant-stats-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.assistant-stats-section-label {
+  color: #8a8983;
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.assistant-stats-section-chips {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.18rem;
+}
+
+.assistant-stats-card-footer {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.45rem;
+  width: 100%;
+  padding: 0.45rem 0.65rem 0.55rem;
+  border: none;
+  border-top: 1px solid rgba(31, 31, 28, 0.08);
+  background: transparent;
+  color: #66655f;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+:root.dark .assistant-stats-card-footer {
+  border-top-color: rgba(255, 255, 255, 0.08);
+}
+
+.assistant-stats-card-footer:hover {
+  background: rgba(31, 31, 28, 0.04);
+}
+
+:root.dark .assistant-stats-card-footer:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.assistant-stats-conv-id {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: 'IBM Plex Mono', 'SFMono-Regular', Consolas, monospace;
+  font-size: 0.68rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  word-break: break-all;
+}
+
+.assistant-stats-conv-copy-icon {
+  flex: 0 0 auto;
+  margin-top: 0.05rem;
+  color: #8a8983;
 }
 
 .assistant-actions {
@@ -3203,19 +3306,18 @@ a {
     margin-bottom: 0.85rem;
   }
 
-  .assistant-stats-toggle {
-    gap: 0.1rem;
-    padding: 0.18rem;
-  }
-
-  .stats-toggle-button {
+  .assistant-stats-toggle-button {
     width: 2.1rem;
     height: 2.1rem;
   }
 
-  .stats-toggle-button svg {
+  .assistant-stats-toggle-button svg {
     width: 0.95rem;
     height: 0.95rem;
+  }
+
+  .assistant-stats-card-body {
+    grid-template-columns: 1fr;
   }
 
   .llama-message-actions {

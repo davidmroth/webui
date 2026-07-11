@@ -1183,8 +1183,10 @@
     return runStateNotice;
   });
 
+  const agentLensTestingEnabled = $derived(Boolean(data.agentlensTestingEnabled));
+
   const agentLensTestingNotice = $derived.by(() => {
-    if (!currentConversationId) {
+    if (!agentLensTestingEnabled || !currentConversationId) {
       return null;
     }
 
@@ -2748,7 +2750,7 @@
 
   function scheduleAgentLensPolling() {
     clearAgentLensPolling();
-    if (!currentConversationId) {
+    if (!agentLensTestingEnabled || !currentConversationId) {
       return;
     }
 
@@ -2763,7 +2765,7 @@
   }
 
   async function refreshAgentLensTesting() {
-    if (!currentConversationId) {
+    if (!agentLensTestingEnabled || !currentConversationId) {
       agentLensTesting = null;
       agentLensTestingError = null;
       clearAgentLensPolling();
@@ -2982,7 +2984,9 @@
     document.addEventListener('visibilitychange', onVisibilityChange);
 
     window.addEventListener('popstate', handlePopState);
-    void refreshAgentLensTesting();
+    if (agentLensTestingEnabled) {
+      void refreshAgentLensTesting();
+    }
 
     return () => {
       resizeObserver?.disconnect();
@@ -3075,7 +3079,7 @@
         busyConversationId={conversationActionBusyId}
       />
 
-      {#if currentConversationId}
+      {#if currentConversationId && agentLensTestingEnabled}
         <div class="llama-sidebar-section-title">Testing progress</div>
         <div class={`mx-3 rounded-lg border p-3 text-sm ${agentLensTestingNotice?.tone === 'active' ? 'border-amber-500/30 bg-amber-500/10' : agentLensTestingNotice?.tone === 'success' ? 'border-emerald-500/30 bg-emerald-500/10' : agentLensTestingNotice?.tone === 'error' ? 'border-destructive/30 bg-destructive/10' : 'border-border bg-muted/30'}`}>
           <div class="font-medium">{agentLensTestingNotice?.title ?? 'AgentLens testing'}</div>
@@ -3225,6 +3229,7 @@
               bind:scrollContainer={messageScrollElement}
               bind:bottomSentinel={messageBottomSentinel}
               messages={displayMessages}
+              conversationId={currentConversationId}
               userDisplayName={userDisplayName}
               use24HourTime={use24HourTime}
               copiedMessageId={copiedMessageId}
