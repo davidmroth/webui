@@ -8,6 +8,7 @@ import {
   listMessages
 } from '$server/chat';
 import { collectMaintenanceHermesConnectionStatus, getBuildInfo } from '$server/maintenance';
+import { getLatestAgentLensTestingRunForConversation } from '$server/agentlens-testing';
 import { requireSession } from '$server/auth';
 import { getHermesSlashCommands } from '$server/slash-commands';
 
@@ -19,14 +20,15 @@ export async function load(event) {
   ]);
   const requestedConversation = event.url.searchParams.get('conversation');
   const currentConversationId = requestedConversation || null;
-  const [messages, assistantBusy, runState, hermesConnection] = currentConversationId
+  const [messages, assistantBusy, runState, hermesConnection, agentLensTesting] = currentConversationId
     ? await Promise.all([
         listMessages(session.userId, currentConversationId),
         isConversationBusy(session.userId, currentConversationId),
         getConversationRunState(session.userId, currentConversationId),
-        collectMaintenanceHermesConnectionStatus()
+        collectMaintenanceHermesConnectionStatus(),
+        getLatestAgentLensTestingRunForConversation(currentConversationId)
       ])
-    : [[], false, { status: 'idle', active: false, stalled: false }, null];
+    : [[], false, { status: 'idle', active: false, stalled: false }, null, null];
 
   return {
     session,
@@ -36,6 +38,7 @@ export async function load(event) {
     assistantBusy,
     runState,
     hermesConnection,
+    agentLensTesting,
     buildInfo,
     slashCommands: (await getHermesSlashCommands()).commands
   };

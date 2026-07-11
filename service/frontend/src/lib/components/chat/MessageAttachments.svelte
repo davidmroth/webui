@@ -20,10 +20,11 @@
 	}
 
 	function isPreviewableAttachment(attachment: MessageAttachment) {
-		return Boolean(attachment.previewUrl && (attachment.isHtml || attachment.isMarkdown));
+		return Boolean(attachment.previewUrl && (attachment.isHtml || attachment.isMarkdown || attachment.isImage));
 	}
 
 	function previewAttachmentLabel(attachment: MessageAttachment) {
+		if (attachment.isImage) return 'Image';
 		return attachment.isMarkdown ? 'Markdown' : 'HTML';
 	}
 
@@ -122,9 +123,13 @@
 					onclick={() => { openPreviewAttachment(attachment); ensureShare(attachment); }}
 				>
 					<div class="attachment-card-main">
-						<div class:attachment-markdown-chip={attachment.isMarkdown} class="attachment-html-chip" aria-hidden="true">
-							{attachment.isMarkdown ? 'MD' : 'HTML'}
-						</div>
+						{#if attachment.isImage}
+							<AuthenticatedImage class="attachment-preview" src={attachment.downloadUrl} alt={attachment.fileName} />
+						{:else}
+							<div class:attachment-markdown-chip={attachment.isMarkdown} class="attachment-html-chip" aria-hidden="true">
+								{attachment.isMarkdown ? 'MD' : 'HTML'}
+							</div>
+						{/if}
 						<div class="attachment-card-content">
 							<div>{attachment.fileName}</div>
 							<div class="message-meta">
@@ -207,6 +212,7 @@
 {/if}
 
 {#if selectedPreviewAttachment}
+	{@const selectedAttachment = selectedPreviewAttachment}
 	<div
 		class="llama-attachment-modal-layer"
 		role="presentation"
@@ -249,19 +255,19 @@
 
 			<header class="llama-attachment-modal-header">
 				<div class="llama-attachment-modal-copy">
-					<h2>{selectedPreviewAttachment.fileName}</h2>
+					<h2>{selectedAttachment.fileName}</h2>
 					<div class="message-meta">
-						{selectedPreviewAttachment.contentType} · {formatAttachmentSize(selectedPreviewAttachment.sizeBytes)}
+						{selectedAttachment.contentType} · {formatAttachmentSize(selectedAttachment.sizeBytes)}
 					</div>
 				</div>
 
 				<div class="llama-attachment-modal-actions">
-					{#if selectedPreviewAttachment.shareState}
+					{#if selectedAttachment.shareState}
 						<button
 							class="secondary-button"
 							type="button"
 							aria-label="Manage preview sharing"
-							onclick={() => ensureShare(selectedPreviewAttachment)}
+							onclick={() => ensureShare(selectedAttachment)}
 						>
 							<Share2 class="h-3.5 w-3.5" aria-hidden="true" />
 							<span>Share</span>
@@ -288,11 +294,17 @@
 			</header>
 
 			<div class="llama-attachment-modal-body">
-				{#if selectedPreviewAttachment.previewUrl}
+				{#if selectedAttachment.isImage}
+					<AuthenticatedImage
+						class="llama-attachment-preview-image"
+						src={selectedAttachment.downloadUrl}
+						alt={selectedAttachment.fileName}
+					/>
+				{:else if selectedAttachment.previewUrl}
 					<iframe
 						class="llama-attachment-preview-frame"
-						src={selectedPreviewAttachment.previewUrl}
-						title={`${previewAttachmentLabel(selectedPreviewAttachment)} preview for ${selectedPreviewAttachment.fileName}`}
+						src={selectedAttachment.previewUrl}
+						title={`${previewAttachmentLabel(selectedAttachment)} preview for ${selectedAttachment.fileName}`}
 						sandbox=""
 						loading="lazy"
 					></iframe>
@@ -304,15 +316,15 @@
 			<footer class="llama-attachment-modal-footer">
 				<a
 					class="secondary-button llama-attachment-download-link"
-					href={selectedPreviewAttachment.downloadUrl}
-					download={selectedPreviewAttachment.fileName}
+					href={selectedAttachment.downloadUrl}
+					download={selectedAttachment.fileName}
 				>
 					<Download class="h-3.5 w-3.5" aria-hidden="true" />
-					<span>Download {previewAttachmentLabel(selectedPreviewAttachment)}</span>
+					<span>Download {previewAttachmentLabel(selectedAttachment)}</span>
 				</a>
 			</footer>
 
-			{#if selectedPreviewAttachment.shareState}
+			{#if selectedAttachment.shareState}
 				<section class="llama-attachment-share-section" aria-label="Preview sharing controls">
 					{#if shareNotice}
 						<p class="llama-attachment-share-notice">{shareNotice}</p>
@@ -320,8 +332,8 @@
 						<p class="llama-attachment-share-error">{shareError}</p>
 					{/if}
 
-					{#if shareState[selectedPreviewAttachment.id]}
-						{@const state = shareState[selectedPreviewAttachment.id]}
+					{#if shareState[selectedAttachment.id]}
+						{@const state = shareState[selectedAttachment.id]!}
 							<div class="llama-attachment-share-status">
 								<strong>{state.isPublic ? 'Preview is public' : 'Preview is private'}</strong>
 								<p>{state.isPublic ? 'Anyone with this link can view the preview.' : 'Authentication is required until you make this preview public.'}</p>
@@ -330,10 +342,10 @@
 								<button
 									class="secondary-button"
 									type="button"
-									onclick={() => toggleSharePublic(selectedPreviewAttachment)}
-									disabled={shareBusy === selectedPreviewAttachment.id}
+									onclick={() => toggleSharePublic(selectedAttachment)}
+									disabled={shareBusy === selectedAttachment.id}
 								>
-									{#if shareBusy === selectedPreviewAttachment.id}
+									{#if shareBusy === selectedAttachment.id}
 										Updating...
 									{:else if state.isPublic}
 										Make private
@@ -345,14 +357,14 @@
 									<button
 										class="secondary-button"
 										type="button"
-										onclick={() => copyShareLink(selectedPreviewAttachment)}
+										onclick={() => copyShareLink(selectedAttachment)}
 									>
 										Copy link
 									</button>
 								{/if}
 							</div>
 							{#if state.isPublic}
-								<a class="llama-attachment-share-link" href={shareUrl(selectedPreviewAttachment, state.previewPath)} target="_blank" rel="noopener noreferrer">
+								<a class="llama-attachment-share-link" href={shareUrl(selectedAttachment, state.previewPath)} target="_blank" rel="noopener noreferrer">
 									{state.previewPath}
 								</a>
 							{/if}
@@ -360,7 +372,7 @@
 						<button
 							class="secondary-button"
 							type="button"
-							onclick={() => ensureShare(selectedPreviewAttachment)}
+							onclick={() => ensureShare(selectedAttachment)}
 							disabled={shareBusy !== null}
 						>
 							{#if shareBusy}

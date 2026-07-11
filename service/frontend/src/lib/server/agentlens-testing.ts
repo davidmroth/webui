@@ -110,3 +110,11 @@ export async function listAgentLensTestingRuns(limit = 20): Promise<AgentLensTes
   }
   return payload as AgentLensTestingRun[];
 }
+
+export async function getLatestAgentLensTestingRunForConversation(
+  conversationId: string,
+  limit = 25
+): Promise<AgentLensTestingRun | null> {
+  const runs = await listAgentLensTestingRuns(limit);
+  return runs.find((run) => run.conversation_id === conversationId) ?? null;
+}

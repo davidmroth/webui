@@ -62,6 +62,7 @@
   import { readTimingSummary, resolveTtftMs } from '$lib/utils/chat-timings';
   import { isCurrentConversationRequest } from '$lib/utils/current-conversation-request';
   import { getAttachmentContentFlags, resolveAttachmentContentType } from '$lib/utils/attachment-content-type';
+  import type { AgentLensTestingRun } from '$lib/server/agentlens-testing';
 
   type PendingAttachment = {
     id: string;
@@ -110,6 +111,8 @@
   let hermesConnection = $state<MaintenanceHermesConnectionStatus | null>(
     untrack(() => data.hermesConnection ?? null)
   );
+  let agentLensTesting = $state<AgentLensTestingRun | null>(untrack(() => data.agentLensTesting ?? null));
+  let agentLensTestingError = $state<string | null>(null);
   let pendingFiles = $state<PendingAttachment[]>([]);
   let pendingAssistantByConversation = $state<Record<string, PendingAssistantState>>({});
   let hermesTypingPlaceholderByConversation = $state<Record<string, string>>({});
@@ -211,6 +214,7 @@
   let isConversationLoading = $state(false);
   let streamHealthState = $state<'connected' | 'degraded' | 'disconnected'>('disconnected');
   let activePollerStopFn: (() => void) | null = null;
+  let agentLensTestingPollTimer: number | null = null;
   let refreshCoalesceTimer: number | null = null;
   let pendingRefreshConversations = false;
   let pendingRefreshMessages = false;
@@ -1178,6 +1182,40 @@
 
     return runStateNotice;
   });
+
+  const agentLensTestingNotice = $derived.by(() => {
+    if (!currentConversationId) {
+      return null;
+    }
+
+    if (!agentLensTesting) {
+      return {
+        tone: 'muted' as const,
+        title: 'AgentLens testing',
+        body: 'No testing run is linked to this conversation yet.'
+      };
+    }
+
+    const status = agentLensTesting.status;
+    const passCount = Object.values(agentLensTesting.pass_criteria ?? {}).filter(Boolean).length;
+    return {
+      tone:
+        status === 'queued' || status === 'running'
+          ? ('active' as const)
+          : status === 'completed'
+            ? ('success' as const)
+            : ('error' as const),
+      title: `AgentLens testing ${status}`,
+      body:
+        status === 'queued'
+          ? 'The validation run is waiting to start.'
+          : status === 'running'
+            ? 'The validation run is in progress and polling for results.'
+            : status === 'completed'
+              ? `Completed with ${passCount} passing checks.`
+              : agentLensTesting.error ?? 'The validation run failed.'
+    };
+  });
   const slashQuery = $derived.by(() => {
     const normalized = draftMessage.trim();
     if (!normalized.startsWith('/') || normalized.includes('\n')) {
@@ -1892,6 +1930,9 @@
         messages = [];
         loadedMessagesConversationId = null;
         currentRunState = createIdleRunState();
+        agentLensTesting = null;
+        agentLensTestingError = null;
+        clearAgentLensPolling();
         isAtBottom = true;
         return;
       }
@@ -1935,6 +1976,7 @@
       loadedMessagesConversationId = conversationId;
       messages = payload.messages;
       currentRunState = normalizeConversationRunState(payload.runState);
+      void refreshAgentLensTesting();
       if (editingMessageId && !payload.messages.some((message: ChatMessage) => message.id === editingMessageId)) {
         editingMessageId = null;
         editingDraft = '';
@@ -2697,6 +2739,59 @@
     appendFiles(Array.from(event.dataTransfer?.files ?? []));
   }
 
+  function clearAgentLensPolling() {
+    if (agentLensTestingPollTimer !== null) {
+      window.clearInterval(agentLensTestingPollTimer);
+      agentLensTestingPollTimer = null;
+    }
+  }
+
+  function scheduleAgentLensPolling() {
+    clearAgentLensPolling();
+    if (!currentConversationId) {
+      return;
+    }
+
+    const status = agentLensTesting?.status;
+    if (status !== 'queued' && status !== 'running') {
+      return;
+    }
+
+    agentLensTestingPollTimer = window.setInterval(() => {
+      void refreshAgentLensTesting();
+    }, 5000);
+  }
+
+  async function refreshAgentLensTesting() {
+    if (!currentConversationId) {
+      agentLensTesting = null;
+      agentLensTestingError = null;
+      clearAgentLensPolling();
+      return;
+    }
+
+    try {
+      const response = await fetch(
+        `/api/internal/agentlens/testing?conversation_id=${encodeURIComponent(currentConversationId)}`,
+        { credentials: 'same-origin' }
+      );
+      const payload = await response.json().catch(() => null);
+      if (!response.ok || !payload || typeof payload !== 'object') {
+        throw new Error(
+          payload && typeof payload === 'object' && 'error_message' in payload && typeof payload.error_message === 'string'
+            ? payload.error_message
+            : `AgentLens progress request failed (${response.status}).`
+        );
+      }
+      agentLensTesting = (payload as { run: AgentLensTestingRun | null }).run ?? null;
+      agentLensTestingError = null;
+    } catch (error) {
+      agentLensTestingError = error instanceof Error ? error.message : 'Unable to load AgentLens testing progress.';
+    } finally {
+      scheduleAgentLensPolling();
+    }
+  }
+
   onMount(() => {
     // Handle share target: pre-fill composer with content shared from another app.
     const shareParam = typeof window !== 'undefined'
@@ -2887,6 +2982,7 @@
     document.addEventListener('visibilitychange', onVisibilityChange);
 
     window.addEventListener('popstate', handlePopState);
+    void refreshAgentLensTesting();
 
     return () => {
       resizeObserver?.disconnect();
@@ -2907,6 +3003,7 @@
       } else {
         mediaQuery.removeListener(onMediaChange);
       }
+      clearAgentLensPolling();
       clearComposerStatsTimers();
       clearPendingFiles();
     };
@@ -2977,6 +3074,36 @@
         onDelete={openDeleteConversationDialog}
         busyConversationId={conversationActionBusyId}
       />
+
+      {#if currentConversationId}
+        <div class="llama-sidebar-section-title">Testing progress</div>
+        <div class={`mx-3 rounded-lg border p-3 text-sm ${agentLensTestingNotice?.tone === 'active' ? 'border-amber-500/30 bg-amber-500/10' : agentLensTestingNotice?.tone === 'success' ? 'border-emerald-500/30 bg-emerald-500/10' : agentLensTestingNotice?.tone === 'error' ? 'border-destructive/30 bg-destructive/10' : 'border-border bg-muted/30'}`}>
+          <div class="font-medium">{agentLensTestingNotice?.title ?? 'AgentLens testing'}</div>
+          <p class="mt-1 text-xs text-muted-foreground [overflow-wrap:anywhere]">
+            {agentLensTestingNotice?.body ?? 'No testing run available.'}
+          </p>
+
+          {#if agentLensTesting}
+            <div class="mt-3 space-y-1 text-xs [overflow-wrap:anywhere]">
+              <div>Run: {agentLensTesting.run_id.slice(0, 8)}</div>
+              <div>Status: {agentLensTesting.status}</div>
+              <div>Conversation: {agentLensTesting.conversation_id}</div>
+              <div>Created: {agentLensTesting.created_at}</div>
+              {#if agentLensTesting.started_at}
+                <div>Started: {agentLensTesting.started_at}</div>
+              {/if}
+              {#if agentLensTesting.completed_at}
+                <div>Completed: {agentLensTesting.completed_at}</div>
+              {/if}
+              <div>Turns: {(agentLensTesting.turns ?? []).length}</div>
+            </div>
+          {/if}
+
+          {#if agentLensTestingError}
+            <div class="mt-2 text-xs text-destructive">{agentLensTestingError}</div>
+          {/if}
+        </div>
+      {/if}
 
       <div class="llama-sidebar-footer">
         <div class="llama-user-card">
