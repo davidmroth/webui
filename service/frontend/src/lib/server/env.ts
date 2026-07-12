@@ -55,6 +55,8 @@ export function getConfig() {
     maintenanceToken: getEnv('MAINTENANCE_TOKEN', ''),
     maintenanceCookieName: getEnv('MAINTENANCE_COOKIE_NAME', 'hermes_webui_maintenance'),
     agentlensTestingEnabled: getEnv('AGENTLENS_TESTING_ENABLED', 'false') === 'true',
+    agentlensControlRelayEnabled: getEnv('AGENTLENS_CONTROL_RELAY_ENABLED', 'false') === 'true',
+    agentlensControlBaseUrl: getEnv('AGENTLENS_CONTROL_BASE_URL', '').trim(),
     agentlensBaseUrl: getEnv('AGENTLENS_BASE_URL', 'http://agentlens:8501'),
     agentlensTestingApiKey: getEnv('AGENTLENS_TESTING_API_KEY', ''),
     agentlensTestingTimeoutMs: clampNumber(getNumber('AGENTLENS_TESTING_TIMEOUT_MS', 15000), 2000, 120000),

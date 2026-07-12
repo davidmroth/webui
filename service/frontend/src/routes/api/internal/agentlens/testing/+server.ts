@@ -1,7 +1,10 @@
 import { json } from '@sveltejs/kit';
 import { requireSession } from '$server/auth';
 import { getConfig } from '$server/env';
-import { getLatestAgentLensTestingRunForConversation } from '$server/agentlens-testing';
+import {
+  getLatestAgentLensTestingRunForConversation,
+  isAgentLensTestingError
+} from '$server/agentlens-testing';
 
 const NO_STORE_HEADERS = {
   'cache-control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
@@ -45,6 +48,16 @@ export async function GET(event) {
       { headers: NO_STORE_HEADERS }
     );
   } catch (error) {
+    if (isAgentLensTestingError(error) && error.code === 'upstream_unreachable') {
+      return json(
+        {
+          success: false,
+          error_code: 'AGENTLENS_CONTROL_PLANE_UNREACHABLE',
+          error_message: error.message
+        },
+        { status: 503, headers: NO_STORE_HEADERS }
+      );
+    }
     return json(
       {
         success: false,

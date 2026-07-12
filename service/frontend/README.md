@@ -46,6 +46,8 @@ Set `MAINTENANCE_TOKEN` in `.env` to enable the token-gated maintenance page at 
 
 AgentLens testing panel variables:
 
+- `AGENTLENS_CONTROL_RELAY_ENABLED`: When `true`, WebUI treats AgentLens testing as a relay/control-plane integration instead of assuming direct AgentLens reachability.
+- `AGENTLENS_CONTROL_BASE_URL`: Optional relay/control-plane base URL. If relay mode is enabled and this is set, WebUI uses this URL for trigger/list/get testing calls.
 - `AGENTLENS_BASE_URL`: Base URL for the AgentLens API (default `http://agentlens:8501`).
 - `AGENTLENS_TESTING_API_KEY`: Optional key forwarded as `X-AgentLens-Testing-Key`.
 - `AGENTLENS_TESTING_TIMEOUT_MS`: Request timeout for maintenance testing API calls (default `15000`).

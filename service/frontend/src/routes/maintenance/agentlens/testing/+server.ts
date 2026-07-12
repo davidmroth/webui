@@ -1,6 +1,7 @@
 import { json } from '@sveltejs/kit';
 import { requireDiagnosticsAccess } from '$server/diagnostics-auth';
 import {
+  isAgentLensTestingError,
   listAgentLensTestingRuns,
   triggerAgentLensTestingRun
 } from '$server/agentlens-testing';
@@ -31,6 +32,16 @@ export async function GET(event) {
       { headers: NO_STORE_HEADERS }
     );
   } catch (error) {
+    if (isAgentLensTestingError(error) && error.code === 'upstream_unreachable') {
+      return json(
+        {
+          success: false,
+          error_code: 'AGENTLENS_CONTROL_PLANE_UNREACHABLE',
+          error_message: error.message
+        },
+        { status: 503, headers: NO_STORE_HEADERS }
+      );
+    }
     return json(
       {
         success: false,
@@ -86,6 +97,16 @@ export async function POST(event) {
       { headers: NO_STORE_HEADERS }
     );
   } catch (error) {
+    if (isAgentLensTestingError(error) && error.code === 'upstream_unreachable') {
+      return json(
+        {
+          success: false,
+          error_code: 'AGENTLENS_CONTROL_PLANE_UNREACHABLE',
+          error_message: error.message
+        },
+        { status: 503, headers: NO_STORE_HEADERS }
+      );
+    }
     return json(
       {
         success: false,
