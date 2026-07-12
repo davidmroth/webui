@@ -10,3 +10,4 @@ infra/
 plugin/__pycache__/
 .validation/
 .data/
+.vscode/
