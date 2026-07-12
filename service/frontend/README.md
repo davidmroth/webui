@@ -41,16 +41,6 @@ Set `MAINTENANCE_TOKEN` in `.env` to enable the token-gated maintenance page at 
 - You can unlock it with the form on the page or by opening `/maintenance?token=YOUR_TOKEN` once; that sets an HttpOnly cookie and redirects to a clean URL.
 - The page exposes build metadata, runtime details, Hermes queue stats, database counts, object-storage status, and a raw JSON snapshot for debugging deployment mismatches.
 - `MAINTENANCE_COOKIE_NAME` lets you override the cookie name if you need to run multiple instances side by side.
-- The page also includes an AgentLens testing panel that triggers and polls two-turn validation runs without SSH.
-- For the operational loop behind that panel, see [docs/runbooks/agentlens-feedback-loop-sop-mop.md](../../docs/runbooks/agentlens-feedback-loop-sop-mop.md).
-
-AgentLens testing panel variables:
-
-- `AGENTLENS_CONTROL_RELAY_ENABLED`: When `true`, WebUI treats AgentLens testing as a relay/control-plane integration instead of assuming direct AgentLens reachability.
-- `AGENTLENS_CONTROL_BASE_URL`: Optional relay/control-plane base URL. If relay mode is enabled and this is set, WebUI uses this URL for trigger/list/get testing calls.
-- `AGENTLENS_BASE_URL`: Base URL for the AgentLens API (default `http://agentlens:8501`).
-- `AGENTLENS_TESTING_API_KEY`: Optional key forwarded as `X-AgentLens-Testing-Key`.
-- `AGENTLENS_TESTING_TIMEOUT_MS`: Request timeout for maintenance testing API calls (default `15000`).
 
 Optional llama-style display badges can be configured with `PUBLIC_MODEL_DISPLAY_NAME`, `PUBLIC_MODEL_SIZE_LABEL`, `PUBLIC_MODEL_CAPABILITY_LABEL`, and `PUBLIC_MODEL_FILE_LABEL`. These only affect the frontend metadata row shown under assistant messages.
 
