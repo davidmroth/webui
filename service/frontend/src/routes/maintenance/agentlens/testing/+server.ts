@@ -1,5 +1,6 @@
 import { json } from '@sveltejs/kit';
 import { requireDiagnosticsAccess } from '$server/diagnostics-auth';
+import { getConfig } from '$server/env';
 import {
   isAgentLensTestingError,
   listAgentLensTestingRuns,
@@ -21,6 +22,16 @@ export async function GET(event) {
   const authFailure = requireDiagnosticsAccess(event);
   if (authFailure) {
     return authFailure;
+  }
+  if (!getConfig().agentlensTestingEnabled) {
+    return json(
+      {
+        success: false,
+        error_code: 'AGENTLENS_TESTING_DISABLED',
+        error_message: 'AgentLens testing is disabled for this deployment.'
+      },
+      { status: 503, headers: NO_STORE_HEADERS }
+    );
   }
 
   try {
@@ -57,6 +68,16 @@ export async function POST(event) {
   const authFailure = requireDiagnosticsAccess(event);
   if (authFailure) {
     return authFailure;
+  }
+  if (!getConfig().agentlensTestingEnabled) {
+    return json(
+      {
+        success: false,
+        error_code: 'AGENTLENS_TESTING_DISABLED',
+        error_message: 'AgentLens testing is disabled for this deployment.'
+      },
+      { status: 503, headers: NO_STORE_HEADERS }
+    );
   }
 
   const body = await event.request.json().catch(() => null);
