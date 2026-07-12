@@ -186,12 +186,35 @@
 						</div>
 					</div>
 				</div>
+			{:else if attachment.isImage && attachment.downloadUrl}
+				<div class="attachment-card attachment-download">
+					<div class="attachment-card-main">
+						<button
+							type="button"
+							class="attachment-preview-thumb-button"
+							aria-haspopup="dialog"
+							aria-label={`Open image preview for ${attachment.fileName}`}
+							onclick={() => openPreviewAttachment(attachment)}
+						>
+							<AuthenticatedImage class="attachment-preview" src={attachment.downloadUrl} alt={attachment.fileName} />
+						</button>
+						<div class="attachment-card-content">
+							<div>{attachment.fileName}</div>
+							<div class="message-meta">{attachment.contentType} · {formatAttachmentSize(attachment.sizeBytes)}</div>
+						</div>
+					</div>
+					<a
+						class="attachment-download-action"
+						href={attachment.downloadUrl}
+						download={attachment.fileName}
+						aria-label={`Download ${attachment.fileName}`}
+					>
+						<Download class="attachment-download-icon" aria-hidden="true" />
+					</a>
+				</div>
 			{:else if attachment.downloadUrl}
 				<a class="attachment-card attachment-download" href={attachment.downloadUrl} download={attachment.fileName}>
 					<div class="attachment-card-main">
-						{#if attachment.isImage}
-							<AuthenticatedImage class="attachment-preview" src={attachment.downloadUrl} alt={attachment.fileName} />
-						{/if}
 						<div class="attachment-card-content">
 							<div>{attachment.fileName}</div>
 							<div class="message-meta">{attachment.contentType} · {formatAttachmentSize(attachment.sizeBytes)}</div>

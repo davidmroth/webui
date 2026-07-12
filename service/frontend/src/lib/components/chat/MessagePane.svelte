@@ -315,6 +315,24 @@
     return `${seconds.toFixed(1)}s`;
   }
 
+  function formatCompactNumber(value: number) {
+    if (!Number.isFinite(value)) {
+      return '0';
+    }
+
+    const abs = Math.abs(value);
+    if (abs >= 1_000_000) {
+      return `${(value / 1_000_000).toFixed(1)}M`;
+    }
+    if (abs >= 1_000) {
+      return `${(value / 1_000).toFixed(1)}K`;
+    }
+    if (Number.isInteger(value)) {
+      return String(value);
+    }
+    return value.toFixed(1);
+  }
+
   function isStatsExpanded(messageId: string) {
     return expandedStatsByMessageId[messageId] ?? false;
   }
@@ -562,104 +580,103 @@
                       {/if}
 
                       <div class="assistant-stats-card-body">
-                        <div
-                          class="assistant-stats-section-label assistant-stats-section-label--vertical assistant-stats-section-label--reading"
-                          aria-hidden="true"
-                        >
+                        <div class="assistant-stats-section-label assistant-stats-section-label--reading">
                           Reading
                         </div>
-                        <div
-                          class="assistant-stats-section-panel assistant-stats-section-panel--reading"
-                          role="group"
-                          aria-label="Reading metrics"
-                        >
-                          <div class="assistant-stats-metrics">
-                            <div class="assistant-stats-metrics-col">
-                              {#if stats.promptTokens != null}
-                                <div class="assistant-stat-chip" title="Prompt tokens">
-                                  <WholeWord class="h-3 w-3" />
-                                  <span>{stats.promptTokens.toLocaleString()} tokens</span>
-                                </div>
-                              {/if}
-                              {#if stats.promptSeconds != null}
-                                <div
-                                  class="assistant-stat-chip"
-                                  title={stats.ttftSeconds != null
-                                    ? 'Total prompt processing time'
-                                    : 'Prompt processing time'}
-                                >
-                                  <Hourglass class="h-3 w-3" />
-                                  <span>{formatDuration(stats.promptSeconds)}</span>
-                                </div>
-                              {/if}
+                        <div class="assistant-stats-metric-cell">
+                          {#if stats.promptTokens != null}
+                            <div class="assistant-stat-chip" title="Prompt tokens">
+                              <WholeWord class="h-3 w-3" />
+                              <span>
+                                {formatCompactNumber(stats.promptTokens)}
+                                <span class="assistant-stat-unit">tokens</span>
+                              </span>
                             </div>
-                            <div class="assistant-stats-metric-rule" aria-hidden="true"></div>
-                            <div class="assistant-stats-metrics-col">
-                              {#if stats.promptTokensPerSecond != null}
-                                <div
-                                  class="assistant-stat-chip"
-                                  title="Uncached prefill throughput (KV cache hits excluded)"
-                                >
-                                  <Gauge class="h-3 w-3" />
-                                  <span>{stats.promptTokensPerSecond.toFixed(2)} t/s</span>
-                                </div>
-                              {/if}
-                              {#if stats.cacheTokens != null && stats.cacheTokens > 0}
-                                <div
-                                  class="assistant-stat-chip"
-                                  title="Prompt tokens restored from the KV cache instead of recomputed"
-                                >
-                                  <DatabaseZap class="h-3 w-3" />
-                                  <span>
-                                    {stats.cacheTokens.toLocaleString()} cached{stats.promptTokens
-                                      ? ` (${Math.round((stats.cacheTokens / stats.promptTokens) * 100)}%)`
-                                      : ''}
-                                  </span>
-                                </div>
-                              {/if}
+                          {/if}
+                        </div>
+                        <div class="assistant-stats-metric-cell">
+                          {#if stats.promptSeconds != null}
+                            <div
+                              class="assistant-stat-chip"
+                              title={stats.ttftSeconds != null
+                                ? 'Total prompt processing time'
+                                : 'Prompt processing time'}
+                            >
+                              <Hourglass class="h-3 w-3" />
+                              <span>{formatDuration(stats.promptSeconds)}</span>
                             </div>
-                          </div>
+                          {/if}
+                        </div>
+                        <div class="assistant-stats-metric-cell">
+                          {#if stats.promptTokensPerSecond != null}
+                            <div
+                              class="assistant-stat-chip"
+                              title="Uncached prefill throughput (KV cache hits excluded)"
+                            >
+                              <Gauge class="h-3 w-3" />
+                              <span>
+                                {formatCompactNumber(stats.promptTokensPerSecond)}
+                                <span class="assistant-stat-unit">t/s</span>
+                              </span>
+                            </div>
+                          {/if}
+                        </div>
+                        <div class="assistant-stats-metric-cell">
+                          {#if stats.cacheTokens != null && stats.cacheTokens > 0}
+                            <div
+                              class="assistant-stat-chip"
+                              title="Prompt tokens restored from the KV cache instead of recomputed"
+                            >
+                              <DatabaseZap class="h-3 w-3" />
+                              <span>
+                                {formatCompactNumber(stats.cacheTokens)}
+                                <span class="assistant-stat-unit"
+                                  >cached{stats.promptTokens
+                                    ? ` (${Math.round((stats.cacheTokens / stats.promptTokens) * 100)}%)`
+                                    : ''}</span
+                                >
+                              </span>
+                            </div>
+                          {/if}
                         </div>
 
-                        <div
-                          class="assistant-stats-section-label assistant-stats-section-label--vertical assistant-stats-section-label--generation"
-                          aria-hidden="true"
-                        >
+                        <div class="assistant-stats-section-label assistant-stats-section-label--generation">
                           Generation
                         </div>
-                        <div
-                          class="assistant-stats-section-panel assistant-stats-section-panel--generation"
-                          role="group"
-                          aria-label="Generation metrics"
-                        >
-                          <div class="assistant-stats-metrics">
-                            <div class="assistant-stats-metrics-col">
-                              <div class="assistant-stat-chip" title="Generated tokens">
-                                <WholeWord class="h-3 w-3" />
-                                <span>{stats.generatedTokens.toLocaleString()} tokens</span>
-                              </div>
-                              <div class="assistant-stat-chip" title="Decode time after first token">
-                                <Hourglass class="h-3 w-3" />
-                                <span>{formatDuration(stats.generatedSeconds)}</span>
-                              </div>
-                            </div>
-                            <div class="assistant-stats-metric-rule" aria-hidden="true"></div>
-                            <div class="assistant-stats-metrics-col">
-                              {#if stats.ttftSeconds != null}
-                                <div
-                                  class="assistant-stat-chip"
-                                  title="Time until the first response token appears"
-                                >
-                                  <Zap class="h-3 w-3" />
-                                  <span>TTFT {formatDuration(stats.ttftSeconds)}</span>
-                                </div>
-                              {/if}
-                              <div class="assistant-stat-chip" title="Decode throughput after first token">
-                                <Gauge class="h-3 w-3" />
-                                <span>{stats.generatedTokensPerSecond.toFixed(2)} t/s</span>
-                              </div>
-                            </div>
+                        <div class="assistant-stats-metric-cell">
+                          <div class="assistant-stat-chip" title="Generated tokens">
+                            <WholeWord class="h-3 w-3" />
+                            <span>
+                              {formatCompactNumber(stats.generatedTokens)}
+                              <span class="assistant-stat-unit">tokens</span>
+                            </span>
                           </div>
+                        </div>
+                        <div class="assistant-stats-metric-cell">
+                          <div class="assistant-stat-chip" title="Decode time after first token">
+                            <Hourglass class="h-3 w-3" />
+                            <span>{formatDuration(stats.generatedSeconds)}</span>
+                          </div>
+                        </div>
+                        <div class="assistant-stats-metric-cell">
+                          <div class="assistant-stat-chip" title="Decode throughput after first token">
+                            <Gauge class="h-3 w-3" />
+                            <span>
+                              {formatCompactNumber(stats.generatedTokensPerSecond)}
+                              <span class="assistant-stat-unit">t/s</span>
+                            </span>
+                          </div>
+                        </div>
+                        <div class="assistant-stats-metric-cell">
+                          {#if stats.ttftSeconds != null}
+                            <div
+                              class="assistant-stat-chip"
+                              title="Time until the first response token appears"
+                            >
+                              <Zap class="h-3 w-3" />
+                              <span>TTFT {formatDuration(stats.ttftSeconds)}</span>
+                            </div>
+                          {/if}
                         </div>
                       </div>
 
@@ -672,9 +689,7 @@
                             : 'Copy conversation ID'}
                           onclick={() => copyConversationId(message.id)}
                         >
-                          <span class="assistant-stats-conv-id">
-                            <span class="assistant-stats-conv-label">Conversation · </span>{conversationId}
-                          </span>
+                          <span class="assistant-stats-conv-id" title={conversationId}>{conversationId}</span>
                           {#if copiedConversationIdForMessageId === message.id}
                             <Check class="h-3 w-3 assistant-stats-conv-copy-icon" />
                           {:else}
