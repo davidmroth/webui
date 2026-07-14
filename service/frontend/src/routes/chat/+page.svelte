@@ -1274,10 +1274,10 @@
 
     const seconds = ttftMs / 1000;
     if (seconds >= 60) {
-      return `TTFT ${(seconds / 60).toFixed(1)}m`;
+      return `Prefill ${(seconds / 60).toFixed(1)}m`;
     }
 
-    return `TTFT ${seconds.toFixed(1)}s`;
+    return `Prefill ${seconds.toFixed(1)}s`;
   }
 
   function clearComposerStatsTimers() {

@@ -671,10 +671,10 @@
                           {#if stats.ttftSeconds != null}
                             <div
                               class="assistant-stat-chip"
-                              title="Time until the first response token appears"
+                              title="Engine prompt prefill time (not end-to-end time to first token)"
                             >
                               <Zap class="h-3 w-3" />
-                              <span>TTFT {formatDuration(stats.ttftSeconds)}</span>
+                              <span>Prefill {formatDuration(stats.ttftSeconds)}</span>
                             </div>
                           {/if}
                         </div>
