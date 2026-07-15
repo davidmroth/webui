@@ -17,15 +17,15 @@
   import { env as publicEnv } from '$env/dynamic/public';
   import ActionHistory from '$lib/components/chat/ActionHistory.svelte';
   import type { ChatMessage, MessageAttachment } from '$lib/types-legacy';
-  import { readTimingSummary, resolveTtftMs } from '$lib/utils/chat-timings';
+  import { readTimingSummary, resolvePrefillMs, resolveTtftMs } from '$lib/utils/chat-timings';
   import { isHermesSystemStatusContent } from '$lib/utils/hermes-system-status';
   import { renderMarkdown } from '$lib/utils/markdown';
 
   interface MessageStats {
     promptTokens: number | null;
-    promptSeconds: number | null;
     promptTokensPerSecond: number | null;
     cacheTokens: number | null;
+    prefillSeconds: number | null;
     ttftSeconds: number | null;
     generatedTokens: number;
     generatedSeconds: number;
@@ -277,7 +277,6 @@
 
     const summary = readTimingSummary(timings);
     const promptTokens = summary.promptTokens;
-    const promptMs = summary.promptMs;
     const generatedTokens = summary.generatedTokens;
     const generatedMs = summary.generatedMs;
 
@@ -286,16 +285,17 @@
       return null;
     }
 
-    const promptSeconds = promptMs != null && promptMs > 0 ? promptMs / 1000 : null;
     const generatedSeconds = generatedMs / 1000;
+    const prefillMs = resolvePrefillMs(summary);
+    const prefillSeconds = prefillMs != null && prefillMs > 0 ? prefillMs / 1000 : null;
     const ttftMs = resolveTtftMs(summary);
     const ttftSeconds = ttftMs != null && ttftMs > 0 ? ttftMs / 1000 : null;
 
     return {
       promptTokens,
-      promptSeconds,
       promptTokensPerSecond: summary.promptTokensPerSecond,
       cacheTokens: summary.cacheTokens,
+      prefillSeconds,
       ttftSeconds,
       generatedTokens,
       generatedSeconds,
@@ -595,15 +595,13 @@
                           {/if}
                         </div>
                         <div class="assistant-stats-metric-cell">
-                          {#if stats.promptSeconds != null}
+                          {#if stats.prefillSeconds != null}
                             <div
                               class="assistant-stat-chip"
-                              title={stats.ttftSeconds != null
-                                ? 'Total prompt processing time'
-                                : 'Prompt processing time'}
+                              title="Engine prompt prefill time"
                             >
                               <Hourglass class="h-3 w-3" />
-                              <span>{formatDuration(stats.promptSeconds)}</span>
+                              <span>Prefill {formatDuration(stats.prefillSeconds)}</span>
                             </div>
                           {/if}
                         </div>
@@ -671,10 +669,10 @@
                           {#if stats.ttftSeconds != null}
                             <div
                               class="assistant-stat-chip"
-                              title="Engine prompt prefill time (not end-to-end time to first token)"
+                              title="Time from inference request to first streamed token (wire TTFT)"
                             >
                               <Zap class="h-3 w-3" />
-                              <span>Prefill {formatDuration(stats.ttftSeconds)}</span>
+                              <span>TTFT {formatDuration(stats.ttftSeconds)}</span>
                             </div>
                           {/if}
                         </div>

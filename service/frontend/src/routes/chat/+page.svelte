@@ -59,7 +59,7 @@
     saveInputHistory,
     type InputHistoryDirection
   } from '$lib/utils/input-history';
-  import { readTimingSummary, resolveTtftMs } from '$lib/utils/chat-timings';
+  import { readTimingSummary, resolvePrefillMs, resolveTtftMs } from '$lib/utils/chat-timings';
   import { isCurrentConversationRequest } from '$lib/utils/current-conversation-request';
   import { getAttachmentContentFlags, resolveAttachmentContentType } from '$lib/utils/attachment-content-type';
 
@@ -86,6 +86,7 @@
   type ComposerStatsStrip = {
     contextLabel: string | null;
     outputLabel: string | null;
+    prefillLabel: string | null;
     ttftLabel: string | null;
     speedLabel: string | null;
     isFading: boolean;
@@ -1045,15 +1046,17 @@
       composerStatsOutputMax ?? summary.outputMax
     );
     const speedLabel = formatSpeedStatsLabel(summary.generatedTokensPerSecond);
+    const prefillLabel = formatPrefillStatsLabel(resolvePrefillMs(summary));
     const ttftLabel = formatTtftStatsLabel(resolveTtftMs(summary));
 
-    if (!contextLabel && !outputLabel && !ttftLabel && !speedLabel) {
+    if (!contextLabel && !outputLabel && !prefillLabel && !ttftLabel && !speedLabel) {
       return null;
     }
 
     return {
       contextLabel,
       outputLabel,
+      prefillLabel,
       ttftLabel,
       speedLabel,
       isFading: composerStatsPhase === 'fading'
@@ -1267,6 +1270,19 @@
     return `${tokensPerSecond.toFixed(1)} decode t/s`;
   }
 
+  function formatPrefillStatsLabel(prefillMs: number | null) {
+    if (prefillMs == null || !Number.isFinite(prefillMs) || prefillMs <= 0) {
+      return null;
+    }
+
+    const seconds = prefillMs / 1000;
+    if (seconds >= 60) {
+      return `Prefill ${(seconds / 60).toFixed(1)}m`;
+    }
+
+    return `Prefill ${seconds.toFixed(1)}s`;
+  }
+
   function formatTtftStatsLabel(ttftMs: number | null) {
     if (ttftMs == null || !Number.isFinite(ttftMs) || ttftMs <= 0) {
       return null;
@@ -1274,10 +1290,10 @@
 
     const seconds = ttftMs / 1000;
     if (seconds >= 60) {
-      return `Prefill ${(seconds / 60).toFixed(1)}m`;
+      return `TTFT ${(seconds / 60).toFixed(1)}m`;
     }
 
-    return `Prefill ${seconds.toFixed(1)}s`;
+    return `TTFT ${seconds.toFixed(1)}s`;
   }
 
   function clearComposerStatsTimers() {
@@ -3160,6 +3176,12 @@
                     <div class="llama-composer-stat">
                       <span class="llama-composer-stat-label">Output:</span>
                       <span class="llama-composer-stat-value">{composerStatsStrip.outputLabel}</span>
+                    </div>
+                  {/if}
+
+                  {#if composerStatsStrip.prefillLabel}
+                    <div class="llama-composer-stat">
+                      <span class="llama-composer-stat-value">{composerStatsStrip.prefillLabel}</span>
                     </div>
                   {/if}
 

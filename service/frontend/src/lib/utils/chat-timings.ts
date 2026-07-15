@@ -206,11 +206,11 @@ export function readTimingSummary(value: unknown): TimingSummary {
   const explicitContextUsed = readTimingNumber(value, ['context_used', 'contextUsed']);
   const contextTotal = readTimingNumber(value, ['n_ctx', 'context_total', 'contextTotal']);
   const outputMax = readTimingNumber(value, ['n_predict', 'max_tokens', 'output_max', 'outputTokensMax']);
+  // Wire/client first-token only — never fall back to prefill_ms (that is Reading).
   const ttftMs = readTimingDurationMs(value, [
     'ttft_ms',
     'time_to_first_token_ms',
-    'ttfb_ms',
-    'prefill_ms'
+    'ttfb_ms'
   ]);
   const contextUsed =
     explicitContextUsed ??
@@ -235,13 +235,21 @@ export function readTimingSummary(value: unknown): TimingSummary {
   };
 }
 
-/** Prefill latency before the first generated token (distinct from decode t/s). */
+/** Engine prompt prefill (`prompt_ms`), not time-to-first-token. */
+export function resolvePrefillMs(summary: TimingSummary): number | null {
+  if (summary.promptMs != null && summary.promptMs > 0) {
+    return summary.promptMs;
+  }
+  return null;
+}
+
+/**
+ * True TTFT: proxy wire ttfb / ttft_ms when present.
+ * Does not fall back to prefill — Prefill and TTFT are separate metrics.
+ */
 export function resolveTtftMs(summary: TimingSummary): number | null {
   if (summary.ttftMs != null && summary.ttftMs > 0) {
     return summary.ttftMs;
-  }
-  if (summary.promptMs != null && summary.promptMs > 0) {
-    return summary.promptMs;
   }
   return null;
 }
