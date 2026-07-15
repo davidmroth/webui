@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import dataclasses
 import hashlib
 import json
 import logging
@@ -16,7 +17,7 @@ import mimetypes
 import os
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, Optional
 from uuid import uuid4
 
 try:
@@ -432,7 +433,6 @@ class WebChatAdapter(BasePlatformAdapter):
 
     SUPPORTS_MESSAGE_EDITING = True
     MAX_MESSAGE_LENGTH = 65536
-    supports_session_title_updates = True
 
     def __init__(self, config: PlatformConfig):
         super().__init__(config, Platform("webchat"))
@@ -1040,6 +1040,60 @@ class WebChatAdapter(BasePlatformAdapter):
         except Exception as exc:
             logger.warning("[%s] Failed to apply session title: %s", self.name, exc)
             return False
+
+    def create_title_callback(self, ctx: dict) -> Optional[Callable[[str], None]]:
+        """Push Hermes auto-titles to the WebUI conversation list."""
+        source = ctx.get("source")
+        session_id = ctx.get("session_id")
+        loop = ctx.get("loop")
+        safe_schedule = ctx.get("safe_schedule")
+        log = ctx.get("logger") or logger
+
+        if source is None or not callable(safe_schedule):
+            return None
+        if loop is None or getattr(loop, "is_closed", lambda: True)():
+            return None
+
+        try:
+            copied_source = dataclasses.replace(source)
+        except Exception:
+            copied_source = source
+
+        def _callback(title: str) -> None:
+            cleaned = (title or "").strip()
+            if not cleaned:
+                return
+
+            async def _apply() -> None:
+                try:
+                    await self.apply_session_title(copied_source, session_id, cleaned)
+                except Exception:
+                    log.debug(
+                        "Failed to apply session title via webchat adapter",
+                        exc_info=True,
+                    )
+
+            future = safe_schedule(
+                _apply(),
+                loop,
+                logger=log,
+                log_message="webchat session title update failed to schedule",
+            )
+            if future is None:
+                return
+
+            def _log_title_failure(fut) -> None:
+                try:
+                    fut.result()
+                except Exception:
+                    log.debug("webchat session title update failed", exc_info=True)
+
+            try:
+                future.add_done_callback(_log_title_failure)
+            except Exception:
+                pass
+
+        return _callback
 
     async def edit_message(
         self,
