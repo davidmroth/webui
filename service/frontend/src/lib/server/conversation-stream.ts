@@ -33,6 +33,11 @@ export type ConversationStreamEvent =
       eventId?: string;
       errorCode?: string | null;
       errorMessage?: string | null;
+    }
+  | {
+      type: 'title';
+      conversationId: string;
+      title: string;
     };
 
 type ConversationStreamListener = (event: ConversationStreamEvent) => void;

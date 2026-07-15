@@ -243,6 +243,21 @@ export async function GET(event) {
             continue;
           }
 
+          if (streamEvent.type === 'title') {
+            send(
+              sse('title', {
+                conversationId: streamEvent.conversationId,
+                title: streamEvent.title
+              })
+            );
+            emitDiagnosticEvent(DiagnosticEventType.SseEventSent, DiagnosticHop.SseStream, {
+              conversationId,
+              connectionId,
+              streamEventType: 'title'
+            }, conversationId);
+            continue;
+          }
+
           if (streamEvent.type === 'message') {
             if (activeMessageId !== streamEvent.messageId) {
               activeMessageId = streamEvent.messageId;

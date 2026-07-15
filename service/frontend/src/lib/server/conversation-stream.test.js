@@ -76,3 +76,26 @@ test('conversation stream delivers durable run status events', () => {
     }
   ]);
 });
+
+test('conversation stream delivers Hermes auto-title events', () => {
+  const received = [];
+  const unsubscribe = subscribeConversationStream('conv-title', (event) => {
+    received.push(event);
+  });
+
+  publishConversationStreamEvent({
+    type: 'title',
+    conversationId: 'conv-title',
+    title: 'Daily AI News Digest'
+  });
+
+  unsubscribe();
+
+  assert.deepEqual(received, [
+    {
+      type: 'title',
+      conversationId: 'conv-title',
+      title: 'Daily AI News Digest'
+    }
+  ]);
+});

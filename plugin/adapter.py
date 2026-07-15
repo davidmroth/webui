@@ -432,6 +432,7 @@ class WebChatAdapter(BasePlatformAdapter):
 
     SUPPORTS_MESSAGE_EDITING = True
     MAX_MESSAGE_LENGTH = 65536
+    supports_session_title_updates = True
 
     def __init__(self, config: PlatformConfig):
         super().__init__(config, Platform("webchat"))
@@ -499,6 +500,9 @@ class WebChatAdapter(BasePlatformAdapter):
 
     def _assistant_url(self, conversation_id: str) -> str:
         return f"{self._base_url}/api/internal/hermes/conversations/{conversation_id}/assistant"
+
+    def _title_url(self, conversation_id: str) -> str:
+        return f"{self._base_url}/api/internal/hermes/conversations/{conversation_id}/title"
 
     def _typing_url(self, conversation_id: str) -> str:
         return f"{self._base_url}/api/internal/hermes/conversations/{conversation_id}/typing"
@@ -1015,6 +1019,27 @@ class WebChatAdapter(BasePlatformAdapter):
             await self._client.post(self._stop_typing_url(chat_id), headers=self._headers())
         except Exception as exc:
             logger.debug("[%s] Failed to stop typing indicator: %s", self.name, exc)
+
+    async def apply_session_title(self, source, session_id: str, title: str) -> bool:
+        if self._client is None:
+            return False
+
+        conversation_id = str(getattr(source, "chat_id", "") or "").strip()
+        cleaned = (title or "").strip()
+        if not conversation_id or not cleaned:
+            return False
+
+        try:
+            response = await self._client.post(
+                self._title_url(conversation_id),
+                headers=self._headers(),
+                json={"title": cleaned, "sessionId": session_id},
+            )
+            response.raise_for_status()
+            return True
+        except Exception as exc:
+            logger.warning("[%s] Failed to apply session title: %s", self.name, exc)
+            return False
 
     async def edit_message(
         self,

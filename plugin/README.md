@@ -37,3 +37,13 @@ docker compose exec gateway hermes plugins enable webchat-platform
 ## API contract
 
 Routes under `service/frontend/src/routes/api/internal/hermes/` — change adapter + hooks in the same PR when the contract changes.
+
+Notable endpoints:
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `POST` | `/conversations/{id}/assistant` | Deliver assistant/system/tool messages |
+| `POST` | `/conversations/{id}/title` | Apply Hermes auto-generated conversation title |
+| `POST` | `/conversations/{id}/typing` | Start typing indicator |
+| `POST` | `/conversations/{id}/typing/stop` | Stop typing indicator |
+| `GET` | `/inbox/next` | Reverse-poll next inbound user event |

@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   deleteMessageForUser,
   lookupBriefingConversationId,
+  renameConversationFromHermes,
   resolveVisibleConversationRows,
   resolveAssistantParentMessageId,
   retryBriefingJob,
@@ -1203,4 +1204,46 @@ test('updateAssistantMessage persists toolCalls JSON when provided', async () =>
       }
     ])
   );
+});
+
+test('renameConversationFromHermes updates title and publishes a stream event', async () => {
+  const published = [];
+  const renameCalls = [];
+
+  const result = await renameConversationFromHermes('conv-1', '  Daily AI News Digest  ', {
+    getConversationOwnerIdFn: async () => 'user-1',
+    renameConversationForUserFn: async (userId, conversationId, title) => {
+      renameCalls.push({ userId, conversationId, title });
+      return true;
+    },
+    publishConversationStreamEventFn: (event) => {
+      published.push(event);
+    }
+  });
+
+  assert.deepEqual(result, { ok: true, title: 'Daily AI News Digest' });
+  assert.deepEqual(renameCalls, [
+    { userId: 'user-1', conversationId: 'conv-1', title: 'Daily AI News Digest' }
+  ]);
+  assert.deepEqual(published, [
+    {
+      type: 'title',
+      conversationId: 'conv-1',
+      title: 'Daily AI News Digest'
+    }
+  ]);
+});
+
+test('renameConversationFromHermes returns not-ok when the conversation is missing', async () => {
+  const result = await renameConversationFromHermes('missing', 'Title', {
+    getConversationOwnerIdFn: async () => null,
+    renameConversationForUserFn: async () => {
+      throw new Error('should not rename');
+    },
+    publishConversationStreamEventFn: () => {
+      throw new Error('should not publish');
+    }
+  });
+
+  assert.deepEqual(result, { ok: false });
 });

@@ -955,9 +955,22 @@
       coalescedLoadMessages(conversationId);
     };
 
+    const handleTitleEvent = (event: Event) => {
+      const payload = parseStreamPayload(event);
+      const title = typeof payload?.title === 'string' ? payload.title.trim() : '';
+      if (!title) {
+        return;
+      }
+
+      conversations = conversations.map((conversation) =>
+        conversation.id === conversationId ? { ...conversation, title } : conversation
+      );
+    };
+
     stream.addEventListener('typing', handleTypingEvent);
     stream.addEventListener('typing-stop', handleTypingStopEvent);
     stream.addEventListener('status', handleStatusEvent);
+    stream.addEventListener('title', handleTitleEvent);
     stream.addEventListener('message', handleMessageEvent);
     stream.addEventListener('delta', handleDeltaEvent);
     stream.addEventListener('done', handleDoneEvent);
@@ -966,6 +979,7 @@
       stream.removeEventListener('typing', handleTypingEvent);
       stream.removeEventListener('typing-stop', handleTypingStopEvent);
       stream.removeEventListener('status', handleStatusEvent);
+      stream.removeEventListener('title', handleTitleEvent);
       stream.removeEventListener('message', handleMessageEvent);
       stream.removeEventListener('delta', handleDeltaEvent);
       stream.removeEventListener('done', handleDoneEvent);

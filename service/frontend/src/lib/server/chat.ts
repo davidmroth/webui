@@ -1592,6 +1592,41 @@ export async function renameConversationForUser(
   return true;
 }
 
+export async function renameConversationFromHermes(
+  conversationId: string,
+  title: string,
+  deps: {
+    getConversationOwnerIdFn?: typeof getConversationOwnerId;
+    renameConversationForUserFn?: typeof renameConversationForUser;
+    publishConversationStreamEventFn?: typeof publishConversationStreamEvent;
+  } = {}
+): Promise<{ ok: boolean; title?: string }> {
+  const getConversationOwnerIdFn = deps.getConversationOwnerIdFn ?? getConversationOwnerId;
+  const renameConversationForUserFn =
+    deps.renameConversationForUserFn ?? renameConversationForUser;
+  const publishConversationStreamEventFn =
+    deps.publishConversationStreamEventFn ?? publishConversationStreamEvent;
+
+  const ownerId = await getConversationOwnerIdFn(conversationId);
+  if (!ownerId) {
+    return { ok: false };
+  }
+
+  const normalized = normalizeConversationTitle(title);
+  const renamed = await renameConversationForUserFn(ownerId, conversationId, normalized);
+  if (!renamed) {
+    return { ok: false };
+  }
+
+  publishConversationStreamEventFn({
+    type: 'title',
+    conversationId,
+    title: normalized
+  });
+
+  return { ok: true, title: normalized };
+}
+
 export async function deleteConversationForUser(
   userId: string,
   conversationId: string
