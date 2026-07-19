@@ -14,6 +14,10 @@ function parsePageParam(raw: string | null) {
 
 export const load: PageServerLoad = async (event) => {
   const session = await requireSession(event);
+  // The archive list is fetched client-side (ssr=false) as __data.json. Without
+  // this, that response carries no Cache-Control and an installed PWA serves a
+  // stale list from its HTTP cache. Match the no-store hygiene of the /api routes.
+  event.setHeaders({ 'cache-control': 'no-store' });
   const briefings = await listBriefingsForUser(session.userId, {
     page: parsePageParam(event.url.searchParams.get('page')),
     syncFromStorage: false

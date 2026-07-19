@@ -218,6 +218,29 @@
       return;
     }
 
+    // Installed PWAs often resume from a suspended state without re-running the
+    // load, so the archive can show a stale snapshot from the last time it was
+    // opened. Re-pull the list whenever the app regains visibility/focus.
+    const refresh = () => {
+      if (document.visibilityState === 'visible') {
+        void invalidateAll();
+      }
+    };
+
+    document.addEventListener('visibilitychange', refresh);
+    window.addEventListener('focus', refresh);
+
+    return () => {
+      document.removeEventListener('visibilitychange', refresh);
+      window.removeEventListener('focus', refresh);
+    };
+  });
+
+  $effect(() => {
+    if (!browser) {
+      return;
+    }
+
     const hasPending = data.briefings.items.some((item) => isProcessing(item));
     if (!hasPending) {
       return;
