@@ -45,6 +45,9 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,webp,jpg,jpeg,woff2}'],
+        // KaTeX fonts load with the deferred markdown chunk; keep them out of
+        // the install-time precache so first PWA open stays small.
+        globIgnores: ['**/KaTeX_*.{ttf,woff,woff2}'],
         importScripts: ['sw-notifications.js'],
         // This app is SSR-driven, so there is no precached app-shell index.html
         // for Workbox to serve as a navigation fallback.

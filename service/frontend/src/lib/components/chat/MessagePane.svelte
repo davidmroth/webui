@@ -13,13 +13,17 @@
     WholeWord,
     Zap
   } from '@lucide/svelte';
+  import { onMount } from 'svelte';
   import MessageAttachments from '$lib/components/chat/MessageAttachments.svelte';
   import { env as publicEnv } from '$env/dynamic/public';
   import ActionHistory from '$lib/components/chat/ActionHistory.svelte';
   import type { ChatMessage, MessageAttachment } from '$lib/types-legacy';
   import { readTimingSummary, resolvePrefillMs, resolveTtftMs } from '$lib/utils/chat-timings';
   import { isHermesSystemStatusContent } from '$lib/utils/hermes-system-status';
-  import { renderMarkdown } from '$lib/utils/markdown';
+  import {
+    ensureMarkdownRenderer,
+    renderMarkdownDeferred
+  } from '$lib/utils/markdown-client';
 
   interface MessageStats {
     promptTokens: number | null;
@@ -77,6 +81,21 @@
   }: Props = $props();
   let expandedStatsByMessageId = $state<Record<string, boolean>>({});
   let copiedConversationIdForMessageId = $state<string | null>(null);
+  // Bumps when the deferred markdown chunk finishes loading so assistant
+  // bodies re-render from escaped plaintext into full HTML.
+  let markdownReadyEpoch = $state(0);
+
+  onMount(() => {
+    let cancelled = false;
+    void ensureMarkdownRenderer().then(() => {
+      if (!cancelled) {
+        markdownReadyEpoch += 1;
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  });
 
   // Local-day boundary markers ("Today" / "Yesterday" / weekday / date) shown
   // between message rows whenever the calendar day changes. Computed in the
@@ -506,7 +525,11 @@
             <ActionHistory content={message.content} />
           {:else if message.content}
             {#if displayRole === 'assistant'}
-              <div class="llama-message-body markdown-content">{@html renderMarkdown(message.content)}</div>
+              <div class="llama-message-body markdown-content">
+                {#key markdownReadyEpoch}
+                  {@html renderMarkdownDeferred(message.content)}
+                {/key}
+              </div>
             {:else}
               <div class="llama-message-body">{message.content}</div>
             {/if}

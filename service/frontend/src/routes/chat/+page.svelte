@@ -22,7 +22,7 @@
   import ThemeModeToggle from '$lib/components/ThemeModeToggle.svelte';
   import ConversationList from '$components/chat/ConversationList.svelte';
   import MessagePane from '$components/chat/MessagePane.svelte';
-  import { CHAT_INPUT_HISTORY_LOCALSTORAGE_KEY } from '$lib/constants';
+  import { CHAT_INPUT_HISTORY_LOCALSTORAGE_KEY } from '$lib/constants/localstorage-keys';
   import type { MaintenanceHermesConnectionStatus } from '$lib/services/maintenance-hermes-status';
   import { startConversationStatusPolling, type ConversationStatusSnapshot } from '$lib/services/conversation-status';
   import {

@@ -22,7 +22,9 @@ const processor = unified()
 	.use(remarkLinkifyBriefingPaths)
 	.use(remarkRehype)
 	.use(rehypeKatex)
-	.use(rehypeHighlight, { detect: true, ignoreMissing: true })
+	// `detect: false` keeps the common language set without the larger
+	// auto-detect table; fenced blocks still get language-aware highlighting.
+	.use(rehypeHighlight, { detect: false, ignoreMissing: true })
 	.use(rehypeOpenLinksInNewWindow)
 	.use(rehypeStringify);
 
