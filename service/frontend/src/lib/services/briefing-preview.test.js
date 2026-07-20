@@ -85,6 +85,7 @@ test('fetchBriefingPreview accepts non-200 preview states from the WebUI route',
 		fetchImpl: async (url, init) => {
 			assert.equal(url, '/app/api/briefings/job-202');
 			assert.equal(init?.method, 'GET');
+			assert.equal(init?.cache, 'no-store');
 			return new Response(JSON.stringify(processingPreview), {
 				status: 202,
 				headers: { 'Content-Type': 'application/json' }

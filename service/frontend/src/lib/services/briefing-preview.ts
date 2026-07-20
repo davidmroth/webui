@@ -158,6 +158,9 @@ export async function fetchBriefingPreview(
 		buildBriefingPreviewApiPath(normalizedJobId, options.basePath),
 		{
 			method: 'GET',
+			// Bypass browser/PWA HTTP cache so polling and archive live updates
+			// never reuse a stale processing/ready snapshot.
+			cache: 'no-store',
 			headers: { Accept: 'application/json' }
 		}
 	);

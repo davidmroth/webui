@@ -36,5 +36,16 @@ export const handle: Handle = async ({ event, resolve }) => {
     response.headers.set('expires', '0');
   }
 
+  // Briefing routes use ssr=false, so the list/player load as __data.json.
+  // Installed PWAs otherwise HTTP-cache those snapshots and never show newly
+  // added briefings until the cache entry expires.
+  if (
+    event.request.method === 'GET' &&
+    event.url.pathname.includes('/briefings') &&
+    event.url.pathname.endsWith('/__data.json')
+  ) {
+    response.headers.set('cache-control', 'no-store');
+  }
+
   return response;
 };

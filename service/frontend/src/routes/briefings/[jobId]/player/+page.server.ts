@@ -6,6 +6,9 @@ import { lookupBriefingConversationId } from '$server/chat';
 
 export const load: PageServerLoad = async (event) => {
 	const session = await requireSession(event);
+	// Player data is fetched client-side (ssr=false) as __data.json. Without
+	// this, an installed PWA can serve a stale preview from its HTTP cache.
+	event.setHeaders({ 'cache-control': 'no-store' });
 	const access = await getBriefingViewerAccess(event.params.jobId, session.userId);
 
 	const preview = await loadBriefingPreview(event.params.jobId);

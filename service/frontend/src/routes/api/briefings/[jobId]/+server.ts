@@ -22,5 +22,10 @@ function statusCodeForState(state: BriefingPreview['state']) {
 export async function GET(event) {
 	await requireSession(event);
 	const preview = await loadBriefingPreview(event.params.jobId);
-	return json(preview, { status: statusCodeForState(preview.state) });
+	return json(preview, {
+		status: statusCodeForState(preview.state),
+		// Briefing status changes as jobs render; never let a PWA/HTTP cache
+		// freeze a processing or missing snapshot.
+		headers: { 'cache-control': 'no-store' }
+	});
 }

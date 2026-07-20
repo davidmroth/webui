@@ -20,7 +20,7 @@ function buildRetryBriefingAction(pathname: string) {
 	return pathname;
 }
 
-function htmlResponse(html: string, status = 200, cacheControl = 'private, max-age=60') {
+function htmlResponse(html: string, status = 200, cacheControl = 'no-store') {
 	return new Response(html, {
 		status,
 		headers: {
