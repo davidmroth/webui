@@ -373,6 +373,103 @@ test('listBriefingsForUser skips storage sync by default', async () => {
   assert.equal(listedStorage, false);
 });
 
+test('listBriefingsForUser claims unowned storage jobs for the viewing user', async () => {
+  const records = new Map();
+  const result = await listBriefingsForUser('user-claim', {
+    syncFromStorage: true,
+    defaultOwnerUserId: 'user-claim',
+    listObjectKeysFn: async () => [
+      'webui/briefings/job-unowned/briefing.json',
+      'webui/briefings/job-unowned/status.json'
+    ],
+    readObjectBufferFn: async () =>
+      Buffer.from(
+        JSON.stringify({
+          job_id: 'job-unowned',
+          briefing_id: 'briefing-unowned',
+          title: 'Unowned Briefing',
+          summary: 'Needs an owner.',
+          generated_at: '2026-07-19T18:20:00Z',
+          sections: [],
+          assets: [],
+          timeline_cues: [],
+          sources: [],
+          validation: { valid: true, warnings: [], errors: [] }
+        })
+      ),
+    queryFn: async (sql, params = {}) => {
+      if (sql.includes('SELECT owner_user_id') && sql.includes('FROM briefing_shares')) {
+        return [];
+      }
+      // Multiple users → sole-user fallback must not claim; defaultOwnerUserId should.
+      if (sql.includes('SELECT id FROM users')) {
+        return [{ id: 'user-a' }, { id: 'user-b' }];
+      }
+      if (sql.includes('FROM briefings') && sql.includes('WHERE job_id = :job_id')) {
+        const record = records.get(params.job_id);
+        return record ? [record] : [];
+      }
+      if (sql.includes('COUNT(*)')) {
+        return [{ total: records.size }];
+      }
+      if (sql.includes('WHERE briefings.owner_user_id = :user_id')) {
+        const rows = Array.from(records.values()).map((record) => ({
+          job_id: record.job_id,
+          briefing_id: record.briefing_id,
+          title: record.title,
+          summary: record.summary,
+          state: record.state,
+          validation_valid: record.validation_valid,
+          validation_warning_count: record.validation_warning_count,
+          validation_error_count: record.validation_error_count,
+          conversation_id: record.conversation_id,
+          conversation_title: null,
+          sort_at: record.completed_at,
+          created_at: record.created_at,
+          updated_at: record.updated_at,
+          started_at: record.started_at,
+          completed_at: record.completed_at,
+          failed_at: record.failed_at,
+          is_public: 0
+        }));
+        const offset = Number(params.offset ?? 0);
+        const limit = Number(params.limit ?? rows.length);
+        return rows.slice(offset, offset + limit);
+      }
+
+      return [];
+    },
+    executeFn: async (sql, params = {}) => {
+      if (sql.includes('INSERT INTO briefings')) {
+        records.set(params.job_id, {
+          job_id: params.job_id,
+          owner_user_id: params.owner_user_id,
+          conversation_id: params.conversation_id ?? null,
+          source_message_id: params.source_message_id ?? null,
+          briefing_id: params.briefing_id,
+          title: params.title,
+          summary: params.summary,
+          state: params.state,
+          validation_valid: params.validation_valid,
+          validation_warning_count: params.validation_warning_count,
+          validation_error_count: params.validation_error_count,
+          created_at: params.started_at ?? '2026-07-19T18:18:46Z',
+          updated_at: params.completed_at ?? '2026-07-19T18:20:00Z',
+          started_at: params.started_at ?? null,
+          completed_at: params.completed_at ?? null,
+          failed_at: params.failed_at ?? null
+        });
+      }
+      return {};
+    }
+  });
+
+  assert.equal(result.total, 1);
+  assert.equal(result.items[0].reference.jobId, 'job-unowned');
+  assert.equal(records.get('job-unowned').owner_user_id, 'user-claim');
+  assert.equal(result.items[0].state, 'ready');
+});
+
 test('deleteBriefingForUser removes stored briefing objects and share state', async () => {
   const deletedKeys = [];
   const executeCalls = [];

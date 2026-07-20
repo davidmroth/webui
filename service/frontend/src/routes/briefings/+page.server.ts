@@ -18,9 +18,12 @@ export const load: PageServerLoad = async (event) => {
   // this, that response carries no Cache-Control and an installed PWA serves a
   // stale list from its HTTP cache. Match the no-store hygiene of the /api routes.
   event.setHeaders({ 'cache-control': 'no-store' });
+  // Sync from object storage so briefings created by Hermes/cron show up
+  // without requiring a direct /briefings/{jobId} visit to heal the catalog.
   const briefings = await listBriefingsForUser(session.userId, {
     page: parsePageParam(event.url.searchParams.get('page')),
-    syncFromStorage: false
+    syncFromStorage: true,
+    defaultOwnerUserId: session.userId
   });
 
   return {

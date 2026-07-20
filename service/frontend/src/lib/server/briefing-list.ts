@@ -277,7 +277,12 @@ export async function assertBriefingOwnedByUser(
 
 export async function listBriefingsForUser(
   userId: string,
-  options: { page?: number; pageSize?: number; syncFromStorage?: boolean } & BriefingListDeps = {}
+  options: {
+    page?: number;
+    pageSize?: number;
+    syncFromStorage?: boolean;
+    defaultOwnerUserId?: string | null;
+  } & BriefingListDeps = {}
 ): Promise<BriefingListResult> {
   const queryFn: NonNullable<BriefingListDeps['queryFn']> = options.queryFn ?? query;
   const executeFn: NonNullable<BriefingListDeps['executeFn']> = options.executeFn ?? execute;
@@ -288,7 +293,8 @@ export async function listBriefingsForUser(
         queryFn: queryFn as unknown as typeof query,
         executeFn,
         listObjectKeysFn: options.listObjectKeysFn ?? listBriefingObjectKeys,
-        readObjectBufferFn: options.readObjectBufferFn ?? getBriefingObjectBuffer
+        readObjectBufferFn: options.readObjectBufferFn ?? getBriefingObjectBuffer,
+        defaultOwnerUserId: options.defaultOwnerUserId ?? userId
       } as Parameters<typeof syncBriefingCatalogFromStorage>[0]);
     } catch {
       // Ignore sync failures and serve the last known DB state.
