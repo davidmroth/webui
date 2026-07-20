@@ -1126,6 +1126,9 @@ class WebChatAdapter(BasePlatformAdapter):
         metadata: Optional[Dict[str, Any]] = None,
     ) -> SendResult:
         try:
+            from .timings_buffer import enrich_send_metadata
+
+            metadata = enrich_send_metadata(content, metadata)
             update_message_id: Optional[str] = None
             transport_metadata = metadata
             if isinstance(metadata, dict):
@@ -1528,7 +1531,9 @@ def register(ctx):
 
     tools_mod = _load(tools_name, tools_path)
     hooks_mod = _load(hooks_name, hooks_path)
+    timings_mod = _load("webui_plugin_timings_buffer", plugin_dir / "timings_buffer.py")
     tools_mod.register_tools(ctx)
+    ctx.register_hook("post_api_request", timings_mod.on_post_api_request)
     ctx.register_platform(
         name="webchat",
         label="WebChat",

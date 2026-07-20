@@ -6,6 +6,7 @@ All Hermes-side WebUI integration lives in this directory:
 | --- | --- |
 | `adapter.py` | Gateway platform adapter (reverse-poll WebUI inbox) |
 | `gateway_hooks.py` | Session reconciliation, status buffering, transcript streaming, trusted auth |
+| `timings_buffer.py` | Accumulate engine `usage.timings` for cron runs; attach on WebUI delivery |
 | `tools.py` | `send_file_to_webchat`, `send_html_to_webchat` |
 | `plugin.yaml` | Plugin manifest + env metadata |
 
