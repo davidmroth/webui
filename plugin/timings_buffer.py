@@ -15,6 +15,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import sys
 import threading
 import time
 from typing import Any, Mapping, MutableMapping, Optional
@@ -28,15 +29,37 @@ _CRON_WRAPPER_RE = re.compile(
     re.IGNORECASE | re.MULTILINE,
 )
 
-_lock = threading.Lock()
+# Process-wide singleton. Hermes may load this file under multiple module names
+# (``timings_buffer``, ``webui_plugin_timings_buffer``, package-relative), and
+# each import would otherwise get its own empty dicts — the post_api_request
+# hook writes one copy while adapter.pop_chat_timings reads another.
+_SHARED_STATE_ATTR = "_hermes_webui_timings_buffer_v1"
+
+
+def _shared_state() -> dict[str, Any]:
+    state = getattr(sys, _SHARED_STATE_ATTR, None)
+    if not isinstance(state, dict) or "by_session" not in state:
+        state = {
+            "lock": threading.Lock(),
+            "by_session": {},
+            "latest_session_for_job": {},
+            "session_for_chat": {},
+            "session_updated_at": {},
+        }
+        setattr(sys, _SHARED_STATE_ATTR, state)
+    return state
+
+
+_state = _shared_state()
+_lock: threading.Lock = _state["lock"]
 # session_id -> accumulated llamacpp-style timings dict
-_by_session: dict[str, dict[str, Any]] = {}
+_by_session: dict[str, dict[str, Any]] = _state["by_session"]
 # job_id -> most recently updated session_id (for delivery lookup)
-_latest_session_for_job: dict[str, str] = {}
+_latest_session_for_job: dict[str, str] = _state["latest_session_for_job"]
 # chat_id -> session_id (stream finalize lookup for webchat)
-_session_for_chat: dict[str, str] = {}
+_session_for_chat: dict[str, str] = _state["session_for_chat"]
 # session_id -> monotonic timestamp of last merge (for TTL eviction)
-_session_updated_at: dict[str, float] = {}
+_session_updated_at: dict[str, float] = _state["session_updated_at"]
 
 _BUFFER_TTL_SEC = 6 * 3600.0
 

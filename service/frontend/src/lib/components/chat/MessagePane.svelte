@@ -487,9 +487,9 @@
               aria-live="polite"
               aria-label="Assistant is responding"
             >
-              <span class="assistant-typing-loader" aria-hidden="true">
-                {#each [0, 1, 2, 3, 4, 5, 6, 7, 8] as delayStep}
-                  <span class="assistant-typing-square" style={`--assistant-loader-delay: ${delayStep * 0.07}s`}></span>
+              <span class="assistant-typing-dots" aria-hidden="true">
+                {#each [0, 1, 2] as delayStep}
+                  <span class="assistant-typing-dot" style={`--assistant-loader-delay: ${delayStep * 0.16}s`}></span>
                 {/each}
               </span>
             </div>
@@ -525,26 +525,26 @@
             <ActionHistory content={message.content} />
           {:else if message.content}
             {#if displayRole === 'assistant'}
-              <div class="llama-message-body markdown-content">
+              <div
+                class="llama-message-body markdown-content"
+                class:assistant-stream-live={isStreamingAssistant(message)}
+                role={isStreamingAssistant(message) ? 'status' : undefined}
+                aria-live={isStreamingAssistant(message) ? 'polite' : undefined}
+                aria-label={isStreamingAssistant(message) ? 'Assistant is responding' : undefined}
+              >
                 {#key markdownReadyEpoch}
                   {@html renderMarkdownDeferred(message.content)}
                 {/key}
+                {#if isStreamingAssistant(message)}
+                  <span class="assistant-stream-caret" aria-hidden="true"></span>
+                {/if}
               </div>
             {:else}
               <div class="llama-message-body">{message.content}</div>
             {/if}
           {/if}
           <MessageAttachments attachments={message.attachments} />
-          {#if isStreamingAssistant(message) && hasVisibleContent(message)}
-            <div class="assistant-stream-status" role="status" aria-live="polite" aria-label="Assistant is responding">
-              <span class="assistant-typing-loader assistant-typing-loader--compact" aria-hidden="true">
-                {#each [0, 1, 2, 3, 4, 5, 6, 7, 8] as delayStep}
-                  <span class="assistant-typing-square" style={`--assistant-loader-delay: ${delayStep * 0.07}s`}></span>
-                {/each}
-              </span>
-              <span class="assistant-typing-label">Responding</span>
-            </div>
-          {:else if message.status !== 'complete' && !isStreamingAssistant(message)}
+          {#if message.status !== 'complete' && !isStreamingAssistant(message)}
             <div class="message-meta">Status: {message.status}</div>
           {/if}
 

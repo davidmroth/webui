@@ -1011,6 +1011,12 @@
       return messages;
     }
 
+    // One in-flight activity surface: never stack an empty typing/pending
+    // placeholder under an assistant message that is already streaming.
+    if (messages.some((message) => message.role === 'assistant' && message.status === 'streaming')) {
+      return messages;
+    }
+
     const placeholderId = pendingAssistant?.placeholderId ?? typingPlaceholderId;
     if (!placeholderId || messages.some((message) => message.id === placeholderId)) {
       return messages;
@@ -1617,6 +1623,13 @@
   }
 
   function showHermesTypingIndicator(conversationId: string) {
+    // If a real streaming bubble already exists, keep busy state but do not
+    // create a second empty activity row (that caused the double loader).
+    if (hasStreamingAssistantMessage()) {
+      setConversationBusyState(conversationId, true);
+      return;
+    }
+
     if (!hermesTypingPlaceholderByConversation[conversationId]) {
       hermesTypingPlaceholderByConversation = {
         ...hermesTypingPlaceholderByConversation,

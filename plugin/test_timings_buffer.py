@@ -138,6 +138,37 @@ class TimingsBufferTests(unittest.TestCase):
         self.assertAlmostEqual(float(timings.get("predicted_ms") or 0), 1200.0)
         self.assertEqual(pop_chat_timings(chat_id), None)
 
+    def test_shared_state_survives_dual_module_load(self) -> None:
+        """Hook and adapter historically imported this file under different names."""
+        import importlib.util
+        import sys
+        from pathlib import Path
+
+        plugin_dir = Path(__file__).resolve().parent
+        name = "webui_plugin_timings_buffer_dual_test"
+        sys.modules.pop(name, None)
+        spec = importlib.util.spec_from_file_location(name, plugin_dir / "timings_buffer.py")
+        assert spec is not None and spec.loader is not None
+        alt = importlib.util.module_from_spec(spec)
+        sys.modules[name] = alt
+        spec.loader.exec_module(alt)
+
+        chat_id = "conv-dual-module"
+        session_id = "20260721_dual_module_sess"
+        alt.bind_chat_session(chat_id, session_id)
+        alt.record_api_timings(
+            session_id=session_id,
+            platform="webchat",
+            usage={"prompt_tokens": 11, "completion_tokens": 7},
+            api_duration=0.5,
+        )
+        timings = pop_chat_timings(chat_id)
+        self.assertIsNotNone(timings)
+        assert timings is not None
+        self.assertEqual(timings.get("prompt_n"), 11)
+        self.assertEqual(timings.get("predicted_n"), 7)
+        sys.modules.pop(name, None)
+
 
 if __name__ == "__main__":
     unittest.main()
