@@ -103,6 +103,9 @@ test('buildBriefingPageHtml emits the article rail wrapper expected by the stand
 	assert.match(html, /href="\/briefing-standalone-page\.css"/);
 	assert.match(html, /id="webui-standalone-player-dock"/);
 	assert.match(html, /src="\/briefing-standalone-player-dock\.js"/);
+	assert.match(html, /class="briefing-back-link" href="\/briefings"/);
+	assert.match(html, /aria-label="Back to briefings"/);
+	assert.match(html, /id="webui-briefing-back-nav"/);
 });
 
 test('rewriteStandaloneAssetUrls leaves fragment links anchored to the current page', () => {
@@ -139,6 +142,17 @@ test('rewriteStandaloneAssetUrls injects the standalone narration dock override'
 	assert.match(html, /webui-standalone-player-dock/);
 	assert.match(html, /href="\/briefing-standalone-player-dock\.css"/);
 	assert.match(html, /src="\/briefing-standalone-player-dock\.js"/);
+	assert.match(html, /class="briefing-back-link" href="\/briefings"/);
+	assert.match(html, /aria-label="Back to briefings"/);
+});
+
+test('rewriteStandaloneAssetUrls does not duplicate the back nav when already present', () => {
+	const html = rewriteStandaloneAssetUrls(
+		'<html><body><main class="page-shell"><a class="briefing-back-link" href="/briefings">Back</a><h1>Briefing</h1></main></body></html>',
+		'job-42'
+	);
+
+	assert.equal(html.match(/class="briefing-back-link"/g)?.length, 1);
 });
 
 test('rewriteStandaloneAssetUrls injects standalone sharing controls for managers', () => {

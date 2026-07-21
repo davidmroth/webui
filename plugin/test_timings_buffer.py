@@ -5,9 +5,11 @@ from __future__ import annotations
 import unittest
 
 from timings_buffer import (
+    bind_chat_session,
     enrich_send_metadata,
     extract_timings_from_api_response,
     parse_cron_delivery,
+    pop_chat_timings,
     pop_delivery_timings,
     record_api_timings,
 )
@@ -106,6 +108,35 @@ class TimingsBufferTests(unittest.TestCase):
         self.assertIsNotNone(metadata)
         assert metadata is not None
         self.assertNotIn("timings", metadata)
+
+    def test_webchat_stream_finalize_pops_chat_timings(self) -> None:
+        chat_id = "conv-stream-stats-1"
+        session_id = "20260721_024221_d09f8d94"
+        bind_chat_session(chat_id, session_id)
+        record_api_timings(
+            session_id=session_id,
+            platform="webchat",
+            response={
+                "usage": {
+                    "prompt_tokens": 400,
+                    "completion_tokens": 35,
+                    "timings": {
+                        "prefill_ms": 800.0,
+                        "decode_ms": 1200.0,
+                        "decode_tokens_per_sec": 29.0,
+                        "ttft_ms": 220.0,
+                    },
+                }
+            },
+            api_duration=2.1,
+        )
+        timings = pop_chat_timings(chat_id)
+        self.assertIsNotNone(timings)
+        assert timings is not None
+        self.assertEqual(timings.get("prompt_n"), 400)
+        self.assertEqual(timings.get("predicted_n"), 35)
+        self.assertAlmostEqual(float(timings.get("predicted_ms") or 0), 1200.0)
+        self.assertEqual(pop_chat_timings(chat_id), None)
 
 
 if __name__ == "__main__":

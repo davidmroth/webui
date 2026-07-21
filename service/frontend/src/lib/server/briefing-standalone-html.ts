@@ -93,6 +93,34 @@ function injectStandalonePlayerDock(html: string) {
 	return `${html}${dock}`;
 }
 
+function buildBackNavMarkup() {
+	// Self-contained styles so rewritten legacy standalone HTML (player.css) still gets a usable control.
+	return `<style id="webui-briefing-back-nav">
+.briefing-back-link{display:inline-flex;align-items:center;gap:.55rem;margin:0 0 1rem;padding:.75rem 1rem;border-radius:999px;border:1px solid rgba(82,62,39,.14);background:rgba(255,252,247,.86);color:#5a3e1f;font:600 .95rem/1 system-ui,-apple-system,'Segoe UI',sans-serif;text-decoration:none;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);box-shadow:0 12px 32px rgba(63,45,24,.08);transition:transform 140ms ease,background-color 140ms ease,box-shadow 140ms ease}
+.briefing-back-link:hover{transform:translateX(-2px);background:rgba(255,252,247,.96);color:#3f2d18;box-shadow:0 16px 36px rgba(63,45,24,.1)}
+.briefing-back-link:focus-visible{outline:2px solid rgba(184,134,11,.55);outline-offset:3px}
+.briefing-back-link span[aria-hidden="true"]{font-size:1.05rem}
+</style>
+<a class="briefing-back-link" href="/briefings" aria-label="Back to briefings"><span aria-hidden="true">&larr;</span><span>Back to briefings</span></a>`;
+}
+
+function injectBackNav(html: string) {
+	if (/class="briefing-back-link"|id="webui-briefing-back-nav"/.test(html)) {
+		return html;
+	}
+
+	const backNav = buildBackNavMarkup();
+	if (/<main[^>]*class="[^"]*\bpage-shell\b[^"]*"[^>]*>/i.test(html)) {
+		return html.replace(/(<main[^>]*class="[^"]*\bpage-shell\b[^"]*"[^>]*>)/i, `$1${backNav}`);
+	}
+
+	if (/<body[^>]*>/i.test(html)) {
+		return html.replace(/<body([^>]*)>/i, `<body$1>${backNav}`);
+	}
+
+	return `${backNav}${html}`;
+}
+
 // ─── Page generation from manifest data ──────────────────────────────────────
 
 interface BriefingPageMetricCard {
@@ -279,6 +307,7 @@ ${renderExternalStyle('/briefing-standalone-page.css')}
 </head>
 <body>
 <main class="page-shell">
+${buildBackNavMarkup()}
 <section class="hero">
 <div class="hero-eyebrow">Briefing</div>
 <h1 class="hero-title">${escapeHtml(data.title)}</h1>
@@ -328,5 +357,5 @@ export function rewriteStandaloneAssetUrls(html: string, jobId: string, options?
 			return buildAssetUrl(jobId, `illustrations/${assetName}`);
 		});
 
-	return injectManagementBar(injectStandalonePlayerDock(rewritten), jobId, options);
+	return injectManagementBar(injectStandalonePlayerDock(injectBackNav(rewritten)), jobId, options);
 }

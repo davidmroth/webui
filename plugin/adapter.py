@@ -1135,6 +1135,9 @@ class WebChatAdapter(BasePlatformAdapter):
         finalize: bool = False,
     ) -> SendResult:
         try:
+            from .timings_buffer import bind_chat_session, pop_chat_timings
+
+            bind_chat_session(chat_id)
             state = self._stream_state_for(chat_id)
             if not state.message_id:
                 state.message_id = message_id
@@ -1145,10 +1148,12 @@ class WebChatAdapter(BasePlatformAdapter):
                     content=content,
                     message_id=message_id,
                 )
+            timings = pop_chat_timings(chat_id) if action.done else None
             return await self._post_stream_action(
                 chat_id,
                 action,
                 user_message_id=None,
+                timings=timings,
             )
         except Exception as exc:
             logger.warning(
@@ -1202,6 +1207,9 @@ class WebChatAdapter(BasePlatformAdapter):
                 )
 
             if self._looks_like_stream_frame(content, chat_id):
+                from .timings_buffer import bind_chat_session, pop_chat_timings
+
+                bind_chat_session(chat_id)
                 state = self._stream_state_for(chat_id)
                 # New segment after a prior stream: start fresh.
                 if state.message_id and strip_streaming_cursor(content) and not (
@@ -1215,6 +1223,7 @@ class WebChatAdapter(BasePlatformAdapter):
                             chat_id,
                             edit_stream_delta(state, state.last_visible, finalize=True),
                             user_message_id=reply_to,
+                            timings=pop_chat_timings(chat_id),
                         )
                     state = self._stream_state_for(chat_id)
                 action = begin_stream_delta(state, content)
@@ -1240,6 +1249,7 @@ class WebChatAdapter(BasePlatformAdapter):
         action,
         *,
         user_message_id: Optional[str] = None,
+        timings: Optional[Dict[str, Any]] = None,
     ) -> SendResult:
         if self._client is None:
             return SendResult(success=False, error="Webchat adapter is not connected")
@@ -1259,6 +1269,8 @@ class WebChatAdapter(BasePlatformAdapter):
             payload["delta"] = ""
         if action.done and action.content is not None:
             payload["content"] = action.content
+        if action.done and timings:
+            payload["timings"] = timings
         if user_message_id:
             payload["userMessageId"] = user_message_id
             payload["replyToMessageId"] = user_message_id

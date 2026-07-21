@@ -1,17 +1,19 @@
-"""Accumulate engine timings payloads for cron sessions and attach on delivery.
+"""Accumulate engine timings payloads for cron + streamed webchat delivery.
 
 The inference stack (engine → proxy) already emits llama.cpp-style ``timings``
-on each API response. Interactive webchat turns attach the last call via
-``event._hermes_timings``; cron deliveries bypass that path.
+on each API response. Non-streaming webchat turns attach the last call via
+``event._hermes_timings``. Streaming turns finalize through ``edit_message`` and
+Hermes suppresses the normal final send — so timings never reach WebUI unless
+we buffer them here and attach on stream ``done``.
 
-This module listens to ``post_api_request`` for ``platform=cron`` sessions,
-merges per-call timings into a run-level summary, and lets the WebChat adapter
-attach it when a ``Cronjob Response:`` wrapper is delivered to WebUI.
+Cron deliveries also bypass ``_hermes_timings``; this module merges per-call
+timings and attaches them when a ``Cronjob Response:`` wrapper is delivered.
 """
 
 from __future__ import annotations
 
 import logging
+import os
 import re
 import threading
 import time
@@ -31,10 +33,25 @@ _lock = threading.Lock()
 _by_session: dict[str, dict[str, Any]] = {}
 # job_id -> most recently updated session_id (for delivery lookup)
 _latest_session_for_job: dict[str, str] = {}
+# chat_id -> session_id (stream finalize lookup for webchat)
+_session_for_chat: dict[str, str] = {}
 # session_id -> monotonic timestamp of last merge (for TTL eviction)
 _session_updated_at: dict[str, float] = {}
 
 _BUFFER_TTL_SEC = 6 * 3600.0
+
+
+def _resolve_session_chat_id() -> str:
+    """Best-effort chat id for the in-flight gateway turn."""
+    try:
+        from gateway.session_context import get_session_env
+
+        value = (get_session_env("HERMES_SESSION_CHAT_ID", "") or "").strip()
+        if value:
+            return value
+    except Exception:
+        pass
+    return (os.getenv("HERMES_SESSION_CHAT_ID", "") or "").strip()
 
 
 def parse_cron_delivery(content: str) -> Optional[dict[str, str]]:
@@ -265,6 +282,24 @@ def _evict_stale(now: float) -> None:
     ]
     for job_id in stale_jobs:
         _latest_session_for_job.pop(job_id, None)
+    # Only drop chat bindings for sessions we actually TTL-evicted. A bind that
+    # arrives before the first API timing record must survive until pop.
+    if stale:
+        stale_set = set(stale)
+        stale_chats = [
+            chat_id
+            for chat_id, sid in _session_for_chat.items()
+            if sid in stale_set
+        ]
+        for chat_id in stale_chats:
+            _session_for_chat.pop(chat_id, None)
+
+
+def _should_buffer_platform(platform: str, session_id: str) -> bool:
+    normalized = (platform or "").strip().lower()
+    if normalized in {"cron", "webchat"}:
+        return True
+    return session_id.startswith("cron_")
 
 
 def record_api_timings(
@@ -275,11 +310,11 @@ def record_api_timings(
     usage: Optional[Mapping[str, Any]] = None,
     api_duration: Optional[float] = None,
 ) -> None:
-    """Merge one API call's timings into the cron session accumulator."""
+    """Merge one API call's timings into the session accumulator."""
     sid = (session_id or "").strip()
     if not sid:
         return
-    if platform != "cron" and not sid.startswith("cron_"):
+    if not _should_buffer_platform(platform, sid):
         return
 
     timings = extract_timings_from_api_response(
@@ -294,6 +329,7 @@ def record_api_timings(
         timings = dict(timings)
         timings["_wall_ms"] = round(float(api_duration) * 1000.0, 3)
 
+    chat_id = _resolve_session_chat_id()
     now = time.monotonic()
     with _lock:
         _evict_stale(now)
@@ -305,14 +341,39 @@ def record_api_timings(
         job_id = _extract_job_id(sid)
         if job_id:
             _latest_session_for_job[job_id] = sid
+        if chat_id:
+            _session_for_chat[chat_id] = sid
 
     logger.debug(
-        "Buffered cron timings session=%s calls=%s prompt_n=%s predicted_n=%s",
+        "Buffered timings platform=%s session=%s chat=%s calls=%s prompt_n=%s predicted_n=%s",
+        platform or "?",
         sid,
+        chat_id or "-",
         merged.get("api_calls"),
         merged.get("prompt_n"),
         merged.get("predicted_n"),
     )
+
+
+def bind_chat_session(chat_id: str, session_id: Optional[str] = None) -> None:
+    """Associate *chat_id* with a buffered session for stream-finalize lookup."""
+    cid = (chat_id or "").strip()
+    if not cid:
+        return
+    sid = (session_id or "").strip()
+    if not sid:
+        try:
+            from gateway.session_context import get_session_env
+
+            sid = (get_session_env("HERMES_SESSION_ID", "") or "").strip()
+        except Exception:
+            sid = ""
+        if not sid:
+            sid = (os.getenv("HERMES_SESSION_ID", "") or "").strip()
+    if not sid:
+        return
+    with _lock:
+        _session_for_chat[cid] = sid
 
 
 def pop_delivery_timings(job_id: str) -> Optional[dict[str, Any]]:
@@ -327,6 +388,30 @@ def pop_delivery_timings(job_id: str) -> Optional[dict[str, Any]]:
         timings = _by_session.pop(sid, None)
         _session_updated_at.pop(sid, None)
         _latest_session_for_job.pop(jid, None)
+        for chat_id, mapped in list(_session_for_chat.items()):
+            if mapped == sid:
+                _session_for_chat.pop(chat_id, None)
+    if not timings:
+        return None
+    cleaned = dict(timings)
+    cleaned.pop("_wall_ms", None)
+    return cleaned
+
+
+def pop_chat_timings(chat_id: str) -> Optional[dict[str, Any]]:
+    """Return aggregated timings for a webchat conversation and clear them."""
+    cid = (chat_id or "").strip()
+    if not cid:
+        return None
+    with _lock:
+        sid = _session_for_chat.pop(cid, None)
+        if not sid:
+            return None
+        timings = _by_session.pop(sid, None)
+        _session_updated_at.pop(sid, None)
+        for job_id, mapped in list(_latest_session_for_job.items()):
+            if mapped == sid:
+                _latest_session_for_job.pop(job_id, None)
     if not timings:
         return None
     cleaned = dict(timings)

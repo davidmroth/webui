@@ -65,7 +65,15 @@ export default defineConfig({
   server: {
     // Allow Hermes (docker) → WebUI dev-server callbacks via host.docker.internal.
     // Vite 6+ rejects unknown hosts by default.
-    allowedHosts: ['host.docker.internal', 'localhost', '127.0.0.1']
+    allowedHosts: [
+      'host.docker.internal',
+      'localhost',
+      '127.0.0.1',
+      // Docker Compose service / container names on ai-inference
+      'webui',
+      'webui-webui-1',
+      'ai.local'
+    ]
   },
   ssr: {
     noExternal: ['@lucide/svelte']
