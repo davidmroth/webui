@@ -87,7 +87,15 @@ def _to_mapping(value: Any) -> Optional[dict[str, Any]]:
                 pass
         except Exception:
             pass
+    extra = getattr(value, "model_extra", None)
     raw_dict = getattr(value, "__dict__", None)
+    if isinstance(extra, dict) and extra:
+        merged = dict(extra)
+        if isinstance(raw_dict, dict):
+            for key, item in raw_dict.items():
+                if not str(key).startswith("_") and key not in merged:
+                    merged[key] = item
+        return merged
     if isinstance(raw_dict, dict):
         return dict(raw_dict)
     return None
@@ -123,14 +131,26 @@ def extract_timings_from_api_response(
     """Normalize one engine/proxy timings payload from a chat-completions response."""
     response_map = _to_mapping(response) or {}
     usage_map = _to_mapping(usage) or _to_mapping(response_map.get("usage")) or {}
+    raw_usage = getattr(response, "usage", None) if response is not None else None
+    if raw_usage is not None and not usage_map:
+        usage_map = _to_mapping(raw_usage) or {}
+    usage_extra = getattr(raw_usage, "model_extra", None) if raw_usage is not None else None
+    if not isinstance(usage_extra, dict):
+        usage_extra = {}
 
     raw_timings: Optional[dict[str, Any]] = None
     for candidate in (
         response_map.get("timings"),
         usage_map.get("timings"),
+        usage_extra.get("timings"),
+        getattr(response, "timings", None) if response is not None else None,
     ):
         if isinstance(candidate, dict) and candidate:
             raw_timings = dict(candidate)
+            break
+        mapped = _to_mapping(candidate)
+        if isinstance(mapped, dict) and mapped:
+            raw_timings = dict(mapped)
             break
 
     prompt_n = _first_int(
@@ -172,11 +192,16 @@ def extract_timings_from_api_response(
         prompt_n = _first_int(usage_map, ("prompt_tokens", "input_tokens"))
         predicted_n = _first_int(usage_map, ("completion_tokens", "output_tokens"))
 
-    if prompt_ms is None and api_duration and prompt_n and predicted_n:
+    if prompt_ms is None and api_duration and (prompt_n or predicted_n):
         total_ms = max(float(api_duration) * 1000.0, 1.0)
         token_total = max(prompt_n + predicted_n, 1)
-        prompt_ms = max(total_ms * (prompt_n / token_total), 0.001)
-        predicted_ms = max(total_ms - prompt_ms, 0.001)
+        if prompt_n and predicted_n:
+            prompt_ms = max(total_ms * (prompt_n / token_total), 0.001)
+            predicted_ms = max(total_ms - prompt_ms, 0.001)
+        elif predicted_n:
+            predicted_ms = total_ms
+        else:
+            prompt_ms = total_ms
     elif predicted_ms is None and predicted_n and predicted_per_second and predicted_per_second > 0:
         predicted_ms = (predicted_n / predicted_per_second) * 1000.0
     elif prompt_ms is None and prompt_n and prompt_per_second and prompt_per_second > 0:
@@ -406,12 +431,25 @@ def pop_chat_timings(chat_id: str) -> Optional[dict[str, Any]]:
     with _lock:
         sid = _session_for_chat.pop(cid, None)
         if not sid:
+            # Fallback when ContextVar chat binding was unavailable during the
+            # API hook: use the only non-cron buffered session, if unique.
+            candidates = [
+                session_id
+                for session_id in _by_session
+                if not session_id.startswith("cron_")
+            ]
+            if len(candidates) == 1:
+                sid = candidates[0]
+        if not sid:
             return None
         timings = _by_session.pop(sid, None)
         _session_updated_at.pop(sid, None)
         for job_id, mapped in list(_latest_session_for_job.items()):
             if mapped == sid:
                 _latest_session_for_job.pop(job_id, None)
+        for mapped_chat, mapped_sid in list(_session_for_chat.items()):
+            if mapped_sid == sid:
+                _session_for_chat.pop(mapped_chat, None)
     if not timings:
         return None
     cleaned = dict(timings)

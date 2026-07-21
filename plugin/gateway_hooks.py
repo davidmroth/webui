@@ -17,8 +17,14 @@ _ADAPTER_SYMBOLS: dict[str, Any] = {}
 def _adapter_api():
     if not _ADAPTER_SYMBOLS:
         import importlib.util
+        import sys
 
-        path = Path(__file__).resolve().parent / "adapter.py"
+        plugin_dir = Path(__file__).resolve().parent
+        plugin_dir_str = str(plugin_dir)
+        if plugin_dir_str not in sys.path:
+            sys.path.insert(0, plugin_dir_str)
+
+        path = plugin_dir / "adapter.py"
         spec = importlib.util.spec_from_file_location("webui_plugin_adapter_api", path)
         if spec is None or spec.loader is None:
             raise ImportError(f"Cannot load adapter API from {path}")

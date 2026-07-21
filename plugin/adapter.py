@@ -518,7 +518,7 @@ class WebChatAdapter(BasePlatformAdapter):
 
     def _looks_like_stream_frame(self, content: str, chat_id: str) -> bool:
         state = self._stream_states.get(chat_id)
-        if state and state.message_id:
+        if state and state.message_id and not state.finalized:
             return True
         stripped = strip_streaming_cursor(content or "")
         return stripped != (content or "")
@@ -1148,6 +1148,8 @@ class WebChatAdapter(BasePlatformAdapter):
                     content=content,
                     message_id=message_id,
                 )
+            if action.noop:
+                return SendResult(success=True, message_id=action.message_id or message_id)
             timings = pop_chat_timings(chat_id) if action.done else None
             return await self._post_stream_action(
                 chat_id,
@@ -1289,7 +1291,13 @@ class WebChatAdapter(BasePlatformAdapter):
         message_id = str(data.get("messageId") or data.get("id") or action.message_id or "")
         state = self._stream_state_for(chat_id)
         if action.done:
-            self._stream_states.pop(chat_id, None)
+            # Keep finalized state so a duplicate REQUIRES_EDIT_FINALIZE call is
+            # idempotent. A later begin_stream_delta resets finalized=False.
+            state.finalized = True
+            if message_id:
+                state.message_id = message_id
+            if action.content is not None:
+                state.last_visible = action.content
         elif message_id:
             state.message_id = message_id
         return SendResult(success=True, message_id=message_id, raw_response=data)

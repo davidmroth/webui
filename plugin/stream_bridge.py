@@ -7,6 +7,10 @@ browser can grow a ``status=streaming`` bubble.
 
 This helper strips the streaming cursor and converts successive full strings
 into suffix deltas when content is a prefix extension of the last posted text.
+
+Adapters with ``REQUIRES_EDIT_FINALIZE`` may call finalize more than once with
+the same content. Those duplicate finalizes must be idempotent — otherwise the
+full reply is appended a second time and the UI appears to "jump" or change.
 """
 from __future__ import annotations
 
@@ -35,6 +39,7 @@ class StreamBridgeState:
     message_id: Optional[str] = None
     last_visible: str = ""
     next_seq: int = 0
+    finalized: bool = False
 
 
 @dataclass
@@ -49,6 +54,8 @@ class StreamBridgeAction:
     content: Optional[str] = None  # final assembled text when done
     # When True, caller should use the classic full-content create/update path.
     passthrough: bool = False
+    # Duplicate finalize after the stream already closed — caller should no-op.
+    noop: bool = False
 
 
 def begin_stream_delta(
@@ -62,6 +69,7 @@ def begin_stream_delta(
     state.message_id = message_id
     state.last_visible = visible
     state.next_seq = 1 if visible else 0
+    state.finalized = False
     return StreamBridgeAction(
         kind="delta",
         delta=visible,
@@ -80,6 +88,20 @@ def edit_stream_delta(
     """Mid-stream or final edit from GatewayStreamConsumer."""
     visible = strip_streaming_cursor(full_text)
 
+    # Hermes REQUIRES_EDIT_FINALIZE adapters can receive a second finalize with
+    # identical content after the stream was already closed. Re-emitting the
+    # full text as a delta makes the browser append a duplicate reply.
+    if state.finalized and finalize:
+        return StreamBridgeAction(
+            kind="done",
+            delta="",
+            seq=state.next_seq,
+            message_id=state.message_id,
+            done=True,
+            content=visible,
+            noop=True,
+        )
+
     if state.message_id is None and not finalize:
         # No open stream — treat as fresh open.
         return begin_stream_delta(state, visible)
@@ -94,9 +116,8 @@ def edit_stream_delta(
         if finalize:
             msg_id = state.message_id
             content = visible
-            state.message_id = None
-            state.last_visible = ""
-            state.next_seq = 0
+            state.last_visible = visible
+            state.finalized = True
             return StreamBridgeAction(
                 kind="done",
                 delta=actions_delta,
@@ -122,18 +143,16 @@ def edit_stream_delta(
             done=False,
         )
 
-    # Non-prefix rewrite (rare) — finalize previous with last_visible and
-    # signal passthrough so caller can fall back to full update, or replace.
+    # Non-prefix rewrite (rare) — replace with the new visible text on finalize.
     if finalize or state.message_id:
         msg_id = state.message_id
         content = visible
-        state.message_id = None
-        state.last_visible = ""
-        state.next_seq = 0
+        state.last_visible = visible
+        state.finalized = True
         return StreamBridgeAction(
             kind="done",
             delta="",
-            seq=0,
+            seq=state.next_seq,
             message_id=msg_id,
             done=True,
             content=content,

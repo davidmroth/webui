@@ -31,7 +31,15 @@ class StreamBridgeTests(unittest.TestCase):
         self.assertTrue(done.done)
         self.assertEqual(done.content, "Hello!")
         self.assertEqual(done.delta, "!")
-        self.assertIsNone(state.message_id)
+        self.assertFalse(done.noop)
+        self.assertEqual(state.message_id, "msg-1")
+        self.assertTrue(state.finalized)
+
+        again = edit_stream_delta(state, "Hello!", finalize=True)
+        self.assertTrue(again.done)
+        self.assertTrue(again.noop)
+        self.assertEqual(again.delta, "")
+        self.assertEqual(again.content, "Hello!")
 
     def test_noop_edit_without_growth(self):
         state = StreamBridgeState()
