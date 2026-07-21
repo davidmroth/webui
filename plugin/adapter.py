@@ -41,6 +41,21 @@ from gateway.platforms.base import (
 )
 from gateway.session import build_session_key
 
+try:
+    from .stream_bridge import (
+        StreamBridgeState,
+        begin_stream_delta,
+        edit_stream_delta,
+        strip_streaming_cursor,
+    )
+except ImportError:  # pragma: no cover - flat plugin layout
+    from stream_bridge import (  # type: ignore
+        StreamBridgeState,
+        begin_stream_delta,
+        edit_stream_delta,
+        strip_streaming_cursor,
+    )
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_BASE_URL = "http://127.0.0.1:3000"
@@ -432,6 +447,7 @@ class WebChatAdapter(BasePlatformAdapter):
     """Browser-chat adapter backed by the web UI service."""
 
     SUPPORTS_MESSAGE_EDITING = True
+    REQUIRES_EDIT_FINALIZE = True
     MAX_MESSAGE_LENGTH = 65536
 
     def __init__(self, config: PlatformConfig):
@@ -491,6 +507,21 @@ class WebChatAdapter(BasePlatformAdapter):
         )
         self._poll_task: Optional[asyncio.Task] = None
         self._client: Optional[httpx.AsyncClient] = None
+        self._stream_states: Dict[str, StreamBridgeState] = {}
+
+    def _stream_state_for(self, chat_id: str) -> StreamBridgeState:
+        state = self._stream_states.get(chat_id)
+        if state is None:
+            state = StreamBridgeState()
+            self._stream_states[chat_id] = state
+        return state
+
+    def _looks_like_stream_frame(self, content: str, chat_id: str) -> bool:
+        state = self._stream_states.get(chat_id)
+        if state and state.message_id:
+            return True
+        stripped = strip_streaming_cursor(content or "")
+        return stripped != (content or "")
 
     def _headers(self) -> Dict[str, str]:
         headers = {"Accept": "application/json"}
@@ -1104,10 +1135,20 @@ class WebChatAdapter(BasePlatformAdapter):
         finalize: bool = False,
     ) -> SendResult:
         try:
-            return await self._post_assistant_message(
-                chat_id=chat_id,
-                content=content,
-                message_id=message_id,
+            state = self._stream_state_for(chat_id)
+            if not state.message_id:
+                state.message_id = message_id
+            action = edit_stream_delta(state, content, finalize=finalize)
+            if action.passthrough:
+                return await self._post_assistant_message(
+                    chat_id=chat_id,
+                    content=content,
+                    message_id=message_id,
+                )
+            return await self._post_stream_action(
+                chat_id,
+                action,
+                user_message_id=None,
             )
         except Exception as exc:
             logger.warning(
@@ -1131,7 +1172,9 @@ class WebChatAdapter(BasePlatformAdapter):
             metadata = enrich_send_metadata(content, metadata)
             update_message_id: Optional[str] = None
             transport_metadata = metadata
+            display_type = None
             if isinstance(metadata, dict):
+                display_type = metadata.get("display_type")
                 raw_message_id = metadata.get("message_id")
                 if isinstance(raw_message_id, str) and raw_message_id.strip():
                     update_message_id = raw_message_id.strip()
@@ -1142,6 +1185,45 @@ class WebChatAdapter(BasePlatformAdapter):
                     }
                     if not transport_metadata:
                         transport_metadata = None
+
+            # Timings reconcile / tool progress / explicit message updates stay
+            # on the classic full-content path.
+            if (
+                update_message_id
+                or display_type == "tool_progress"
+                or (isinstance(metadata, dict) and metadata.get("timings") and update_message_id)
+            ):
+                return await self._post_assistant_message(
+                    chat_id=chat_id,
+                    content=content,
+                    reply_to=reply_to,
+                    metadata=transport_metadata,
+                    message_id=update_message_id,
+                )
+
+            if self._looks_like_stream_frame(content, chat_id):
+                state = self._stream_state_for(chat_id)
+                # New segment after a prior stream: start fresh.
+                if state.message_id and strip_streaming_cursor(content) and not (
+                    strip_streaming_cursor(content).startswith(state.last_visible)
+                    and state.last_visible
+                ):
+                    # Finalize previous silently if consumer started a new send
+                    # without finalize (segment break).
+                    if state.message_id and state.last_visible:
+                        await self._post_stream_action(
+                            chat_id,
+                            edit_stream_delta(state, state.last_visible, finalize=True),
+                            user_message_id=reply_to,
+                        )
+                    state = self._stream_state_for(chat_id)
+                action = begin_stream_delta(state, content)
+                return await self._post_stream_action(
+                    chat_id,
+                    action,
+                    user_message_id=reply_to,
+                )
+
             return await self._post_assistant_message(
                 chat_id=chat_id,
                 content=content,
@@ -1151,6 +1233,54 @@ class WebChatAdapter(BasePlatformAdapter):
             )
         except Exception as exc:
             return SendResult(success=False, error=f"Webchat send failed: {exc}", retryable=True)
+
+    async def _post_stream_action(
+        self,
+        chat_id: str,
+        action,
+        *,
+        user_message_id: Optional[str] = None,
+    ) -> SendResult:
+        if self._client is None:
+            return SendResult(success=False, error="Webchat adapter is not connected")
+
+        payload: Dict[str, Any] = {
+            "conversationId": chat_id,
+            "seq": action.seq,
+            "done": bool(action.done),
+        }
+        if action.message_id:
+            payload["messageId"] = action.message_id
+        if action.delta:
+            payload["delta"] = action.delta
+        elif action.kind == "delta" and not action.message_id:
+            # Opening an empty stream still needs a delta field for route match;
+            # use empty string.
+            payload["delta"] = ""
+        if action.done and action.content is not None:
+            payload["content"] = action.content
+        if user_message_id:
+            payload["userMessageId"] = user_message_id
+            payload["replyToMessageId"] = user_message_id
+
+        # Ensure the assistant route takes the chunked path.
+        if "delta" not in payload and not action.done:
+            payload["delta"] = ""
+
+        response = await self._client.post(
+            self._assistant_url(chat_id),
+            json=payload,
+            headers=self._headers(),
+        )
+        response.raise_for_status()
+        data = response.json() if response.content else {}
+        message_id = str(data.get("messageId") or data.get("id") or action.message_id or "")
+        state = self._stream_state_for(chat_id)
+        if action.done:
+            self._stream_states.pop(chat_id, None)
+        elif message_id:
+            state.message_id = message_id
+        return SendResult(success=True, message_id=message_id, raw_response=data)
 
     async def _post_assistant_message(
         self,

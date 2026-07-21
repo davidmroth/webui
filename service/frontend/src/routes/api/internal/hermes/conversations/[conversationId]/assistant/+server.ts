@@ -429,7 +429,9 @@ export async function POST({ params, request }: { params: { conversationId: stri
   const rawContent = typeof body.content === 'string' ? body.content.trim() : '';
   const displayType = normalizeDisplayType(body.displayType);
   const role = displayType === 'tool_progress' ? 'system' : normalizeInboundRole(body.role, rawContent);
-  const userMessageId = normalizeOptionalString(body.userMessageId);
+  const userMessageId =
+    normalizeOptionalString(body.userMessageId) ??
+    normalizeOptionalString(body.replyToMessageId);
   const parentMessageId = normalizeOptionalString(body.parentMessageId);
   const toolCallId = normalizeOptionalString(body.toolCallId);
   const normalizedToolCalls = normalizeToolCallsInput(body.toolCalls);
