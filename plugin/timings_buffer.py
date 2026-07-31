@@ -201,7 +201,10 @@ def extract_timings_from_api_response(
         raw_timings or {},
         ("ttft_ms", "ttfb_ms", "time_to_first_token_ms"),
     )
-    cache_n = _first_int(raw_timings or usage_map, ("cache_n", "cache_tokens", "prefix_len"))
+    cache_n = _first_int(
+        raw_timings or usage_map,
+        ("cache_n", "cache_tokens", "cached_prefix_tokens", "prefix_len"),
+    )
     predicted_per_second = _first_number(
         raw_timings or {},
         ("predicted_per_second", "tokens_per_second", "decode_tokens_per_sec"),
@@ -246,9 +249,12 @@ def extract_timings_from_api_response(
     if ttft_ms is not None:
         out["ttft_ms"] = round(ttft_ms, 3)
     if prompt_ms and prompt_n > 0:
+        seconds = prompt_ms / 1000.0
+        out["effective_prompt_per_second"] = round(prompt_n / seconds, 3)
         uncached = max(prompt_n - cache_n, 0)
-        denom = uncached if uncached > 0 else prompt_n
-        out["prompt_per_second"] = round(denom / (prompt_ms / 1000.0), 3)
+        actual = round(uncached / seconds, 3) if uncached > 0 else 0.0
+        out["prompt_per_second"] = actual
+        out["actual_prompt_per_second"] = actual
     elif prompt_per_second is not None:
         out["prompt_per_second"] = round(prompt_per_second, 3)
     if predicted_per_second is not None:
@@ -282,9 +288,12 @@ def _merge_timings(existing: dict[str, Any], new: Mapping[str, Any]) -> dict[str
     predicted_ms = float(merged.get("predicted_ms") or 0)
 
     if prompt_ms > 0 and prompt_n > 0:
+        seconds = prompt_ms / 1000.0
+        merged["effective_prompt_per_second"] = round(prompt_n / seconds, 3)
         uncached = max(prompt_n - cache_n, 0)
-        denom = uncached if uncached > 0 else prompt_n
-        merged["prompt_per_second"] = round(denom / (prompt_ms / 1000.0), 3)
+        actual = round(uncached / seconds, 3) if uncached > 0 else 0.0
+        merged["prompt_per_second"] = actual
+        merged["actual_prompt_per_second"] = actual
     if predicted_ms > 0 and predicted_n > 0:
         merged["predicted_per_second"] = round(predicted_n / (predicted_ms / 1000.0), 3)
 

@@ -2,6 +2,14 @@ export interface TimingSummary {
   cacheTokens: number | null;
   promptTokens: number | null;
   promptMs: number | null;
+  /** Uncached tokens / prefill time — GPU work actually done. */
+  actualPromptTokensPerSecond: number | null;
+  /** All prompt tokens / prefill time — includes KV-cache benefit. */
+  effectivePromptTokensPerSecond: number | null;
+  /**
+   * @deprecated Prefer actualPromptTokensPerSecond. Kept as the actual
+   * (uncached) rate for older callers.
+   */
   promptTokensPerSecond: number | null;
   generatedTokens: number | null;
   generatedMs: number | null;
@@ -142,7 +150,12 @@ export function readTimingDurationMs(value: unknown, keys: string[]): number | n
 }
 
 export function readTimingSummary(value: unknown): TimingSummary {
-  const cacheTokens = readTimingNumber(value, ['cache_n', 'cache_tokens', 'prefix_len']);
+  const cacheTokens = readTimingNumber(value, [
+    'cache_n',
+    'cache_tokens',
+    'cached_prefix_tokens',
+    'prefix_len'
+  ]);
   const promptTokens = readTimingNumber(value, [
     'prompt_n',
     'prompt_tokens',
@@ -152,24 +165,43 @@ export function readTimingSummary(value: unknown): TimingSummary {
   ]);
   let promptMs = readTimingDurationMs(value, [
     'prompt_ms',
+    'prefill_ms',
     'prompt_duration_ms',
     'prompt_eval_ms',
     'prompt_eval_duration',
     'prompt_duration'
   ]);
-  let promptTokensPerSecond = readTimingNumber(value, ['prompt_per_second']);
-  if (promptMs == null && promptTokens != null && promptTokensPerSecond != null && promptTokensPerSecond > 0) {
-    promptMs = (promptTokens / promptTokensPerSecond) * 1000;
+  // Ignore payload prompt_per_second for rate math — engines disagree on
+  // whether it counts cached tokens. Derive both rates from tokens + time.
+  if (
+    promptMs == null &&
+    promptTokens != null
+  ) {
+    const reportedRate = readTimingNumber(value, ['prompt_per_second']);
+    if (reportedRate != null && reportedRate > 0) {
+      promptMs = (promptTokens / reportedRate) * 1000;
+    }
   }
 
-  // Cached tokens are restored from KV rather than recomputed, so prefill
-  // throughput must be measured over uncached tokens only. Recompute even
-  // when the payload carries prompt_per_second — older engines/proxies
-  // computed it over the full prompt, which wildly inflates the rate.
-  if (cacheTokens != null && cacheTokens > 0 && promptTokens != null && promptMs != null && promptMs > 0) {
-    const uncachedTokens = promptTokens - cacheTokens;
-    promptTokensPerSecond = uncachedTokens > 0 ? uncachedTokens / (promptMs / 1000) : null;
-  }
+  const promptSeconds =
+    promptMs != null && promptMs > 0 ? promptMs / 1000 : null;
+  const uncachedTokens =
+    promptTokens != null
+      ? Math.max(promptTokens - (cacheTokens ?? 0), 0)
+      : null;
+
+  // Effective: full prompt ÷ wall prefill (cache makes this look faster).
+  // Actual: only tokens the GPU prefilling this turn ÷ wall prefill.
+  const effectivePromptTokensPerSecond =
+    promptTokens != null && promptSeconds != null
+      ? promptTokens / promptSeconds
+      : null;
+  const actualPromptTokensPerSecond =
+    uncachedTokens != null && promptSeconds != null
+      ? uncachedTokens > 0
+        ? uncachedTokens / promptSeconds
+        : null
+      : effectivePromptTokensPerSecond;
 
   const generatedTokens = readTimingNumber(value, [
     'predicted_n',
@@ -180,6 +212,7 @@ export function readTimingSummary(value: unknown): TimingSummary {
   let generatedMs = readTimingDurationMs(value, [
     'predicted_ms',
     'completion_ms',
+    'decode_ms',
     'output_duration_ms',
     'eval_ms',
     'eval_duration',
@@ -189,7 +222,8 @@ export function readTimingSummary(value: unknown): TimingSummary {
     'predicted_per_second',
     'tokens_per_second',
     'completion_tokens_per_second',
-    'output_tokens_per_second'
+    'output_tokens_per_second',
+    'decode_tokens_per_sec'
   ]);
   if (generatedMs == null && generatedTokens != null && generatedTokensPerSecond != null && generatedTokensPerSecond > 0) {
     generatedMs = (generatedTokens / generatedTokensPerSecond) * 1000;
@@ -214,17 +248,15 @@ export function readTimingSummary(value: unknown): TimingSummary {
   ]);
   const contextUsed =
     explicitContextUsed ??
-    (promptTokens != null || cacheTokens != null ? (promptTokens ?? 0) + (cacheTokens ?? 0) : null);
+    (promptTokens != null ? promptTokens : null);
 
   return {
     cacheTokens,
     promptTokens,
     promptMs,
-    promptTokensPerSecond:
-      promptTokensPerSecond ??
-      (promptTokens != null && promptMs != null && promptMs > 0
-        ? (promptTokens - (cacheTokens ?? 0)) / (promptMs / 1000)
-        : null),
+    actualPromptTokensPerSecond,
+    effectivePromptTokensPerSecond,
+    promptTokensPerSecond: actualPromptTokensPerSecond,
     generatedTokens,
     generatedMs,
     generatedTokensPerSecond,

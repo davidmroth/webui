@@ -27,7 +27,8 @@
 
   interface MessageStats {
     promptTokens: number | null;
-    promptTokensPerSecond: number | null;
+    actualPromptTokensPerSecond: number | null;
+    effectivePromptTokensPerSecond: number | null;
     cacheTokens: number | null;
     prefillSeconds: number | null;
     ttftSeconds: number | null;
@@ -312,7 +313,8 @@
 
     return {
       promptTokens,
-      promptTokensPerSecond: summary.promptTokensPerSecond,
+      actualPromptTokensPerSecond: summary.actualPromptTokensPerSecond,
+      effectivePromptTokensPerSecond: summary.effectivePromptTokensPerSecond,
       cacheTokens: summary.cacheTokens,
       prefillSeconds,
       ttftSeconds,
@@ -629,15 +631,44 @@
                           {/if}
                         </div>
                         <div class="assistant-stats-metric-cell">
-                          {#if stats.promptTokensPerSecond != null}
+                          {#if stats.cacheTokens != null &&
+                            stats.cacheTokens > 0 &&
+                            stats.effectivePromptTokensPerSecond != null}
                             <div
                               class="assistant-stat-chip"
-                              title="Uncached prefill throughput (KV cache hits excluded)"
+                              title="Effective prefill throughput: all prompt tokens ÷ prefill time (includes KV cache benefit). Example: 100 prompt tokens, 50 cached, 1s prefill → 100 eff t/s."
                             >
                               <Gauge class="h-3 w-3" />
                               <span>
-                                {formatCompactNumber(stats.promptTokensPerSecond)}
+                                {formatCompactNumber(stats.effectivePromptTokensPerSecond)}
+                                <span class="assistant-stat-unit">eff t/s</span>
+                              </span>
+                            </div>
+                          {:else if stats.effectivePromptTokensPerSecond != null}
+                            <div
+                              class="assistant-stat-chip"
+                              title="Prefill throughput: prompt tokens ÷ prefill time"
+                            >
+                              <Gauge class="h-3 w-3" />
+                              <span>
+                                {formatCompactNumber(stats.effectivePromptTokensPerSecond)}
                                 <span class="assistant-stat-unit">t/s</span>
+                              </span>
+                            </div>
+                          {/if}
+                        </div>
+                        <div class="assistant-stats-metric-cell">
+                          {#if stats.cacheTokens != null &&
+                            stats.cacheTokens > 0 &&
+                            stats.actualPromptTokensPerSecond != null}
+                            <div
+                              class="assistant-stat-chip"
+                              title="Actual prefill throughput: uncached tokens ÷ prefill time (GPU work this turn). Example: 100 prompt tokens, 50 cached, 1s prefill → 50 actual t/s."
+                            >
+                              <Gauge class="h-3 w-3" />
+                              <span>
+                                {formatCompactNumber(stats.actualPromptTokensPerSecond)}
+                                <span class="assistant-stat-unit">actual t/s</span>
                               </span>
                             </div>
                           {/if}

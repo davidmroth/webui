@@ -53,6 +53,28 @@ class TimingsBufferTests(unittest.TestCase):
         self.assertEqual(out["predicted_per_second"], 11.4)
         self.assertEqual(out["ttft_ms"], 900.0)
         self.assertEqual(out["cache_n"], 800)
+        self.assertEqual(out["effective_prompt_per_second"], round(1200 / 5.2, 3))
+        self.assertEqual(out["actual_prompt_per_second"], round(400 / 5.2, 3))
+        self.assertEqual(out["prompt_per_second"], round(400 / 5.2, 3))
+
+    def test_extract_maps_cached_prefix_tokens(self) -> None:
+        """dflash_server emits cached_prefix_tokens, not cache_n."""
+        response = {
+            "usage": {
+                "prompt_tokens": 16992,
+                "completion_tokens": 20,
+                "timings": {
+                    "prefill_ms": 29100.0,
+                    "decode_ms": 900.0,
+                    "cached_prefix_tokens": 17848,
+                },
+            }
+        }
+        out = extract_timings_from_api_response(response)
+        self.assertIsNotNone(out)
+        assert out is not None
+        self.assertEqual(out["cache_n"], 17848)
+        self.assertEqual(out["prompt_ms"], 29100.0)
 
     def test_aggregate_and_attach_on_cron_delivery(self) -> None:
         session_id = "cron_abc123_20260719_175428"
