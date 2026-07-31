@@ -183,8 +183,18 @@ export function readTimingSummary(value: unknown): TimingSummary {
     }
   }
 
+  // Sub-50ms "prefill" for a real-sized prompt is almost always wire TTFT
+  // from a failed/empty completion — do not invent million-t/s rates.
+  const prefillMsReliable =
+    promptMs != null &&
+    promptMs > 0 &&
+    (promptTokens == null || promptTokens < 100 || promptMs >= 50);
+  const reliablePromptMs = prefillMsReliable ? promptMs : null;
+
   const promptSeconds =
-    promptMs != null && promptMs > 0 ? promptMs / 1000 : null;
+    reliablePromptMs != null && reliablePromptMs > 0
+      ? reliablePromptMs / 1000
+      : null;
   const uncachedTokens =
     promptTokens != null
       ? Math.max(promptTokens - (cacheTokens ?? 0), 0)
@@ -251,9 +261,9 @@ export function readTimingSummary(value: unknown): TimingSummary {
     (promptTokens != null ? promptTokens : null);
 
   return {
-    cacheTokens,
+    cacheTokens: prefillMsReliable ? cacheTokens : null,
     promptTokens,
-    promptMs,
+    promptMs: reliablePromptMs,
     actualPromptTokensPerSecond,
     effectivePromptTokensPerSecond,
     promptTokensPerSecond: actualPromptTokensPerSecond,

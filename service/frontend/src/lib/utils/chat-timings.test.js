@@ -87,14 +87,16 @@ test('readTimingSummary reads prefill_ms as prompt time, not TTFT', () => {
 	assert.equal(resolveTtftMs(summary), null);
 });
 
-test('resolveTtftMs stays null when only prefill is present', () => {
+test('readTimingSummary ignores implausible sub-50ms prefill on large prompts', () => {
 	const summary = readTimingSummary({
-		prompt_n: 446,
-		prompt_ms: 1_200,
-		predicted_n: 8,
-		predicted_ms: 886
+		prompt_n: 18856,
+		prompt_ms: 0.179,
+		predicted_n: 0,
+		predicted_ms: 2271
 	});
 
-	assert.equal(summary.ttftMs, null);
-	assert.equal(resolveTtftMs(summary), null);
+	assert.equal(summary.promptMs, null);
+	assert.equal(summary.effectivePromptTokensPerSecond, null);
+	assert.equal(summary.actualPromptTokensPerSecond, null);
+	assert.equal(resolvePrefillMs(summary), null);
 });

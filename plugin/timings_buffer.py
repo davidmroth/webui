@@ -236,6 +236,19 @@ def extract_timings_from_api_response(
     if prompt_n == 0 and predicted_n == 0 and prompt_ms is None and predicted_ms is None:
         return None
 
+    # Failed / empty completions often arrive with wire TTFT as prompt_ms
+    # (sub-ms) and predicted_n=0 — that yields absurd million-t/s rates and
+    # poisons the stream-finalize stats card. Drop those calls entirely.
+    if predicted_n <= 0:
+        return None
+    if (
+        prompt_ms is not None
+        and prompt_n >= 100
+        and prompt_ms < 50.0
+    ):
+        # <50ms for ≥100 tokens is not real prefill (cold or warm).
+        prompt_ms = None
+
     out: dict[str, Any] = {
         "prompt_n": prompt_n,
         "predicted_n": predicted_n,

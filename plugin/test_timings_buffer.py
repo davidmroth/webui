@@ -76,6 +76,22 @@ class TimingsBufferTests(unittest.TestCase):
         self.assertEqual(out["cache_n"], 17848)
         self.assertEqual(out["prompt_ms"], 29100.0)
 
+    def test_extract_skips_empty_failed_completions(self) -> None:
+        """Vision/empty failures must not become million-t/s stats cards."""
+        response = {
+            "usage": {
+                "prompt_tokens": 18856,
+                "completion_tokens": 0,
+                "timings": {
+                    "prompt_ms": 0.179,
+                    "predicted_ms": 2271.642,
+                    "ttft_ms": 0.179,
+                    "predicted_n": 0,
+                },
+            }
+        }
+        self.assertIsNone(extract_timings_from_api_response(response))
+
     def test_aggregate_and_attach_on_cron_delivery(self) -> None:
         session_id = "cron_abc123_20260719_175428"
         for idx in range(2):

@@ -300,8 +300,14 @@
     const generatedTokens = summary.generatedTokens;
     const generatedMs = summary.generatedMs;
 
-    // Need at least the generation side to surface anything meaningful.
-    if (generatedTokens == null || generatedMs == null || generatedMs <= 0) {
+    // Need a real generation — empty/error turns (predicted_n=0) must not
+    // surface a stats card with wire-TTFT-as-prefill garbage rates.
+    if (
+      generatedTokens == null ||
+      generatedTokens <= 0 ||
+      generatedMs == null ||
+      generatedMs <= 0
+    ) {
       return null;
     }
 
@@ -311,12 +317,23 @@
     const ttftMs = resolveTtftMs(summary);
     const ttftSeconds = ttftMs != null && ttftMs > 0 ? ttftMs / 1000 : null;
 
+    // Implausible prefill (e.g. 0.2ms for 18k tokens) → hide Reading rates.
+    const prefillPlausible =
+      promptTokens == null ||
+      prefillMs == null ||
+      promptTokens < 100 ||
+      prefillMs >= 50;
+
     return {
-      promptTokens,
-      actualPromptTokensPerSecond: summary.actualPromptTokensPerSecond,
-      effectivePromptTokensPerSecond: summary.effectivePromptTokensPerSecond,
-      cacheTokens: summary.cacheTokens,
-      prefillSeconds,
+      promptTokens: prefillPlausible ? promptTokens : null,
+      actualPromptTokensPerSecond: prefillPlausible
+        ? summary.actualPromptTokensPerSecond
+        : null,
+      effectivePromptTokensPerSecond: prefillPlausible
+        ? summary.effectivePromptTokensPerSecond
+        : null,
+      cacheTokens: prefillPlausible ? summary.cacheTokens : null,
+      prefillSeconds: prefillPlausible ? prefillSeconds : null,
       ttftSeconds,
       generatedTokens,
       generatedSeconds,
