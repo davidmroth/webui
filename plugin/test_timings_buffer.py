@@ -176,6 +176,45 @@ class TimingsBufferTests(unittest.TestCase):
         self.assertAlmostEqual(float(timings.get("predicted_ms") or 0), 1200.0)
         self.assertEqual(pop_chat_timings(chat_id), None)
 
+    def test_pop_preserves_binding_until_timings_arrive(self) -> None:
+        """Stream finalize often races ahead of post_api_request."""
+        chat_id = "conv-race-1"
+        session_id = "20260731_race_session"
+        bind_chat_session(chat_id, session_id)
+        self.assertIsNone(pop_chat_timings(chat_id))
+        record_api_timings(
+            session_id=session_id,
+            platform="webchat",
+            response={
+                "usage": {
+                    "prompt_tokens": 50,
+                    "completion_tokens": 10,
+                    "timings": {"prefill_ms": 100.0, "decode_ms": 200.0},
+                }
+            },
+        )
+        timings = pop_chat_timings(chat_id)
+        self.assertIsNotNone(timings)
+        assert timings is not None
+        self.assertEqual(timings.get("predicted_n"), 10)
+
+    def test_extract_keeps_engine_predicted_ms_when_prompt_ms_missing(self) -> None:
+        response = {
+            "timings": {
+                "prompt_n": 19000,
+                "predicted_n": 40,
+                "cache_n": 18000,
+                "predicted_ms": 900.0,
+                "predicted_per_second": 44.0,
+            },
+            "usage": {"prompt_tokens": 19000, "completion_tokens": 40},
+        }
+        out = extract_timings_from_api_response(response, api_duration=2.0)
+        self.assertIsNotNone(out)
+        assert out is not None
+        self.assertEqual(out["predicted_ms"], 900.0)
+        self.assertEqual(out["predicted_per_second"], 44.0)
+
     def test_shared_state_survives_dual_module_load(self) -> None:
         """Hook and adapter historically imported this file under different names."""
         import importlib.util

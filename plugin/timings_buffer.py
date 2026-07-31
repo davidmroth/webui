@@ -223,10 +223,12 @@ def extract_timings_from_api_response(
         token_total = max(prompt_n + predicted_n, 1)
         if prompt_n and predicted_n:
             prompt_ms = max(total_ms * (prompt_n / token_total), 0.001)
-            predicted_ms = max(total_ms - prompt_ms, 0.001)
-        elif predicted_n:
+            # Never overwrite a real decode duration from the engine.
+            if predicted_ms is None:
+                predicted_ms = max(total_ms - prompt_ms, 0.001)
+        elif predicted_n and predicted_ms is None:
             predicted_ms = total_ms
-        else:
+        elif prompt_n:
             prompt_ms = total_ms
     elif predicted_ms is None and predicted_n and predicted_per_second and predicted_per_second > 0:
         predicted_ms = (predicted_n / predicted_per_second) * 1000.0
@@ -469,12 +471,17 @@ def pop_delivery_timings(job_id: str) -> Optional[dict[str, Any]]:
 
 
 def pop_chat_timings(chat_id: str) -> Optional[dict[str, Any]]:
-    """Return aggregated timings for a webchat conversation and clear them."""
+    """Return aggregated timings for a webchat conversation and clear them.
+
+    If the chat is bound but timings are not buffered yet (stream finalize
+    races ahead of ``post_api_request``), leave the chat→session binding so a
+    later retry can still find the payload.
+    """
     cid = (chat_id or "").strip()
     if not cid:
         return None
     with _lock:
-        sid = _session_for_chat.pop(cid, None)
+        sid = _session_for_chat.get(cid)
         if not sid:
             # Fallback when ContextVar chat binding was unavailable during the
             # API hook: use the only non-cron buffered session, if unique.
@@ -485,18 +492,21 @@ def pop_chat_timings(chat_id: str) -> Optional[dict[str, Any]]:
             ]
             if len(candidates) == 1:
                 sid = candidates[0]
+                _session_for_chat[cid] = sid
         if not sid:
             return None
-        timings = _by_session.pop(sid, None)
+        timings = _by_session.get(sid)
+        if not timings:
+            return None
+        _by_session.pop(sid, None)
         _session_updated_at.pop(sid, None)
+        _session_for_chat.pop(cid, None)
         for job_id, mapped in list(_latest_session_for_job.items()):
             if mapped == sid:
                 _latest_session_for_job.pop(job_id, None)
         for mapped_chat, mapped_sid in list(_session_for_chat.items()):
             if mapped_sid == sid:
                 _session_for_chat.pop(mapped_chat, None)
-    if not timings:
-        return None
     cleaned = dict(timings)
     cleaned.pop("_wall_ms", None)
     return cleaned

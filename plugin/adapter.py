@@ -1151,12 +1151,26 @@ class WebChatAdapter(BasePlatformAdapter):
             if action.noop:
                 return SendResult(success=True, message_id=action.message_id or message_id)
             timings = pop_chat_timings(chat_id) if action.done else None
-            return await self._post_stream_action(
+            result = await self._post_stream_action(
                 chat_id,
                 action,
                 user_message_id=None,
                 timings=timings,
             )
+            # Stream finalize often runs before Hermes' post_api_request hook
+            # buffers timings. Retry briefly so the chart icon still appears.
+            if (
+                action.done
+                and result.success
+                and not timings
+                and (result.message_id or action.message_id)
+            ):
+                mid = result.message_id or action.message_id or ""
+                content = action.content if action.content is not None else state.last_visible
+                asyncio.create_task(
+                    self._attach_timings_when_ready(chat_id, mid, content or "")
+                )
+            return result
         except Exception as exc:
             logger.warning(
                 "[%s] Failed to edit webchat message %s: %s",
@@ -1221,12 +1235,35 @@ class WebChatAdapter(BasePlatformAdapter):
                     # Finalize previous silently if consumer started a new send
                     # without finalize (segment break).
                     if state.message_id and state.last_visible:
-                        await self._post_stream_action(
-                            chat_id,
-                            edit_stream_delta(state, state.last_visible, finalize=True),
-                            user_message_id=reply_to,
-                            timings=pop_chat_timings(chat_id),
+                        finalize_action = edit_stream_delta(
+                            state, state.last_visible, finalize=True
                         )
+                        early_timings = pop_chat_timings(chat_id)
+                        finalize_result = await self._post_stream_action(
+                            chat_id,
+                            finalize_action,
+                            user_message_id=reply_to,
+                            timings=early_timings,
+                        )
+                        if (
+                            finalize_result.success
+                            and not early_timings
+                            and (finalize_result.message_id or finalize_action.message_id)
+                        ):
+                            mid = (
+                                finalize_result.message_id
+                                or finalize_action.message_id
+                                or ""
+                            )
+                            asyncio.create_task(
+                                self._attach_timings_when_ready(
+                                    chat_id,
+                                    mid,
+                                    finalize_action.content
+                                    if finalize_action.content is not None
+                                    else state.last_visible,
+                                )
+                            )
                     state = self._stream_state_for(chat_id)
                 action = begin_stream_delta(state, content)
                 return await self._post_stream_action(
@@ -1244,6 +1281,60 @@ class WebChatAdapter(BasePlatformAdapter):
             )
         except Exception as exc:
             return SendResult(success=False, error=f"Webchat send failed: {exc}", retryable=True)
+
+    async def _attach_timings_when_ready(
+        self,
+        chat_id: str,
+        message_id: str,
+        content: str,
+    ) -> None:
+        """Retry attaching buffered timings after stream finalize raced the API hook."""
+        from .timings_buffer import pop_chat_timings
+
+        mid = (message_id or "").strip()
+        if not mid:
+            return
+        try:
+            for _ in range(40):  # ~4s — covers post_api_request after stream return
+                await asyncio.sleep(0.1)
+                timings = pop_chat_timings(chat_id)
+                if not timings:
+                    continue
+                result = await self._post_assistant_message(
+                    chat_id=chat_id,
+                    content=content or "",
+                    metadata={"timings": timings},
+                    message_id=mid,
+                )
+                if result.success:
+                    logger.info(
+                        "[%s] Attached delayed timings to %s (prompt_n=%s predicted_n=%s)",
+                        self.name,
+                        mid,
+                        timings.get("prompt_n"),
+                        timings.get("predicted_n"),
+                    )
+                else:
+                    logger.warning(
+                        "[%s] Delayed timings attach failed for %s: %s",
+                        self.name,
+                        mid,
+                        result.error,
+                    )
+                return
+            logger.debug(
+                "[%s] No timings buffered for chat=%s message=%s after finalize",
+                self.name,
+                chat_id,
+                mid,
+            )
+        except Exception as exc:
+            logger.debug(
+                "[%s] Delayed timings attach error for %s: %s",
+                self.name,
+                mid,
+                exc,
+            )
 
     async def _post_stream_action(
         self,
