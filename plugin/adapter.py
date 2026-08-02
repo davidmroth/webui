@@ -1288,48 +1288,71 @@ class WebChatAdapter(BasePlatformAdapter):
         message_id: str,
         content: str,
     ) -> None:
-        """Retry attaching buffered timings after stream finalize raced the API hook."""
-        from .timings_buffer import pop_chat_timings
+        """Attach buffered timings after stream finalize raced the API hook.
+
+        Prefer an event-driven waiter (``subscribe_chat_timings``) so timings
+        land as soon as ``post_api_request`` buffers them. Fall back to a short
+        poll if the waiter path is unavailable.
+        """
+        from .timings_buffer import (
+            pop_chat_timings,
+            subscribe_chat_timings,
+            unsubscribe_chat_timings,
+        )
 
         mid = (message_id or "").strip()
         if not mid:
             return
         try:
-            for _ in range(40):  # ~4s — covers post_api_request after stream return
-                await asyncio.sleep(0.1)
-                timings = pop_chat_timings(chat_id)
-                if not timings:
-                    continue
-                result = await self._post_assistant_message(
-                    chat_id=chat_id,
-                    content=content or "",
-                    metadata={"timings": timings},
-                    message_id=mid,
-                )
-                if result.success:
-                    logger.info(
-                        "[%s] Attached delayed timings to %s (prompt_n=%s predicted_n=%s)",
-                        self.name,
-                        mid,
-                        timings.get("prompt_n"),
-                        timings.get("predicted_n"),
-                    )
+            loop = asyncio.get_running_loop()
+            fut: asyncio.Future = loop.create_future()
+
+            def _on_timings(timings: Dict[str, Any]) -> None:
+                if not fut.done():
+                    loop.call_soon_threadsafe(fut.set_result, timings)
+
+            timings = subscribe_chat_timings(chat_id, _on_timings)
+            if timings is None:
+                try:
+                    timings = await asyncio.wait_for(fut, timeout=30.0)
+                except asyncio.TimeoutError:
+                    unsubscribe_chat_timings(chat_id, _on_timings)
+                    timings = pop_chat_timings(chat_id)
                 else:
-                    logger.warning(
-                        "[%s] Delayed timings attach failed for %s: %s",
-                        self.name,
-                        mid,
-                        result.error,
-                    )
+                    unsubscribe_chat_timings(chat_id, _on_timings)
+
+            if not timings:
+                logger.warning(
+                    "[%s] No timings buffered for chat=%s message=%s after finalize",
+                    self.name,
+                    chat_id,
+                    mid,
+                )
                 return
-            logger.debug(
-                "[%s] No timings buffered for chat=%s message=%s after finalize",
-                self.name,
-                chat_id,
-                mid,
+
+            result = await self._post_assistant_message(
+                chat_id=chat_id,
+                content=content or "",
+                metadata={"timings": timings},
+                message_id=mid,
             )
+            if result.success:
+                logger.info(
+                    "[%s] Attached delayed timings to %s (prompt_n=%s predicted_n=%s)",
+                    self.name,
+                    mid,
+                    timings.get("prompt_n"),
+                    timings.get("predicted_n"),
+                )
+            else:
+                logger.warning(
+                    "[%s] Delayed timings attach failed for %s: %s",
+                    self.name,
+                    mid,
+                    result.error,
+                )
         except Exception as exc:
-            logger.debug(
+            logger.warning(
                 "[%s] Delayed timings attach error for %s: %s",
                 self.name,
                 mid,

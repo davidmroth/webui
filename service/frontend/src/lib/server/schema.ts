@@ -20,6 +20,8 @@ import { migration as briefingVersionsMigration } from './migrations/017_briefin
 import { migration as briefingRenderJobsMigration } from './migrations/018_briefing_render_jobs';
 import { migration as briefingStatusMetadataMigration } from './migrations/019_briefing_status_metadata';
 import { migration as hermesToolTranscriptMigration } from './migrations/020_hermes_tool_transcript';
+import { migration as utf8mb4MessageTextMigration } from './migrations/021_utf8mb4_message_text';
+import { migration as hermesEventLastProgressMigration } from './migrations/022_hermes_event_last_progress';
 
 interface SchemaMigrationRow {
   id: string;
@@ -68,7 +70,9 @@ const migrations: Migration[] = [
   briefingVersionsMigration,
   briefingRenderJobsMigration,
   briefingStatusMetadataMigration,
-  hermesToolTranscriptMigration
+  hermesToolTranscriptMigration,
+  utf8mb4MessageTextMigration,
+  hermesEventLastProgressMigration
 ];
 
 function toIsoString(value: Date | string | null | undefined): string | null {

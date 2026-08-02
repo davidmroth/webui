@@ -469,17 +469,18 @@ test('shouldReclaimStaleHermesProcessingEvent only when worker heartbeat is offl
 });
 
 test('buildStaleHermesRunPredicates matches lease-expired processing rows only', async () => {
-  const { buildStaleHermesRunPredicates } = await import('./chat.ts');
+  const { buildStaleHermesRunPredicates, HERMES_EVENT_LEASE_CLOCK_SQL } = await import('./chat.ts');
   const predicates = buildStaleHermesRunPredicates(120);
   assert.deepEqual(predicates, [
     "hermes_events.status = 'processing'",
     'hermes_events.claimed_at IS NOT NULL',
-    'hermes_events.claimed_at < UTC_TIMESTAMP() - INTERVAL :lease_seconds SECOND'
+    `${HERMES_EVENT_LEASE_CLOCK_SQL} < UTC_TIMESTAMP() - INTERVAL :lease_seconds SECOND`
   ]);
   assert.equal(
     predicates.some((predicate) => predicate.includes('run_status')),
     false
   );
+  assert.ok(predicates.some((predicate) => predicate.includes('last_progress_at')));
 });
 
 test('resolveVisibleConversationRows includes same-turn Hermes tool activity', () => {
@@ -768,6 +769,74 @@ test('updateAssistantMessage rejects stale Hermes targets outside the visible ta
   );
 
   assert.equal(executeCalls.length, 0);
+});
+
+test('updateAssistantMessage allows historical timings enrich without moving the tail', async () => {
+  const executeCalls = [];
+  const stateUpdates = [];
+  const streamEvents = [];
+  const notifications = [];
+
+  await updateAssistantMessage(
+    'conv-1',
+    'assistant-1',
+    'older answer',
+    { timings: { prompt_n: 100, predicted_n: 8, predicted_ms: 120 } },
+    {
+      getConversationStateFn: async () => createConversationState('assistant-2'),
+      queryFn: async (sql, params = {}) => {
+        if (sql.includes('FROM messages') && sql.includes('ORDER BY messages.msg_timestamp ASC')) {
+          return [
+            {
+              id: 'assistant-1',
+              parent_id: 'user-1',
+              role: 'assistant',
+              content: 'older answer',
+              created_at: '2026-04-27T00:00:01.000Z',
+              updated_at: '2026-04-27T00:00:01.000Z',
+              status: 'complete',
+              type: 'text',
+              source: 'hermes',
+              msg_timestamp: 1
+            },
+            {
+              id: 'assistant-2',
+              parent_id: 'user-2',
+              role: 'assistant',
+              content: 'latest answer',
+              created_at: '2026-04-27T00:00:03.000Z',
+              updated_at: '2026-04-27T00:00:03.000Z',
+              status: 'complete',
+              type: 'text',
+              source: 'hermes',
+              msg_timestamp: 3
+            }
+          ];
+        }
+
+        throw new Error(`Unexpected query: ${sql} ${JSON.stringify(params)}`);
+      },
+      executeFn: async (sql, params = {}) => {
+        executeCalls.push({ sql, params });
+      },
+      updateConversationStateFn: async (_id, patch) => {
+        stateUpdates.push(patch);
+      },
+      publishConversationStreamEventFn: (event) => {
+        streamEvents.push(event);
+      },
+      notifyAssistantReplyCompletionFn: (payload) => {
+        notifications.push(payload);
+      }
+    }
+  );
+
+  assert.equal(executeCalls.length, 1);
+  assert.match(executeCalls[0].sql, /timings = :timings/);
+  assert.equal(executeCalls[0].params.id, 'assistant-1');
+  assert.equal(stateUpdates.length, 0);
+  assert.equal(streamEvents.length, 0);
+  assert.equal(notifications.length, 0);
 });
 
 test('updateAssistantMessage updates active tool progress without moving the conversation tail', async () => {

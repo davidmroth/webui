@@ -18,9 +18,11 @@ import re
 import sys
 import threading
 import time
-from typing import Any, Mapping, MutableMapping, Optional
+from typing import Any, Callable, Mapping, MutableMapping, Optional
 
 logger = logging.getLogger(__name__)
+
+TimingsWaiter = Callable[[dict[str, Any]], None]
 
 _CRON_WRAPPER_RE = re.compile(
     r"^Cronjob Response:\s*(?P<name>.+?)\s*\n"
@@ -45,8 +47,11 @@ def _shared_state() -> dict[str, Any]:
             "latest_session_for_job": {},
             "session_for_chat": {},
             "session_updated_at": {},
+            "pending_waiters": {},
         }
         setattr(sys, _SHARED_STATE_ATTR, state)
+    # Older plugin loads may lack waiter map — extend in place.
+    state.setdefault("pending_waiters", {})
     return state
 
 
@@ -60,6 +65,8 @@ _latest_session_for_job: dict[str, str] = _state["latest_session_for_job"]
 _session_for_chat: dict[str, str] = _state["session_for_chat"]
 # session_id -> monotonic timestamp of last merge (for TTL eviction)
 _session_updated_at: dict[str, float] = _state["session_updated_at"]
+# chat_id -> waiters notified when timings are buffered (stream finalize race)
+_pending_waiters: dict[str, list[TimingsWaiter]] = _state["pending_waiters"]
 
 _BUFFER_TTL_SEC = 6 * 3600.0
 
@@ -403,6 +410,8 @@ def record_api_timings(
 
     chat_id = _resolve_session_chat_id()
     now = time.monotonic()
+    waiters: list[TimingsWaiter] = []
+    waiter_payload: Optional[dict[str, Any]] = None
     with _lock:
         _evict_stale(now)
         current = _by_session.get(sid, {})
@@ -415,6 +424,17 @@ def record_api_timings(
             _latest_session_for_job[job_id] = sid
         if chat_id:
             _session_for_chat[chat_id] = sid
+        notify_chats = {
+            cid for cid, mapped in _session_for_chat.items() if mapped == sid
+        }
+        if chat_id:
+            notify_chats.add(chat_id)
+        for cid in notify_chats:
+            waiters.extend(_pending_waiters.pop(cid, []))
+        # Delivering to waiters consumes the buffer so the next turn cannot
+        # accidentally attach this turn's timings.
+        if waiters:
+            waiter_payload = _pop_session_timings_locked(sid, chat_id)
 
     logger.debug(
         "Buffered timings platform=%s session=%s chat=%s calls=%s prompt_n=%s predicted_n=%s",
@@ -425,6 +445,13 @@ def record_api_timings(
         merged.get("prompt_n"),
         merged.get("predicted_n"),
     )
+
+    if waiters and waiter_payload:
+        for waiter in waiters:
+            try:
+                waiter(waiter_payload)
+            except Exception as exc:
+                logger.debug("timings waiter failed: %s", exc)
 
 
 def bind_chat_session(chat_id: str, session_id: Optional[str] = None) -> None:
@@ -470,6 +497,42 @@ def pop_delivery_timings(job_id: str) -> Optional[dict[str, Any]]:
     return cleaned
 
 
+def _resolve_chat_session_id_locked(cid: str) -> str:
+    sid = _session_for_chat.get(cid) or ""
+    if sid:
+        return sid
+    # Fallback when ContextVar chat binding was unavailable during the
+    # API hook: use the only non-cron buffered session, if unique.
+    candidates = [
+        session_id
+        for session_id in _by_session
+        if not session_id.startswith("cron_")
+    ]
+    if len(candidates) == 1:
+        sid = candidates[0]
+        _session_for_chat[cid] = sid
+        return sid
+    return ""
+
+
+def _pop_session_timings_locked(sid: str, cid: str) -> Optional[dict[str, Any]]:
+    timings = _by_session.get(sid)
+    if not timings:
+        return None
+    _by_session.pop(sid, None)
+    _session_updated_at.pop(sid, None)
+    _session_for_chat.pop(cid, None)
+    for job_id, mapped in list(_latest_session_for_job.items()):
+        if mapped == sid:
+            _latest_session_for_job.pop(job_id, None)
+    for mapped_chat, mapped_sid in list(_session_for_chat.items()):
+        if mapped_sid == sid:
+            _session_for_chat.pop(mapped_chat, None)
+    cleaned = dict(timings)
+    cleaned.pop("_wall_ms", None)
+    return cleaned
+
+
 def pop_chat_timings(chat_id: str) -> Optional[dict[str, Any]]:
     """Return aggregated timings for a webchat conversation and clear them.
 
@@ -481,35 +544,48 @@ def pop_chat_timings(chat_id: str) -> Optional[dict[str, Any]]:
     if not cid:
         return None
     with _lock:
-        sid = _session_for_chat.get(cid)
-        if not sid:
-            # Fallback when ContextVar chat binding was unavailable during the
-            # API hook: use the only non-cron buffered session, if unique.
-            candidates = [
-                session_id
-                for session_id in _by_session
-                if not session_id.startswith("cron_")
-            ]
-            if len(candidates) == 1:
-                sid = candidates[0]
-                _session_for_chat[cid] = sid
+        sid = _resolve_chat_session_id_locked(cid)
         if not sid:
             return None
-        timings = _by_session.get(sid)
-        if not timings:
-            return None
-        _by_session.pop(sid, None)
-        _session_updated_at.pop(sid, None)
-        _session_for_chat.pop(cid, None)
-        for job_id, mapped in list(_latest_session_for_job.items()):
-            if mapped == sid:
-                _latest_session_for_job.pop(job_id, None)
-        for mapped_chat, mapped_sid in list(_session_for_chat.items()):
-            if mapped_sid == sid:
-                _session_for_chat.pop(mapped_chat, None)
-    cleaned = dict(timings)
-    cleaned.pop("_wall_ms", None)
-    return cleaned
+        return _pop_session_timings_locked(sid, cid)
+
+
+def subscribe_chat_timings(
+    chat_id: str, callback: TimingsWaiter
+) -> Optional[dict[str, Any]]:
+    """Return buffered timings immediately, or register *callback* for the next buffer.
+
+    Used when stream finalize races ahead of ``post_api_request``: the waiter
+    fires as soon as timings land instead of polling for a few seconds.
+    """
+    cid = (chat_id or "").strip()
+    if not cid:
+        return None
+    with _lock:
+        sid = _resolve_chat_session_id_locked(cid)
+        if sid:
+            ready = _pop_session_timings_locked(sid, cid)
+            if ready:
+                return ready
+        _pending_waiters.setdefault(cid, []).append(callback)
+    return None
+
+
+def unsubscribe_chat_timings(chat_id: str, callback: TimingsWaiter) -> None:
+    """Remove a previously registered timings waiter."""
+    cid = (chat_id or "").strip()
+    if not cid:
+        return
+    with _lock:
+        waiters = _pending_waiters.get(cid)
+        if not waiters:
+            return
+        try:
+            waiters.remove(callback)
+        except ValueError:
+            return
+        if not waiters:
+            _pending_waiters.pop(cid, None)
 
 
 def on_post_api_request(**kwargs: Any) -> None:

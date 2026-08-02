@@ -1155,8 +1155,8 @@
     }
 
     return {
-      title: 'This turn is stuck waiting for Hermes.',
-      body: 'WebUI has not seen the Hermes worker finish this reply. You can wait a bit longer or remove the stuck turn and resend.',
+      title: 'No progress from Hermes on this turn.',
+      body: 'WebUI has not received stream, tool, or typing updates within the lease window. You can wait a bit longer or remove the stuck turn and resend.',
       actionLabel: 'Remove stuck turn'
     };
   });
@@ -1178,7 +1178,7 @@
     }
 
     if (currentRunState.status === 'stale') {
-      return { tone: 'warning', label: 'Hermes stopped before completing' };
+      return { tone: 'warning', label: 'No progress from Hermes' };
     }
 
     if (currentRunState.status === 'cancelled') {

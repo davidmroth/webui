@@ -113,7 +113,7 @@ export function deriveConversationForensicsVerdict(input: ForensicsAnalyzeInput)
     return {
       code: 'run_stale',
       likelyLayer: 'hermes_sender',
-      summary: input.runState.errorMessage ?? 'Hermes stopped before the event lease expired.',
+      summary: input.runState.errorMessage ?? 'No progress from Hermes within the event lease window.',
       hints: [
         input.runState.errorCode ? `Error code: ${input.runState.errorCode}` : 'No run error code recorded.',
         'The webui receiver marked the inbox event stale; inspect Hermes gateway logs for the sender-side failure.'

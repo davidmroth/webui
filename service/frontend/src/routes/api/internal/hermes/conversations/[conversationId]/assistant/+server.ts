@@ -13,6 +13,7 @@ import {
 import { DiagnosticEventType, DiagnosticHop, emitDiagnosticEvent } from '$server/diagnostics';
 import { getConfig } from '$server/env';
 import { noteHermesWorkerAuthFailure, noteHermesWorkerHeartbeat } from '$server/hermes-heartbeat';
+import { touchHermesEventProgress } from '$server/chat';
 import { isHermesSystemStatusContent } from '$lib/utils/hermes-system-status';
 
 interface AssistantJsonAttachment {
@@ -321,6 +322,7 @@ export async function POST({ params, request }: { params: { conversationId: stri
   }
 
   noteHermesWorkerHeartbeat('assistant-post');
+  void touchHermesEventProgress(params.conversationId).catch(() => undefined);
 
   const requestId = getRequestId(request);
   const startedAt = Date.now();

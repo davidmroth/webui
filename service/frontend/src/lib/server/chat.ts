@@ -175,6 +175,8 @@ interface UpdateAssistantMessageDeps {
 
 interface UpdatableAssistantMessage {
   displayType?: MessageDisplayType;
+  /** True when updating a non-tail message solely to attach timings after stream finalize raced ahead. */
+  historicalEnrich?: boolean;
 }
 
 interface DeleteMessageForUserDeps {
@@ -1286,12 +1288,41 @@ export function shouldReclaimStaleHermesProcessingEvent(
   return !workerHeartbeat.isOnline;
 }
 
+/** SQL fragment: lease clock prefers last Hermes progress over claim time. */
+export const HERMES_EVENT_LEASE_CLOCK_SQL =
+  'COALESCE(hermes_events.last_progress_at, hermes_events.claimed_at)';
+
 export function buildStaleHermesRunPredicates(_leaseSeconds: number) {
   return [
     "hermes_events.status = 'processing'",
     'hermes_events.claimed_at IS NOT NULL',
-    'hermes_events.claimed_at < UTC_TIMESTAMP() - INTERVAL :lease_seconds SECOND'
+    `${HERMES_EVENT_LEASE_CLOCK_SQL} < UTC_TIMESTAMP() - INTERVAL :lease_seconds SECOND`
   ];
+}
+
+/**
+ * Renew the turn lease when Hermes proves it is still working (stream, tool
+ * progress, typing, assistant posts). Throttled so token-chunk floods do not
+ * hammer MySQL.
+ */
+export async function touchHermesEventProgress(conversationId: string): Promise<void> {
+  const id = String(conversationId || '').trim();
+  if (!id) {
+    return;
+  }
+
+  await execute(
+    `UPDATE hermes_events
+     SET last_progress_at = UTC_TIMESTAMP()
+     WHERE conversation_id = :conversation_id
+       AND status = 'processing'
+       AND run_status = 'processing'
+       AND (
+         last_progress_at IS NULL
+         OR last_progress_at < UTC_TIMESTAMP() - INTERVAL 15 SECOND
+       )`,
+    { conversation_id: id }
+  );
 }
 
 function buildConversationRunStateFromRow(row: HermesRunStateRow | null): ConversationRunState {
@@ -1372,7 +1403,7 @@ export async function markStaleHermesRuns(options: { userId?: string; conversati
          hermes_events.run_status = 'stale',
          hermes_events.run_completed_at = UTC_TIMESTAMP(),
          hermes_events.run_error_code = 'HERMES_EVENT_LEASE_EXPIRED',
-         hermes_events.run_error_message = 'Hermes stopped reporting progress before the event lease expired.'
+         hermes_events.run_error_message = 'No progress from Hermes within the event lease window.'
      WHERE ${predicates.join(' AND ')}`,
     params
   );
@@ -1387,7 +1418,7 @@ export async function markStaleHermesRuns(options: { userId?: string; conversati
           messageId: candidate.message_id,
           eventId: candidate.id,
           errorCode: 'HERMES_EVENT_LEASE_EXPIRED',
-          errorMessage: 'Hermes stopped reporting progress before the event lease expired.'
+          errorMessage: 'No progress from Hermes within the event lease window.'
         },
         candidate.conversation_id
       );
@@ -1398,7 +1429,7 @@ export async function markStaleHermesRuns(options: { userId?: string; conversati
         eventId: candidate.id,
         runStatus: 'stale',
         errorCode: 'HERMES_EVENT_LEASE_EXPIRED',
-        errorMessage: 'Hermes stopped reporting progress before the event lease expired.'
+        errorMessage: 'No progress from Hermes within the event lease window.'
       });
 
       try {
@@ -1407,7 +1438,7 @@ export async function markStaleHermesRuns(options: { userId?: string; conversati
           conversationId: candidate.conversation_id,
           conversationTitle: candidate.conversation_title || 'New chat',
           messageId: candidate.message_id,
-          content: 'Hermes stopped before completing the reply.',
+          content: 'No progress from Hermes — turn marked incomplete.',
           runStatus: 'stale'
         });
       } catch (error) {
@@ -2147,7 +2178,8 @@ export async function finalizeStreamingAssistantMessage(
 async function resolveUpdatableAssistantMessage(
   conversationId: string,
   messageId: string,
-  deps: UpdateAssistantMessageDeps = {}
+  deps: UpdateAssistantMessageDeps = {},
+  options: { allowHistoricalTimingsEnrich?: boolean } = {}
 ): Promise<UpdatableAssistantMessage> {
   const queryFn = deps.queryFn ?? query;
   const getConversationStateFn = deps.getConversationStateFn ?? getConversationState;
@@ -2202,6 +2234,12 @@ async function resolveUpdatableAssistantMessage(
 
   const latestVisible = visibleRows.at(-1);
   if (!latestVisible || latestVisible.id !== messageId) {
+    // Stream finalize often races Hermes' post_api_request hook; the plugin
+    // retries a timings-only enrich after the user may already have sent the
+    // next turn. Allow that enrich without rewriting conversation tail state.
+    if (options.allowHistoricalTimingsEnrich) {
+      return { displayType, historicalEnrich: true };
+    }
     throw new Error(`Rejected stale assistant update target: ${messageId}`);
   }
 
@@ -2222,10 +2260,12 @@ export async function updateAssistantMessage(
   const notifyAssistantReplyCompletionFn =
     deps.notifyAssistantReplyCompletionFn ?? notifyAssistantReplyCompletion;
 
-  const target = await resolveUpdatableAssistantMessage(conversationId, messageId, deps);
-
   const timingsJson = serializeTimingsForStorage(options.timings);
   const toolCallsJson = serializeToolCallsForStorage(options.toolCalls);
+  const target = await resolveUpdatableAssistantMessage(conversationId, messageId, deps, {
+    allowHistoricalTimingsEnrich: timingsJson !== null
+  });
+
   if (timingsJson === null && toolCallsJson === null) {
     await executeFn(
       `UPDATE messages
@@ -2260,6 +2300,11 @@ export async function updateAssistantMessage(
         tool_calls: toolCallsJson
       }
     );
+  }
+
+  // Historical timings enrich must not move curr_node or clear a newer turn's busy state.
+  if (target.historicalEnrich) {
+    return;
   }
 
   if (target.displayType !== 'tool_progress') {
@@ -2502,7 +2547,7 @@ export async function dequeueHermesEvent(options: { publicBaseUrl?: string | nul
           OR (
             hermes_events.status = 'processing'
             AND hermes_events.claimed_at IS NOT NULL
-            AND hermes_events.claimed_at < UTC_TIMESTAMP() - INTERVAL ? SECOND
+            AND COALESCE(hermes_events.last_progress_at, hermes_events.claimed_at) < UTC_TIMESTAMP() - INTERVAL ? SECOND
           )`
           : ''}
        ORDER BY
@@ -2526,6 +2571,7 @@ export async function dequeueHermesEvent(options: { publicBaseUrl?: string | nul
        SET status = 'processing',
            run_status = 'processing',
            claimed_at = UTC_TIMESTAMP(),
+           last_progress_at = UTC_TIMESTAMP(),
            run_completed_at = NULL,
            run_error_code = NULL,
            run_error_message = NULL
@@ -2647,7 +2693,7 @@ export async function getHermesQueueStats() {
          CASE
            WHEN status = 'processing'
             AND claimed_at IS NOT NULL
-            AND claimed_at < UTC_TIMESTAMP() - INTERVAL :lease_seconds SECOND
+            AND COALESCE(last_progress_at, claimed_at) < UTC_TIMESTAMP() - INTERVAL :lease_seconds SECOND
            THEN 1
            ELSE 0
          END

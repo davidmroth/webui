@@ -198,6 +198,29 @@ class TimingsBufferTests(unittest.TestCase):
         assert timings is not None
         self.assertEqual(timings.get("predicted_n"), 10)
 
+    def test_subscribe_notifies_when_timings_arrive(self) -> None:
+        from timings_buffer import subscribe_chat_timings
+
+        chat_id = "conv-waiter-1"
+        session_id = "20260801_waiter_session"
+        bind_chat_session(chat_id, session_id)
+        seen: list[dict] = []
+        self.assertIsNone(subscribe_chat_timings(chat_id, seen.append))
+        record_api_timings(
+            session_id=session_id,
+            platform="webchat",
+            response={
+                "usage": {
+                    "prompt_tokens": 80,
+                    "completion_tokens": 12,
+                    "timings": {"prefill_ms": 50.0, "decode_ms": 90.0},
+                }
+            },
+        )
+        self.assertEqual(len(seen), 1)
+        self.assertEqual(seen[0].get("predicted_n"), 12)
+        self.assertIsNone(pop_chat_timings(chat_id))
+
     def test_extract_keeps_engine_predicted_ms_when_prompt_ms_missing(self) -> None:
         response = {
             "timings": {

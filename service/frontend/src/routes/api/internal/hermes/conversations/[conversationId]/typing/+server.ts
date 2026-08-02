@@ -1,5 +1,5 @@
 import { json } from '@sveltejs/kit';
-import { publishHermesTypingIndicator } from '$server/chat';
+import { publishHermesTypingIndicator, touchHermesEventProgress } from '$server/chat';
 import { getConfig } from '$server/env';
 import { noteHermesWorkerAuthFailure, noteHermesWorkerHeartbeat } from '$server/hermes-heartbeat';
 
@@ -16,6 +16,7 @@ export async function POST({ params, request }: { params: { conversationId: stri
   }
 
   noteHermesWorkerHeartbeat('typing');
+  void touchHermesEventProgress(params.conversationId).catch(() => undefined);
 
   try {
     publishHermesTypingIndicator(params.conversationId, true);
