@@ -179,8 +179,10 @@
       : buildInfo?.gitCommit
         ? String(buildInfo.gitCommit).slice(0, 7)
         : 'n/a';
-
-    return `${versionLabel} · ${branch} · ${commit}`;
+    const buildTime = buildInfo?.buildTime ? String(buildInfo.buildTime) : '';
+    const dateLabel = buildTime.match(/^(\d{4}-\d{2}-\d{2})/)?.[1] ?? null;
+    const base = `${versionLabel} · ${branch} · ${commit}`;
+    return dateLabel ? `${base} · ${dateLabel}` : base;
   });
 
   const AUTO_SCROLL_AT_BOTTOM_THRESHOLD = 10;
@@ -2973,7 +2975,7 @@
           </form>
         </div>
 
-        <div class="llama-build-meta" title="Frontend version, branch, and commit">{sidebarBuildLabel}</div>
+        <div class="llama-build-meta" title="Frontend version, branch, commit, and build date">{sidebarBuildLabel}</div>
       </div>
     </aside>
 
