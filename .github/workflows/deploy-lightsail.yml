@@ -1,0 +1,131 @@
+name: Deploy Lightsail webui
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-push-deploy:
+    runs-on: ubuntu-latest
+    env:
+      AWS_REGION: us-east-2
+      ECR_REGISTRY: 639340219210.dkr.ecr.us-east-2.amazonaws.com
+      ECR_REPOSITORY: webui
+      LIGHTSAIL_SERVICE: webui
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set image tag (America/Chicago)
+        id: tag
+        run: |
+          VERSION=$(TZ='America/Chicago' date +D%y%m%dT%H%M%S | sed 's/[^a-zA-Z0-9]/_/g' | tr '[:upper:]' '[:lower:]')
+          IMAGE_TAG="webui-${VERSION}"
+          echo "image_tag=${IMAGE_TAG}" >> "$GITHUB_OUTPUT"
+          echo "full_image=${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}" >> "$GITHUB_OUTPUT"
+          echo "Using image tag ${IMAGE_TAG}"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: service/frontend/Dockerfile
+          target: final
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.tag.outputs.full_image }}
+
+      - name: Deploy to Lightsail Containers
+        env:
+          FULL_IMAGE: ${{ steps.tag.outputs.full_image }}
+        run: |
+          set -euo pipefail
+          aws lightsail get-container-services \
+            --service-name "$LIGHTSAIL_SERVICE" \
+            --region "$AWS_REGION" \
+            --query 'containerServices[0].currentDeployment' \
+            --output json > /tmp/current-deployment.json
+
+          python3 <<'PY'
+          import json, os, subprocess, tempfile
+          cur = json.load(open("/tmp/current-deployment.json"))
+          webui = cur["containers"]["webui"]
+          containers = {
+            "webui": {
+              "image": os.environ["FULL_IMAGE"],
+              "command": webui.get("command") or [],
+              "environment": webui.get("environment") or {},
+              "ports": webui.get("ports") or {"3000": "HTTP"},
+            }
+          }
+          public_endpoint = cur.get("publicEndpoint") or {
+            "containerName": "webui",
+            "containerPort": 3000,
+            "healthCheck": {"path": "/login", "successCodes": "200-399"},
+          }
+          payload = {"containers": containers, "publicEndpoint": public_endpoint}
+          path = "/tmp/new-deployment.json"
+          json.dump(payload, open(path, "w"))
+          print("Deploying image:", os.environ["FULL_IMAGE"])
+          subprocess.check_call([
+            "aws", "lightsail", "create-container-service-deployment",
+            "--service-name", os.environ["LIGHTSAIL_SERVICE"],
+            "--region", os.environ["AWS_REGION"],
+            "--cli-input-json", json.dumps({
+              "serviceName": os.environ["LIGHTSAIL_SERVICE"],
+              "containers": containers,
+              "publicEndpoint": public_endpoint,
+            }),
+          ])
+          PY
+
+      - name: Wait for deployment ACTIVE
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 60); do
+            STATE=$(aws lightsail get-container-services \
+              --service-name "$LIGHTSAIL_SERVICE" \
+              --region "$AWS_REGION" \
+              --query 'containerServices[0].currentDeployment.state' \
+              --output text)
+            VERSION=$(aws lightsail get-container-services \
+              --service-name "$LIGHTSAIL_SERVICE" \
+              --region "$AWS_REGION" \
+              --query 'containerServices[0].currentDeployment.version' \
+              --output text)
+            IMAGE=$(aws lightsail get-container-services \
+              --service-name "$LIGHTSAIL_SERVICE" \
+              --region "$AWS_REGION" \
+              --query 'containerServices[0].currentDeployment.containers.webui.image' \
+              --output text)
+            echo "attempt=$i state=$STATE version=$VERSION image=$IMAGE"
+            if [[ "$STATE" == "ACTIVE" && "$IMAGE" == "${{ steps.tag.outputs.full_image }}" ]]; then
+              echo "Deploy ACTIVE"
+              exit 0
+            fi
+            if [[ "$STATE" == "FAILED" ]]; then
+              echo "Deploy FAILED" >&2
+              exit 1
+            fi
+            sleep 15
+          done
+          echo "Timed out waiting for ACTIVE" >&2
+          exit 1
