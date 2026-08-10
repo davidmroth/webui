@@ -179,10 +179,26 @@
       : buildInfo?.gitCommit
         ? String(buildInfo.gitCommit).slice(0, 7)
         : 'n/a';
-    const buildTime = buildInfo?.buildTime ? String(buildInfo.buildTime) : '';
-    const dateLabel = buildTime.match(/^(\d{4}-\d{2}-\d{2})/)?.[1] ?? null;
+    const buildTimeRaw = buildInfo?.buildTime ? String(buildInfo.buildTime) : '';
+    const buildTimeMs = buildTimeRaw ? Date.parse(buildTimeRaw) : Number.NaN;
+    const buildTimeLabel = Number.isFinite(buildTimeMs)
+      ? (() => {
+          const builtAt = new Date(buildTimeMs);
+          const datePart = [
+            builtAt.getFullYear(),
+            String(builtAt.getMonth() + 1).padStart(2, '0'),
+            String(builtAt.getDate()).padStart(2, '0')
+          ].join('-');
+          const timePart = builtAt.toLocaleTimeString([], {
+            hour: use24HourTime ? '2-digit' : 'numeric',
+            minute: '2-digit',
+            hour12: !use24HourTime
+          });
+          return `${datePart} · ${timePart}`;
+        })()
+      : null;
     const base = `${versionLabel} · ${branch} · ${commit}`;
-    return dateLabel ? `${base} · ${dateLabel}` : base;
+    return buildTimeLabel ? `${base} · ${buildTimeLabel}` : base;
   });
 
   const AUTO_SCROLL_AT_BOTTOM_THRESHOLD = 10;
@@ -2975,7 +2991,7 @@
           </form>
         </div>
 
-        <div class="llama-build-meta" title="Frontend version, branch, commit, and build date">{sidebarBuildLabel}</div>
+        <div class="llama-build-meta" title="Frontend version, branch, commit, and local build time">{sidebarBuildLabel}</div>
       </div>
     </aside>
 
