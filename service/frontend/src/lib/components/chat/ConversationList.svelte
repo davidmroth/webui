@@ -1,7 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { Download, MoreHorizontal, SquarePen, Trash2 } from '@lucide/svelte';
+  import { Download, Link, MoreHorizontal, SquarePen, Trash2 } from '@lucide/svelte';
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
+  import { copyConversationLink } from '$lib/services/conversation-link';
   import type { ConversationSummary } from '$lib/types-legacy';
 
   interface Props {
@@ -37,7 +38,7 @@
   let visibleCount = $state<number>(30);
   let intersectionObserver: IntersectionObserver | null = null;
 
-  const hasRowActions = $derived(Boolean(onEdit || onExport || onDelete));
+  const hasRowActions = $derived(true);
   const progressiveEnabled = $derived(progressiveLoad && conversations.length > initialRenderCount);
   const visibleConversations = $derived.by(() => {
     if (!progressiveEnabled) {
@@ -180,6 +181,15 @@
                   </DropdownMenu.Item>
                 {/if}
 
+                <DropdownMenu.Item
+                  class="llama-conversation-menu-item"
+                  disabled={busyConversationId === conversation.id}
+                  onclick={() => void copyConversationLink(conversation)}
+                >
+                  <Link class="h-4 w-4" />
+                  <span>Copy link</span>
+                </DropdownMenu.Item>
+
                 {#if onExport}
                   <DropdownMenu.Item
                     class="llama-conversation-menu-item"
@@ -192,9 +202,7 @@
                 {/if}
 
                 {#if onDelete}
-                  {#if onEdit || onExport}
-                    <DropdownMenu.Separator />
-                  {/if}
+                  <DropdownMenu.Separator />
                   <DropdownMenu.Item
                     class="llama-conversation-menu-item llama-conversation-menu-item--danger"
                     disabled={busyConversationId === conversation.id}
