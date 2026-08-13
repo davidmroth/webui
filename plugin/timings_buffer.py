@@ -118,6 +118,8 @@ def _to_mapping(value: Any) -> Optional[dict[str, Any]]:
         except Exception:
             pass
     extra = getattr(value, "model_extra", None)
+    if extra is None:
+        extra = getattr(value, "__pydantic_extra__", None)
     raw_dict = getattr(value, "__dict__", None)
     if isinstance(extra, dict) and extra:
         merged = dict(extra)
