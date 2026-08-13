@@ -41,3 +41,26 @@ test('readTimingSummary uses uncached tokens when no cache is reported', () => {
 	assert.equal(summary.cacheTokens, null);
 	assert.equal(summary.promptTokensPerSecond, 988 / 1.34);
 });
+
+test('readTimingSummary parses hermes_timings fingerprint (llama.cpp)', () => {
+	const summary = readTimingSummary({
+		system_fingerprint: 'hermes_timings:prompt_ms=42,predicted_ms=80,predicted_n=20,prompt_n=100'
+	});
+	assert.equal(summary.promptMs, 42);
+	assert.equal(summary.generatedMs, 80);
+	assert.equal(summary.generatedTokens, 20);
+	assert.equal(summary.promptTokens, 100);
+});
+
+test('readTimingSummary still reads lucebox keys after fingerprint support', () => {
+	const summary = readTimingSummary({
+		prefill_ms: 55,
+		decode_ms: 120,
+		decode_tokens_per_sec: 40,
+		prompt_n: 10,
+		predicted_n: 8
+	});
+	assert.equal(summary.promptMs, 55);
+	assert.equal(summary.generatedMs, 120);
+	assert.equal(summary.generatedTokensPerSecond, 40);
+});

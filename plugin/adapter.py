@@ -1356,6 +1356,15 @@ def register(ctx):
     tools_mod = _load(tools_name, tools_path)
     hooks_mod = _load(hooks_name, hooks_path)
     tools_mod.register_tools(ctx)
+    timings_path = plugin_dir / "timings_buffer.py"
+    if timings_path.exists():
+        try:
+            timings_mod = _load("webui_plugin_timings_buffer", timings_path)
+            ctx.register_hook("post_api_request", timings_mod.on_post_api_request)
+        except Exception as exc:
+            logging.getLogger(__name__).warning(
+                "WebUI timings_buffer hook not registered: %s", exc
+            )
     ctx.register_platform(
         name="webchat",
         label="WebChat",
