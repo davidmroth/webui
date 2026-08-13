@@ -67,6 +67,20 @@ test('readTimingSummary uses matching rates when no cache is reported', () => {
 	assert.equal(summary.effectivePromptTokensPerSecond, 988 / 1.34);
 });
 
+test('readTimingSummary reads llama.cpp fingerprint backup', () => {
+	const summary = readTimingSummary({
+		system_fingerprint:
+			'hermes_timings:prompt_ms=1500,predicted_ms=700,predicted_n=20,prompt_n=400',
+		predicted_n: 20,
+		prompt_n: 400
+	});
+
+	assert.equal(summary.promptMs, 1500);
+	assert.equal(summary.generatedMs, 700);
+	assert.equal(summary.generatedTokens, 20);
+	assert.equal(summary.promptTokens, 400);
+});
+
 test('readTimingSummary reads prefill_ms as prompt time, not TTFT', () => {
 	const summary = readTimingSummary({
 		usage: {

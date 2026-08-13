@@ -41,6 +41,29 @@ function toRecord(value: unknown): Record<string, unknown> | null {
   return value as Record<string, unknown>;
 }
 
+const FINGERPRINT_PREFIX = 'hermes_timings:';
+
+function parseTimingsFingerprint(raw: unknown): Record<string, unknown> | null {
+  if (typeof raw !== 'string' || !raw.includes(FINGERPRINT_PREFIX)) {
+    return null;
+  }
+  const blob = raw.slice(raw.indexOf(FINGERPRINT_PREFIX) + FINGERPRINT_PREFIX.length);
+  const out: Record<string, unknown> = {};
+  for (const part of blob.split(',')) {
+    const eq = part.indexOf('=');
+    if (eq <= 0) {
+      continue;
+    }
+    const key = part.slice(0, eq).trim();
+    const num = Number(part.slice(eq + 1));
+    if (!key || !Number.isFinite(num)) {
+      continue;
+    }
+    out[key] = num;
+  }
+  return Object.keys(out).length ? out : null;
+}
+
 function collectTimingScopes(value: unknown): Array<Record<string, unknown>> {
   const scopes: Array<Record<string, unknown>> = [];
   const seen = new Set<Record<string, unknown>>();
@@ -62,11 +85,14 @@ function collectTimingScopes(value: unknown): Array<Record<string, unknown>> {
 
   push(root);
   push(root.timings);
+  push(root._hermes_timings);
+  push(parseTimingsFingerprint(root.system_fingerprint));
   push(root.usage);
 
   const usage = toRecord(root.usage);
   if (usage) {
     push(usage.timings);
+    push(parseTimingsFingerprint(usage.system_fingerprint));
   }
 
   const verbose = toRecord(root.__verbose);

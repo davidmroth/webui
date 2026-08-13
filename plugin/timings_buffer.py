@@ -152,6 +152,33 @@ def _first_int(source: Mapping[str, Any], keys: tuple[str, ...]) -> int:
     return int(val)
 
 
+_FINGERPRINT_PREFIX = "hermes_timings:"
+
+
+def decode_timings_fingerprint(raw: Any) -> Optional[dict[str, Any]]:
+    """Parse proxy-stamped ``system_fingerprint`` timings backup."""
+    if not isinstance(raw, str) or _FINGERPRINT_PREFIX not in raw:
+        return None
+    blob = raw[raw.find(_FINGERPRINT_PREFIX) + len(_FINGERPRINT_PREFIX) :]
+    out: dict[str, Any] = {}
+    for part in blob.split(","):
+        if "=" not in part:
+            continue
+        key, _, value = part.partition("=")
+        key = key.strip()
+        if not key:
+            continue
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError):
+            continue
+        if key.endswith("_n") or key in {"cache_n", "prefix_len"}:
+            out[key] = int(numeric)
+        else:
+            out[key] = numeric
+    return out or None
+
+
 def extract_timings_from_api_response(
     response: Any,
     *,
@@ -160,13 +187,24 @@ def extract_timings_from_api_response(
 ) -> Optional[dict[str, Any]]:
     """Normalize one engine/proxy timings payload from a chat-completions response."""
     response_map = _to_mapping(response) or {}
-    usage_map = _to_mapping(usage) or _to_mapping(response_map.get("usage")) or {}
+    hook_usage = _to_mapping(usage) or {}
+    response_usage = _to_mapping(response_map.get("usage")) or {}
     raw_usage = getattr(response, "usage", None) if response is not None else None
-    if raw_usage is not None and not usage_map:
-        usage_map = _to_mapping(raw_usage) or {}
+    if raw_usage is not None and not response_usage:
+        response_usage = _to_mapping(raw_usage) or {}
+    # Hermes hook usage is often token-only; prefer response-side usage/timings.
+    usage_map = dict(hook_usage)
+    usage_map.update(response_usage)
     usage_extra = getattr(raw_usage, "model_extra", None) if raw_usage is not None else None
     if not isinstance(usage_extra, dict):
         usage_extra = {}
+
+    fingerprint = decode_timings_fingerprint(
+        response_map.get("system_fingerprint")
+        or getattr(response, "system_fingerprint", None)
+        or usage_map.get("system_fingerprint")
+        or usage_extra.get("system_fingerprint")
+    )
 
     raw_timings: Optional[dict[str, Any]] = None
     for candidate in (
@@ -174,6 +212,7 @@ def extract_timings_from_api_response(
         usage_map.get("timings"),
         usage_extra.get("timings"),
         getattr(response, "timings", None) if response is not None else None,
+        fingerprint,
     ):
         if isinstance(candidate, dict) and candidate:
             raw_timings = dict(candidate)

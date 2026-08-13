@@ -269,6 +269,45 @@ class TimingsBufferTests(unittest.TestCase):
         self.assertEqual(timings.get("predicted_n"), 7)
         sys.modules.pop(name, None)
 
+    def test_extract_llamacpp_usage_timings(self) -> None:
+        response = {
+            "usage": {
+                "prompt_tokens": 900,
+                "completion_tokens": 40,
+                "timings": {
+                    "prompt_ms": 1200.0,
+                    "predicted_ms": 800.0,
+                    "predicted_per_second": 50.0,
+                    "ttft_ms": 210.0,
+                    "cache_n": 100,
+                },
+            }
+        }
+        out = extract_timings_from_api_response(
+            response, usage={"prompt_tokens": 900, "completion_tokens": 40}
+        )
+        self.assertIsNotNone(out)
+        assert out is not None
+        self.assertEqual(out["prompt_ms"], 1200.0)
+        self.assertEqual(out["predicted_ms"], 800.0)
+        self.assertEqual(out["predicted_per_second"], 50.0)
+        self.assertEqual(out["ttft_ms"], 210.0)
+        self.assertEqual(out["cache_n"], 100)
+
+    def test_extract_from_system_fingerprint(self) -> None:
+        response = {
+            "system_fingerprint": "hermes_timings:prompt_ms=1500,predicted_ms=700,predicted_n=20,prompt_n=400",
+            "usage": {"prompt_tokens": 400, "completion_tokens": 20},
+        }
+        out = extract_timings_from_api_response(
+            response, usage={"prompt_tokens": 400, "completion_tokens": 20}
+        )
+        self.assertIsNotNone(out)
+        assert out is not None
+        self.assertEqual(out["prompt_ms"], 1500.0)
+        self.assertEqual(out["predicted_ms"], 700.0)
+        self.assertEqual(out["predicted_n"], 20)
+
 
 if __name__ == "__main__":
     unittest.main()
