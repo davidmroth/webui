@@ -4,6 +4,8 @@ services:
       context: .
       dockerfile: service/frontend/Dockerfile
       target: base
+      args:
+        FRONTEND_CACHEBUST: ${FRONTEND_CACHEBUST:-unknown}
     restart: always
     command: yarn dev
     working_dir: /app

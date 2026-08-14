@@ -52,6 +52,8 @@ jobs:
           platforms: linux/amd64
           push: true
           tags: ${{ steps.tag.outputs.full_image }}
+          build-args: |
+            FRONTEND_CACHEBUST=${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Deploy to Lightsail Containers
         env:

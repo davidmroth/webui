@@ -33,8 +33,10 @@ WORKDIR /app
 
 COPY ./service/frontend/package.json ./service/frontend/yarn.lock ./
 RUN corepack enable && yarn install --frozen-lockfile
+# Bust only the source+build layers so yarn install stays cached.
+ARG FRONTEND_CACHEBUST=unknown
 COPY ./service/frontend .
-RUN yarn build
+RUN echo "FRONTEND_CACHEBUST=${FRONTEND_CACHEBUST}" && yarn build
 
 
 #

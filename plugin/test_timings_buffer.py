@@ -49,8 +49,11 @@ class TimingsBufferTests(unittest.TestCase):
         self.assertEqual(out["prompt_n"], 1200)
         self.assertEqual(out["predicted_n"], 300)
         self.assertEqual(out["prompt_ms"], 5200.0)
+        self.assertEqual(out["prefill_ms"], 5200.0)
         self.assertEqual(out["predicted_ms"], 4100.0)
+        self.assertEqual(out["decode_ms"], 4100.0)
         self.assertEqual(out["predicted_per_second"], 11.4)
+        self.assertEqual(out["decode_tokens_per_sec"], 11.4)
         self.assertEqual(out["ttft_ms"], 900.0)
         self.assertEqual(out["cache_n"], 800)
         self.assertEqual(out["effective_prompt_per_second"], round(1200 / 5.2, 3))
@@ -266,6 +269,18 @@ class TimingsBufferTests(unittest.TestCase):
         }
         stripped_usage = {"prompt_tokens": 80, "completion_tokens": 12}
         out = extract_timings_from_api_response(response, usage=stripped_usage)
+        self.assertIsNotNone(out)
+        assert out is not None
+        self.assertEqual(out["prompt_ms"], 900.0)
+        self.assertEqual(out["predicted_ms"], 400.0)
+
+    def test_extract_from_id_when_native_system_fingerprint_present(self) -> None:
+        response = {
+            "id": "chatcmpl-abc hermes_timings:prompt_ms=900,predicted_ms=400,prompt_n=80,predicted_n=12",
+            "system_fingerprint": "bge-something-native",
+            "usage": {"prompt_tokens": 80, "completion_tokens": 12},
+        }
+        out = extract_timings_from_api_response(response)
         self.assertIsNotNone(out)
         assert out is not None
         self.assertEqual(out["prompt_ms"], 900.0)

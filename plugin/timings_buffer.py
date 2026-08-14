@@ -205,14 +205,18 @@ def extract_timings_from_api_response(
         if part:
             usage_map.update(part)
 
-    fingerprint_timings = decode_timings_fingerprint(
-        response_map.get("system_fingerprint")
-        or response_map.get("id")
-        or usage_map.get("system_fingerprint")
-        or usage_map.get("id")
-        or getattr(response, "system_fingerprint", None)
-        or getattr(response, "id", None)
-    )
+    fingerprint_timings = None
+    for candidate in (
+        response_map.get("system_fingerprint"),
+        response_map.get("id"),
+        usage_map.get("system_fingerprint"),
+        usage_map.get("id"),
+        getattr(response, "system_fingerprint", None),
+        getattr(response, "id", None),
+    ):
+        fingerprint_timings = decode_timings_fingerprint(candidate)
+        if fingerprint_timings:
+            break
 
     raw_timings: Optional[dict[str, Any]] = None
     for candidate in (
@@ -220,7 +224,6 @@ def extract_timings_from_api_response(
         usage_map.get("timings"),
         usage_extra.get("timings"),
         getattr(response, "timings", None) if response is not None else None,
-        fingerprint_timings,
     ):
         if isinstance(candidate, dict) and candidate:
             raw_timings = dict(candidate)
@@ -229,6 +232,11 @@ def extract_timings_from_api_response(
         if isinstance(mapped, dict) and mapped:
             raw_timings = dict(mapped)
             break
+    if fingerprint_timings:
+        merged_fp = dict(fingerprint_timings)
+        if raw_timings:
+            merged_fp.update(raw_timings)
+        raw_timings = merged_fp
 
     prompt_n = _first_int(
         raw_timings or usage_map,
@@ -313,8 +321,10 @@ def extract_timings_from_api_response(
         out["cache_n"] = cache_n
     if prompt_ms is not None:
         out["prompt_ms"] = round(prompt_ms, 3)
+        out["prefill_ms"] = round(prompt_ms, 3)
     if predicted_ms is not None:
         out["predicted_ms"] = round(predicted_ms, 3)
+        out["decode_ms"] = round(predicted_ms, 3)
     if ttft_ms is not None:
         out["ttft_ms"] = round(ttft_ms, 3)
     if prompt_ms and prompt_n > 0:
@@ -328,8 +338,11 @@ def extract_timings_from_api_response(
         out["prompt_per_second"] = round(prompt_per_second, 3)
     if predicted_per_second is not None:
         out["predicted_per_second"] = round(predicted_per_second, 3)
+        out["decode_tokens_per_sec"] = round(predicted_per_second, 3)
     elif predicted_ms and predicted_n > 0:
-        out["predicted_per_second"] = round(predicted_n / (predicted_ms / 1000.0), 3)
+        tps = round(predicted_n / (predicted_ms / 1000.0), 3)
+        out["predicted_per_second"] = tps
+        out["decode_tokens_per_sec"] = tps
 
     return out
 
@@ -365,6 +378,11 @@ def _merge_timings(existing: dict[str, Any], new: Mapping[str, Any]) -> dict[str
         merged["actual_prompt_per_second"] = actual
     if predicted_ms > 0 and predicted_n > 0:
         merged["predicted_per_second"] = round(predicted_n / (predicted_ms / 1000.0), 3)
+        merged["decode_tokens_per_sec"] = merged["predicted_per_second"]
+    if prompt_ms > 0:
+        merged["prefill_ms"] = merged["prompt_ms"]
+    if predicted_ms > 0:
+        merged["decode_ms"] = merged["predicted_ms"]
 
     api_calls = int(merged.get("api_calls") or 0)
     merged["agentic"] = {

@@ -278,13 +278,19 @@
     const generatedTokens = summary.generatedTokens;
     const generatedMs = summary.generatedMs;
 
-    // Need at least the generation side to surface anything meaningful.
-    if (generatedTokens == null || generatedMs == null || generatedMs <= 0) {
+    // Need generation tokens plus either duration or throughput (llama.cpp
+    // sometimes ships predicted_per_second without predicted_ms).
+    const generatedTps = summary.generatedTokensPerSecond;
+    if (generatedTokens == null) {
+      return null;
+    }
+    const hasDuration = generatedMs != null && generatedMs > 0;
+    if (!hasDuration && (generatedTps == null || generatedTps <= 0)) {
       return null;
     }
 
     const promptSeconds = promptMs != null && promptMs > 0 ? promptMs / 1000 : null;
-    const generatedSeconds = generatedMs / 1000;
+    const generatedSeconds = hasDuration ? generatedMs / 1000 : null;
 
     return {
       promptTokens,
@@ -293,7 +299,7 @@
       cacheTokens: summary.cacheTokens,
       generatedTokens,
       generatedSeconds,
-      generatedTokensPerSecond: summary.generatedTokensPerSecond ?? 0
+      generatedTokensPerSecond: generatedTps ?? (hasDuration ? generatedTokens / (generatedMs / 1000) : 0)
     };
   }
 
