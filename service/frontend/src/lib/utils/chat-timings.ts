@@ -80,12 +80,15 @@ function collectTimingScopes(value: unknown): Array<Record<string, unknown>> {
   push(root.timings);
   push(root._hermes_timings);
   push(root.usage);
+  // Proxy may stamp hermes_timings on system_fingerprint or on id (llama.cpp chunks).
   push(parseTimingsFingerprint(root.system_fingerprint));
+  push(parseTimingsFingerprint(root.id));
 
   const usage = toRecord(root.usage);
   if (usage) {
     push(usage.timings);
     push(parseTimingsFingerprint(usage.system_fingerprint));
+    push(parseTimingsFingerprint(usage.id));
   }
 
   const verbose = toRecord(root.__verbose);

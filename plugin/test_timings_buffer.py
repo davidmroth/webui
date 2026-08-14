@@ -259,6 +259,18 @@ class TimingsBufferTests(unittest.TestCase):
         self.assertEqual(out["prompt_ms"], 700.0)
         self.assertEqual(out["predicted_ms"], 250.0)
 
+    def test_extract_from_id_fingerprint(self) -> None:
+        response = {
+            "id": "hermes_timings:prompt_ms=900,predicted_ms=400,prompt_n=80,predicted_n=12,cache_n=10",
+            "usage": {"prompt_tokens": 80, "completion_tokens": 12},
+        }
+        stripped_usage = {"prompt_tokens": 80, "completion_tokens": 12}
+        out = extract_timings_from_api_response(response, usage=stripped_usage)
+        self.assertIsNotNone(out)
+        assert out is not None
+        self.assertEqual(out["prompt_ms"], 900.0)
+        self.assertEqual(out["predicted_ms"], 400.0)
+
     def test_extract_from_system_fingerprint(self) -> None:
         response = {
             "system_fingerprint": "hermes_timings:prompt_ms=900,predicted_ms=400,prompt_n=80,predicted_n=12,cache_n=10",

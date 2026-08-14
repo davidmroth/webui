@@ -207,8 +207,11 @@ def extract_timings_from_api_response(
 
     fingerprint_timings = decode_timings_fingerprint(
         response_map.get("system_fingerprint")
+        or response_map.get("id")
         or usage_map.get("system_fingerprint")
+        or usage_map.get("id")
         or getattr(response, "system_fingerprint", None)
+        or getattr(response, "id", None)
     )
 
     raw_timings: Optional[dict[str, Any]] = None
