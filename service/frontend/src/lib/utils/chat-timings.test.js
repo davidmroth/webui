@@ -114,3 +114,43 @@ test('readTimingSummary ignores implausible sub-50ms prefill on large prompts', 
 	assert.equal(summary.actualPromptTokensPerSecond, null);
 	assert.equal(resolvePrefillMs(summary), null);
 });
+
+test('readTimingSummary reads accept_rate as MTP hit fraction', () => {
+	const summary = readTimingSummary({
+		prompt_n: 100,
+		prompt_ms: 200,
+		predicted_n: 40,
+		predicted_ms: 800,
+		accept_rate: 0.196
+	});
+
+	assert.equal(summary.acceptRate, 0.196);
+});
+
+test('readTimingSummary normalizes draft_accept_pct to 0..1', () => {
+	const summary = readTimingSummary({
+		usage: {
+			timings: {
+				prefill_ms: 200,
+				decode_ms: 800,
+				draft_accept_pct: 19.6
+			}
+		},
+		predicted_n: 40,
+		predicted_ms: 800
+	});
+
+	assert.equal(summary.acceptRate, 0.196);
+});
+
+test('readTimingSummary omits zero accept_rate', () => {
+	const summary = readTimingSummary({
+		prompt_n: 50,
+		prompt_ms: 100,
+		predicted_n: 10,
+		predicted_ms: 200,
+		accept_rate: 0
+	});
+
+	assert.equal(summary.acceptRate, null);
+});

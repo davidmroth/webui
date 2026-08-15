@@ -238,6 +238,87 @@ class TimingsBufferTests(unittest.TestCase):
         self.assertEqual(out["predicted_ms"], 900.0)
         self.assertEqual(out["predicted_per_second"], 44.0)
 
+    def test_extract_accept_rate_from_timings(self) -> None:
+        response = {
+            "usage": {
+                "prompt_tokens": 100,
+                "completion_tokens": 40,
+                "timings": {
+                    "prefill_ms": 200.0,
+                    "decode_ms": 800.0,
+                    "accept_rate": 0.196,
+                },
+            }
+        }
+        out = extract_timings_from_api_response(response)
+        self.assertIsNotNone(out)
+        assert out is not None
+        self.assertEqual(out["accept_rate"], 0.196)
+
+    def test_extract_normalizes_draft_accept_pct(self) -> None:
+        response = {
+            "usage": {
+                "prompt_tokens": 100,
+                "completion_tokens": 40,
+                "timings": {
+                    "prefill_ms": 200.0,
+                    "decode_ms": 800.0,
+                    "draft_accept_pct": 19.6,
+                },
+            }
+        }
+        out = extract_timings_from_api_response(response)
+        self.assertIsNotNone(out)
+        assert out is not None
+        self.assertAlmostEqual(out["accept_rate"], 0.196)
+
+    def test_merge_token_weights_accept_rate(self) -> None:
+        session_id = "cron_a1b2c3_20260804_120000"
+        record_api_timings(
+            session_id=session_id,
+            platform="cron",
+            response={
+                "usage": {
+                    "prompt_tokens": 100,
+                    "completion_tokens": 10,
+                    "timings": {
+                        "prefill_ms": 100.0,
+                        "decode_ms": 200.0,
+                        "accept_rate": 0.10,
+                    },
+                }
+            },
+        )
+        record_api_timings(
+            session_id=session_id,
+            platform="cron",
+            response={
+                "usage": {
+                    "prompt_tokens": 100,
+                    "completion_tokens": 30,
+                    "timings": {
+                        "prefill_ms": 100.0,
+                        "decode_ms": 600.0,
+                        "accept_rate": 0.30,
+                    },
+                }
+            },
+        )
+        content = (
+            "Cronjob Response: Accept Merge\n"
+            "(job_id: a1b2c3)\n"
+            "-------------\n"
+            "Done"
+        )
+        metadata = enrich_send_metadata(content, None)
+        self.assertIsNotNone(metadata)
+        assert metadata is not None
+        timings = metadata.get("timings")
+        self.assertIsInstance(timings, dict)
+        assert isinstance(timings, dict)
+        # (0.10*10 + 0.30*30) / 40 = 0.25
+        self.assertAlmostEqual(float(timings.get("accept_rate") or 0), 0.25)
+
     def test_shared_state_survives_dual_module_load(self) -> None:
         """Hook and adapter historically imported this file under different names."""
         import importlib.util

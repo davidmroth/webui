@@ -71,6 +71,9 @@ export interface ChatMessageTimings {
 	prompt_eval_duration?: number;
 	ttft_ms?: number;
 	ttfb_ms?: number;
+	accept_rate?: number;
+	mtp_hit_rate?: number;
+	draft_accept_pct?: number;
 	prefill_ms?: number;
 	eval_count?: number;
 	eval_duration?: number;

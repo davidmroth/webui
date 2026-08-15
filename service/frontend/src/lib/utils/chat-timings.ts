@@ -15,6 +15,11 @@ export interface TimingSummary {
   generatedMs: number | null;
   generatedTokensPerSecond: number | null;
   ttftMs: number | null;
+  /**
+   * Speculative / MTP draft accept rate as a fraction 0..1
+   * (accepted / offered). Null when absent or AR-only.
+   */
+  acceptRate: number | null;
   contextUsed: number | null;
   contextTotal: number | null;
   outputMax: number | null;
@@ -282,6 +287,18 @@ export function readTimingSummary(value: unknown): TimingSummary {
     'time_to_first_token_ms',
     'ttfb_ms'
   ]);
+  let acceptRate = readTimingNumber(value, [
+    'accept_rate',
+    'mtp_hit_rate',
+    'draft_accept_pct'
+  ]);
+  // draft_accept_pct is already a percentage (0-100); normalize to 0-1.
+  if (acceptRate != null && acceptRate > 1) {
+    acceptRate = acceptRate / 100;
+  }
+  if (acceptRate != null && acceptRate <= 0) {
+    acceptRate = null;
+  }
   const contextUsed =
     explicitContextUsed ??
     (promptTokens != null ? promptTokens : null);
@@ -297,6 +314,7 @@ export function readTimingSummary(value: unknown): TimingSummary {
     generatedMs,
     generatedTokensPerSecond,
     ttftMs,
+    acceptRate,
     contextUsed,
     contextTotal,
     outputMax

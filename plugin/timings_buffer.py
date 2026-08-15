@@ -261,6 +261,13 @@ def extract_timings_from_api_response(
         raw_timings or {},
         ("prompt_per_second",),
     )
+    accept_rate = _first_number(
+        raw_timings or usage_map,
+        ("accept_rate", "draft_accept_pct", "mtp_hit_rate"),
+    )
+    # draft_accept_pct is already a percentage (0-100); normalize to 0-1.
+    if accept_rate is not None and accept_rate > 1.0:
+        accept_rate = accept_rate / 100.0
 
     if prompt_n == 0 and predicted_n == 0 and not raw_timings:
         prompt_n = _first_int(usage_map, ("prompt_tokens", "input_tokens"))
@@ -324,6 +331,8 @@ def extract_timings_from_api_response(
         out["predicted_per_second"] = round(predicted_per_second, 3)
     elif predicted_ms and predicted_n > 0:
         out["predicted_per_second"] = round(predicted_n / (predicted_ms / 1000.0), 3)
+    if accept_rate is not None and accept_rate > 0:
+        out["accept_rate"] = round(float(accept_rate), 4)
 
     return out
 
@@ -343,6 +352,21 @@ def _merge_timings(existing: dict[str, Any], new: Mapping[str, Any]) -> dict[str
 
     if "ttft_ms" not in merged and new.get("ttft_ms") is not None:
         merged["ttft_ms"] = new["ttft_ms"]
+
+    # Token-weighted average of per-call accept rates across merged API calls.
+    new_rate = new.get("accept_rate")
+    if new_rate is not None and float(new_rate) > 0:
+        new_pred = max(int(new.get("predicted_n") or 0), 1)
+        old_rate = merged.get("accept_rate")
+        old_pred = max(int(existing.get("predicted_n") or 0), 0)
+        if old_rate is not None and old_pred > 0:
+            merged["accept_rate"] = round(
+                (float(old_rate) * old_pred + float(new_rate) * new_pred)
+                / (old_pred + new_pred),
+                4,
+            )
+        else:
+            merged["accept_rate"] = round(float(new_rate), 4)
 
     prompt_n = int(merged.get("prompt_n") or 0)
     predicted_n = int(merged.get("predicted_n") or 0)

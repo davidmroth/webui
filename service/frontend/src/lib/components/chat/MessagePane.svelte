@@ -35,6 +35,7 @@
     generatedTokens: number;
     generatedSeconds: number;
     generatedTokensPerSecond: number;
+    acceptRate: number | null;
   }
 
   interface Props {
@@ -337,7 +338,8 @@
       ttftSeconds,
       generatedTokens,
       generatedSeconds,
-      generatedTokensPerSecond: summary.generatedTokensPerSecond ?? 0
+      generatedTokensPerSecond: summary.generatedTokensPerSecond ?? 0,
+      acceptRate: summary.acceptRate
     };
   }
 
@@ -744,6 +746,17 @@
                             >
                               <Zap class="h-3 w-3" />
                               <span>TTFT {formatDuration(stats.ttftSeconds)}</span>
+                            </div>
+                          {/if}
+                        </div>
+                        <div class="assistant-stats-metric-cell">
+                          {#if stats.acceptRate != null}
+                            <div
+                              class="assistant-stat-chip"
+                              title="MTP / speculative draft accept rate (accepted ÷ offered)"
+                            >
+                              <BarChart2 class="h-3 w-3" />
+                              <span>MTP {Math.round(stats.acceptRate * 100)}%</span>
                             </div>
                           {/if}
                         </div>

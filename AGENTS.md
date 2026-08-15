@@ -18,3 +18,24 @@ Always follow the instructions in `./repo_guidelines`. This repo uses Docker Com
 
 ## Always adhear to the following principles:
 ./repo_guidelines/donotdo.md
+
+## Lightsail deploy (OpenCode agent)
+
+Platform Docker/AWS rules live in the OpenCode **global** `AGENTS.md` (AWS CLI via `amazon/aws-cli` container + filtered docker proxy). In this repo:
+
+1. Put the temporary `/tmp/bin/aws` wrapper on `PATH` (see global AGENTS.md).
+2. `jq` is already available in the OpenCode agent image.
+3. Build, push, and deploy:
+
+```bash
+cd /data/projects/ai/webui   # or this repo root when already cwd
+./infra/deploy/lightsail.sh -bpz --config deploy.conf --compose-service webui --service webui
+```
+
+Local compose (LAN Hermes WebUI) when needed:
+
+```bash
+docker compose up -d --build webui
+```
+
+Do not invent alternate deploy hosts or raw-socket workarounds — report the actual docker/aws error.
