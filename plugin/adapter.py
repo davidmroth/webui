@@ -1796,8 +1796,16 @@ def register(ctx):
     tools_mod = _load(tools_name, tools_path)
     hooks_mod = _load(hooks_name, hooks_path)
     timings_mod = _load("webui_plugin_timings_buffer", plugin_dir / "timings_buffer.py")
+    briefing_notifications_mod = _load(
+        "webui_plugin_briefing_notifications",
+        plugin_dir / "briefing_notifications.py",
+    )
     tools_mod.register_tools(ctx)
     ctx.register_hook("post_api_request", timings_mod.on_post_api_request)
+    ctx.register_hook(
+        "post_tool_call",
+        briefing_notifications_mod.on_post_tool_call,
+    )
     ctx.register_platform(
         name="webchat",
         label="WebChat",

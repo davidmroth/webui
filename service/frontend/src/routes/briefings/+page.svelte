@@ -1,8 +1,9 @@
 <script lang="ts">
   import { browser } from '$app/environment';
   import { enhance } from '$app/forms';
-  import { invalidateAll } from '$app/navigation';
+  import { invalidate, invalidateAll } from '$app/navigation';
   import { base } from '$app/paths';
+  import { startBriefingArchiveStream } from '$lib/services/briefing-archive';
   import { estimateBriefingRenderProgress, fetchBriefingPreview } from '$lib/services/briefing-preview';
   import type { BriefingPreview } from '$lib/types/briefing';
   import { ArrowLeft, Trash2 } from '@lucide/svelte';
@@ -234,6 +235,19 @@
       document.removeEventListener('visibilitychange', refresh);
       window.removeEventListener('focus', refresh);
     };
+  });
+
+  $effect(() => {
+    if (!browser) {
+      return;
+    }
+
+    return startBriefingArchiveStream({
+      basePath: base,
+      onBriefing: () => {
+        void invalidate('briefings:archive');
+      }
+    });
   });
 
   $effect(() => {

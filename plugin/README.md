@@ -47,4 +47,5 @@ Notable endpoints:
 | `POST` | `/conversations/{id}/title` | Apply Hermes auto-generated conversation title |
 | `POST` | `/conversations/{id}/typing` | Start typing indicator |
 | `POST` | `/conversations/{id}/typing/stop` | Stop typing indicator |
+| `POST` | `/briefings` | Register a briefing job when `create_briefing` returns |
 | `GET` | `/inbox/next` | Reverse-poll next inbound user event |

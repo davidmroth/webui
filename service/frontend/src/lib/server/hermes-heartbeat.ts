@@ -8,6 +8,7 @@ type HeartbeatSource =
   | 'context'
   | 'health'
   | 'commands'
+  | 'briefings'
   | 'typing'
   | 'typing-stop';
 

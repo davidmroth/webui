@@ -8,6 +8,7 @@ import {
 	upsertBriefingAssets,
 	upsertBriefingRecord
 } from './briefing-records.ts';
+import { subscribeBriefingCatalog } from './briefing-catalog-stream.ts';
 
 test('upsertBriefingRecord validates required identifiers', async () => {
 	await assert.rejects(
@@ -22,6 +23,10 @@ test('upsertBriefingRecord validates required identifiers', async () => {
 
 test('upsertBriefingRecord writes canonical briefing metadata', async () => {
 	const executeCalls = [];
+	const catalogEvents = [];
+	const unsubscribe = subscribeBriefingCatalog('user-42', (event) => {
+		catalogEvents.push(event);
+	});
 	const jobId = await upsertBriefingRecord(
 		{
 			jobId: 'job-42',
@@ -61,6 +66,8 @@ test('upsertBriefingRecord writes canonical briefing metadata', async () => {
 	assert.equal(executeCalls[0].params.sentence_total, 59);
 	assert.equal(executeCalls[0].params.validation_warning_count, 1);
 	assert.equal(executeCalls[0].params.status_storage_key, 'webui/briefings/job-42/status.json');
+	assert.deepEqual(catalogEvents, [{ ownerUserId: 'user-42', jobId: 'job-42' }]);
+	unsubscribe();
 });
 
 test('upsertBriefingAssets upserts each asset row', async () => {

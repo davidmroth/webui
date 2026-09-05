@@ -13,6 +13,7 @@ function parsePageParam(raw: string | null) {
 }
 
 export const load: PageServerLoad = async (event) => {
+  event.depends('briefings:archive');
   const session = await requireSession(event);
   // The archive list is fetched client-side (ssr=false) as __data.json. Without
   // this, that response carries no Cache-Control and an installed PWA serves a

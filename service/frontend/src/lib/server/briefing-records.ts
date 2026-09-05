@@ -1,4 +1,5 @@
 import { execute, query } from './db';
+import { publishBriefingCatalogEvent } from './briefing-catalog-stream';
 import type {
 	BriefingGenerationProvenance,
 	BriefingVersionCreationReason,
@@ -353,6 +354,7 @@ export async function upsertBriefingRecord(
 		}
 	);
 
+	publishBriefingCatalogEvent({ ownerUserId, jobId });
 	return jobId;
 }
 
